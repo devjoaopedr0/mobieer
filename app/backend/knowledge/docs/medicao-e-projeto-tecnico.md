@@ -37,7 +37,7 @@ Tipos de coluna: **Prateleiras**, **Portas**, **Gavetas**, **Sapateira**, **Male
 Medidas gerais do móvel:
 - **Roda-teto**: a faixa de acabamento em cima.
 - **Rodapé**: a faixa de baixo.
-- **Fechamento / vista esquerda e direita**: a tira de acabamento ao lado do móvel. As colunas ocupam a largura que sobra.
+- **Fechamento / vista esquerda e direita**: a tira de acabamento ao lado do móvel. É uma peça à parte: entra por fora e soma na largura desenhada, sem tirar nada dos módulos. Num móvel de 830 com fechamento de 51, as colunas somam 830 e o desenho fica com 881.
 - **Espessura da chapa**: 15,5 mm por padrão. As prateleiras saem desenhadas com essa espessura e ela entra na cota (vão, 15,5, vão…). As alturas que você digita são os vãos livres; a espessura o sistema desconta sozinho.
 
 O botão **Salvar e ver o desenho** abre a prancha como ela sai na pasta, com o carimbo, o título e a escala.

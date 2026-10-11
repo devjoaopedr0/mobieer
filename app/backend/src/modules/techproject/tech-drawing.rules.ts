@@ -58,7 +58,11 @@ export type DrawingSpec = {
   top: number;
   /** rodapé em mm */
   base: number;
-  /** fechamento (ou vista) lateral em mm: a tira de acabamento à esquerda e à direita do móvel */
+  /**
+   * Fechamento (ou vista) lateral em mm: a tira de acabamento ao lado do móvel. É uma
+   * peça à parte: SOMA na largura desenhada e não tira nada dos módulos — `width` é só
+   * a largura dos módulos.
+   */
   sideLeft?: number;
   sideRight?: number;
   columns: DrawingColumn[];
@@ -108,7 +112,10 @@ export type LaidPart = {
 };
 
 export type DrawingLayout = {
+  /** largura desenhada: módulos + fechamentos laterais */
   width: number;
+  /** largura só dos módulos */
+  bodyWidth: number;
   height: number;
   top: number;
   base: number;
@@ -145,10 +152,12 @@ export function parseHeights(text: string | null | undefined): number[] {
 const DEFAULT_LABEL: Record<ColumnKind, string | null> = { PRATELEIRAS: "PRATELEIRA", GAVETAS: "GAVETA", PORTAS: null, VAO: null, SAPATEIRA: "SAPATEIRA", MALEIRO: "MALEIRO", OUTROS: "OUTROS" };
 
 export function layoutDrawing(spec: DrawingSpec): DrawingLayout {
-  const { width, height } = spec;
+  const { height } = spec;
+  /** largura dos módulos, como a pessoa digitou */
+  const body = spec.width;
   const top = Math.max(0, spec.top || 0);
   const base = Math.max(0, spec.base || 0);
-  if (!(width > 0) || !(height > 0)) throw new DrawingError("Informe a largura e a altura do móvel");
+  if (!(body > 0) || !(height > 0)) throw new DrawingError("Informe a largura e a altura do móvel");
   if (!spec.columns.length) throw new DrawingError("Adicione pelo menos uma coluna");
   const inner = height - top - base;
   if (inner <= 0) throw new DrawingError("O roda-teto e o rodapé somam mais que a altura do móvel");
@@ -156,14 +165,14 @@ export function layoutDrawing(spec: DrawingSpec): DrawingLayout {
   const t = spec.thickness && spec.thickness > 0 ? spec.thickness : DEFAULT_THICKNESS;
   const sideLeft = Math.max(0, spec.sideLeft || 0);
   const sideRight = Math.max(0, spec.sideRight || 0);
-  // as colunas ocupam a largura que sobra entre os fechamentos laterais
-  const usable = width - sideLeft - sideRight;
-  if (usable <= 0) throw new DrawingError("Os fechamentos laterais somam mais que a largura do móvel");
+  // as colunas ocupam a largura dos módulos; os fechamentos entram por fora
+  const usable = body;
+  const width = body + sideLeft + sideRight;
 
   // larguras: as informadas ficam; o resto divide o que sobrar
   const given = spec.columns.reduce((s, c) => s + (c.width && c.width > 0 ? c.width : 0), 0);
   const free = spec.columns.filter((c) => !(c.width && c.width > 0)).length;
-  const fit = sideLeft || sideRight ? `a largura do móvel sem os fechamentos (${mm(usable)} mm)` : `a largura do móvel (${mm(usable)} mm)`;
+  const fit = `a largura do móvel (${mm(usable)} mm)`;
   if (given > usable + 0.5) throw new DrawingError(`As colunas somam ${mm(given)} mm, mais que ${fit}`);
   if (!free && Math.abs(given - usable) > 0.5) throw new DrawingError(`As colunas somam ${mm(given)} mm e não fecham com ${fit}. Ajuste, ou deixe uma coluna sem largura para ela ficar com o resto.`);
   const share = free ? (usable - given) / free : 0;
@@ -285,11 +294,11 @@ export function layoutDrawing(spec: DrawingSpec): DrawingLayout {
     ...(top > 0 ? [{ y0: height - top, y1: height, value: top }] : []),
   ];
 
-  const dims = `L ${mm(width)} X A ${mm(height)}${spec.depth && spec.depth > 0 ? ` X P ${mm(spec.depth)}` : ""}`;
+  const dims = `L ${mm(body)} X A ${mm(height)}${spec.depth && spec.depth > 0 ? ` X P ${mm(spec.depth)}` : ""}`;
   // quem já escreveu "L 1360 X A 2380" na descrição não recebe as medidas de novo
   const typedDims = /(^|\s)L\s*\d[\d.,]*\s*X\s*A\s*\d/i.test(spec.description);
   const callout = [...wrapWords(spec.description.trim().toUpperCase(), 26).slice(0, 4), ...(typedDims ? [] : [dims])];
-  return { width, height, top, base, columns, chain, callout, warnings, thickness: t, sideLeft, sideRight };
+  return { width, bodyWidth: body, height, top, base, columns, chain, callout, warnings, thickness: t, sideLeft, sideRight };
 }
 
 export function wrapWords(text: string, max: number): string[] {

@@ -70,14 +70,20 @@ test("vista cotada: medidas que não fecham são recusadas com explicação", ()
   assert.throws(() => layoutDrawing({ ...armario, top: 2000, base: 500 }), /roda-teto e o rodapé/);
   assert.throws(() => layoutDrawing({ ...armario, columns: [{ ...armario.columns[0], width: 900 }, { ...armario.columns[1], width: 900 }] }), /mais que a largura/);
   assert.throws(() => layoutDrawing({ ...armario, columns: [{ ...armario.columns[0], width: 600 }, { ...armario.columns[1], width: 600 }] }), /deixe uma coluna sem largura/);
-  assert.throws(() => layoutDrawing({ ...armario, sideLeft: 800, sideRight: 800 }), /fechamentos laterais/);
 });
 
-test("vista cotada: fechamento lateral tira largura das colunas e a espessura pode ser trocada", () => {
+test("vista cotada: fechamento lateral soma na largura (os módulos não perdem nada) e a espessura pode ser trocada", () => {
   const l = layoutDrawing({ ...armario, sideLeft: 50, sideRight: 30, thickness: 18, columns: [{ ...armario.columns[0], width: null }] });
   assert.equal(l.sideLeft, 50);
   assert.equal(l.columns[0].x, 50); // a coluna começa depois do fechamento
-  assert.equal(l.columns[0].width, 1280); // 1360 - 50 - 30
+  assert.equal(l.columns[0].width, 1360); // os módulos ficam com a largura inteira
+  assert.equal(l.bodyWidth, 1360);
+  assert.equal(l.width, 1440); // 50 + 1360 + 30: o fechamento entra por fora
+  assert.ok(l.callout.includes("L 1360 X A 2380 X P 550")); // a chamada fala da largura dos módulos
+  // o caso do vídeo: módulo de 830 com fechamento de 51 e a coluna com 830 — não pode dar erro
+  const video = layoutDrawing({ ...armario, width: 830, sideLeft: 51, columns: [{ ...armario.columns[0], width: 830, count: 2, heights: [380, 320, 1618] }] });
+  assert.equal(video.width, 881);
+  assert.equal(video.columns[0].x, 51);
   assert.equal(l.chain[2].value, 18);
   // gaveta não tem chapa entre as frentes: nada de espessura na cadeia
   const g = layoutDrawing({ ...armario, columns: [{ kind: "GAVETAS", width: null, count: 4, heights: [], label: null }] });

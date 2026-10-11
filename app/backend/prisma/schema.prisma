@@ -1071,6 +1071,9 @@ model Client {
   street              String?
   addressNumber       String?
   complement          String?
+  // nome do condomínio / edifício e, quando a entrega é em outro lugar, o endereço de entrega
+  condominium         String?
+  deliveryAddress     String?
   district            String?
   city                String?
   state               String?

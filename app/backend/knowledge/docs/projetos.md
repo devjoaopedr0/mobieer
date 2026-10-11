@@ -42,3 +42,15 @@ Um projeto pode ser marcado como venda futura: a produção só começa depois d
 
 ## Projeto que já estava em andamento
 Ao criar o projeto, no campo **Projeto já em andamento? Etapa atual**, escolha em que etapa ele está (por exemplo, Medição, Produção ou Montagem). As etapas anteriores ficam concluídas e o projeto segue dali normalmente. Se a etapa for Produção ou posterior, o pedido de produção já nasce na fase correspondente. Deixando em "Projeto novo", ele começa do início.
+
+## Cadastro do cliente: condomínio e endereço de entrega
+No **Novo cliente**, além do endereço, há os campos **Condomínio / edifício** e **Endereço de entrega (se for diferente)**. Quando o endereço de entrega está preenchido, é ele que sai na ordem de serviço da montagem; o condomínio aparece junto do endereço.
+
+## Projeto que não passa por todas as etapas
+No **Novo projeto** há a lista **Etapas que este projeto não vai ter**. Marque o que o cliente não faz com a loja (por exemplo, medição ou montagem): a etapa fica como "Não se aplica", não conta como atraso e não entra no percentual de andamento. Dá para mudar depois, etapa por etapa, no andamento do projeto.
+
+## Ficha de eletrodomésticos: outros ambientes
+Além de Cozinha, Cozinha e área gourmet, Lavanderia e Outros ambientes, o botão **Adicionar outro ambiente** cria um quadro com o nome que você escrever (Suíte, Varanda, Escritório…), já com o primeiro eletrodoméstico. Depois, o botão **Item** do quadro acrescenta os demais. Quem trabalha no comercial também pode preencher a ficha.
+
+## Erro ao salvar um cadastro
+Quando um cadastro não é aceito, a mensagem diz qual campo está errado e por quê, por exemplo "Confira os campos — E-mail: e-mail inválido; CEP: CEP inválido". No cadastro de cliente e de projeto a mensagem também fica escrita dentro da janela.
