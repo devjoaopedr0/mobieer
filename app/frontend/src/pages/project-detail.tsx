@@ -367,7 +367,7 @@ export function ProjectDetailPage() {
         </TabsContent>
 
         <TabsContent value="ficha">
-          <ApplianceSheetInternal projectId={projectId} canManage={canManageAccounts} />
+          <ApplianceSheetInternal projectId={projectId} canManage={["organization.manage", "commercial.manage", "commercial.leads.manage", "commercial.quotes.manage"].some(can)} />
         </TabsContent>
 
         <TabsContent value="medicao">

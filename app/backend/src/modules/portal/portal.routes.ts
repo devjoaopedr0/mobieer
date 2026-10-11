@@ -12,7 +12,7 @@ import { sendMail, renderResetEmail } from "../../lib/mailer";
 import { storage, buildStorageKey } from "../../lib/storage";
 import { uploadPhoto } from "../../middlewares/upload";
 import { recomputeSignatureStatus } from "../documents/documents.routes";
-import { APPLIANCE_CATEGORIES, getOrCreateSheet, serializeItem, serializeSheet } from "../appliances/appliances.service";
+import { getOrCreateSheet, normalizeApplianceCategory, serializeItem, serializeSheet } from "../appliances/appliances.service";
 import { MEASUREMENT_PERIODS, serializeVisit, visitInclude } from "../measurements/measurements.service";
 import { cleanPreferredDates } from "../measurements/measurements.rules";
 import { approvalInclude, getOrCreateApproval, serializeApproval } from "../techproject/techproject.service";
@@ -636,7 +636,7 @@ router.post(
     const project = await portalProject(req.params.id, req.portal!.clientId);
     const sheet = await getOrCreateSheet(project.id, project.organizationId);
     if (sheet.status === "REVIEWED") throw new BadRequestError("A ficha já foi conferida e está bloqueada");
-    const input = z.object({ category: z.enum(APPLIANCE_CATEGORIES), name: z.string().trim().min(2).max(120) }).parse(req.body);
+    const input = z.object({ category: z.string().transform((v, ctx) => normalizeApplianceCategory(v) ?? (ctx.addIssue({ code: "custom", message: "informe o nome do ambiente (2 a 60 letras)" }), z.NEVER)), name: z.string().trim().min(2).max(120) }).parse(req.body);
     const max = await prisma.applianceItem.aggregate({ where: { sheetId: sheet.id }, _max: { position: true } });
     const item = await prisma.applianceItem.create({
       data: { sheetId: sheet.id, category: input.category, name: input.name, custom: true, position: (max._max.position ?? 0) + 1 },

@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
+import { describeValidation } from "../lib/validation-message";
 import {
   ApiError,
   BadRequestError,
@@ -38,7 +39,9 @@ export function normalizeError(err: unknown): ApiError | null {
   if (err instanceof ApiError) return err;
 
   if (err instanceof ZodError) {
-    return new ValidationError("Dados inválidos", err.flatten());
+    // diz qual campo e por quê; `fields` permite a tela marcar o campo
+    const v = describeValidation(err.issues);
+    return new ValidationError(v.message, { ...err.flatten(), fields: v.fields });
   }
 
   if (err instanceof multer.MulterError) {

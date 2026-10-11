@@ -5,6 +5,7 @@ import { ArrowLeft, CheckCircle2, Copy, FileDown, Plus, Send, Settings2, ShieldA
 import { toast } from "sonner";
 import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPut } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
+import { QuoteContractButton } from "@/components/quote-contract";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { PageHeader } from "@/components/page-header";
@@ -934,6 +935,8 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
             <Button size="sm" variant="outline" disabled={run.isPending} onClick={() => run.mutate("version")}>
               <Copy className="mr-1 h-4 w-4" /> {quote.status === "APPROVED" ? "Alterar contrato (nova versão)" : "Nova versão"}
             </Button>
+            {/* contrato sem sair do comercial: gera do modelo e manda para a assinatura */}
+            {quote.status === "APPROVED" && can("documents.manage") && <QuoteContractButton quote={quote} />}
             {quote.status === "APPROVED" && quote.kind !== "ADENDO" && (
               <Button size="sm" variant="outline" onClick={() => navigate(`/comercial/orcamentos/novo?clientId=${quote.client.id}&addendumOf=${quote.id}${quote.opportunity ? `&opportunityId=${quote.opportunity.id}` : ""}`)}>
                 <Plus className="mr-1 h-4 w-4" /> Adendo

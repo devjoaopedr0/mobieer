@@ -40,3 +40,10 @@ A comissão é acrescentada ao preço. Por isso, com o desconto em R$ ou em %, r
 ## Formas de pagamento
 À vista, PIX, Boleto parcelado, Cartão de crédito, Financeira e as combinadas com entrada no PIX: **Entrada no PIX + boleto**, **Entrada no PIX + cartão** e **Entrada no PIX + financeira**. Nas combinadas, informe o valor da entrada no campo **Entrada no PIX** e as parcelas do saldo; a taxa retida (cartão ou financeira) incide só sobre o saldo. Ao aprovar o orçamento, o financeiro recebe a entrada como PIX e as parcelas na segunda forma.
 
+## Gerar o contrato pelo orçamento
+Com o orçamento **aceito pelo cliente**, o quadro **Ações** ganha o botão **Gerar contrato**. Escolha o modelo de contrato e clique em **Gerar e enviar ao cliente**: o sistema preenche o modelo com o cliente, o valor total, a entrada, as parcelas, a condição de pagamento e o prazo do orçamento, baixa o PDF e coloca o contrato nos documentos do projeto, visível no portal do cliente.
+
+Se o modelo pede assinatura, a loja assina na aba **Documentos** do projeto (botão **Assinar**) e o cliente assina no portal. O botão só aparece para quem pode gerenciar documentos, e é preciso ter um modelo de contrato com texto cadastrado em **Modelos de documentos**.
+
+## Quem pode cadastrar cliente e projeto
+O botão **Adicionar** em **Clientes e projetos** aparece para a administração e para quem trabalha no comercial (quem gerencia o comercial, os leads ou os orçamentos).

@@ -2,12 +2,15 @@ import { Router } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { authenticate } from "../../middlewares/auth";
-import { requirePermission } from "../../middlewares/rbac";
+import { requireAnyPermission, requirePermission } from "../../middlewares/rbac";
+
+// Preencher a ficha: a administração e quem atende o cliente no comercial.
+const CAN_FILL = ["organization.manage", "commercial.manage", "commercial.leads.manage", "commercial.quotes.manage"];
 import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { APPLIANCE_CATEGORIES, getOrCreateSheet, serializeItem, serializeSheet } from "./appliances.service";
+import { getOrCreateSheet, normalizeApplianceCategory, serializeItem, serializeSheet } from "./appliances.service";
 
 const router = Router();
 router.use(authenticate);
@@ -64,7 +67,7 @@ router.get(
 // PATCH /api/appliances/projects/:projectId  -> cabeçalho + observações + status (REVIEWED)
 router.patch(
   "/projects/:projectId",
-  requirePermission("organization.manage"),
+  requireAnyPermission(CAN_FILL),
   asyncHandler(async (req, res) => {
     await ensureProject(req.params.projectId, req.user!.organizationId);
     const sheet = await getOrCreateSheet(req.params.projectId, req.user!.organizationId);
@@ -105,13 +108,13 @@ router.patch(
 // POST /api/appliances/projects/:projectId/items  -> linha "Outros" manual
 router.post(
   "/projects/:projectId/items",
-  requirePermission("organization.manage"),
+  requireAnyPermission(CAN_FILL),
   asyncHandler(async (req, res) => {
     await ensureProject(req.params.projectId, req.user!.organizationId);
     const sheet = await getOrCreateSheet(req.params.projectId, req.user!.organizationId);
     const input = z
       .object({
-        category: z.enum(APPLIANCE_CATEGORIES),
+        category: z.string().transform((v, ctx) => normalizeApplianceCategory(v) ?? (ctx.addIssue({ code: "custom", message: "informe o nome do ambiente (2 a 60 letras)" }), z.NEVER)),
         name: z.string().trim().min(2).max(120),
       })
       .parse(req.body);
@@ -126,7 +129,7 @@ router.post(
 // PATCH /api/appliances/items/:itemId
 router.patch(
   "/items/:itemId",
-  requirePermission("organization.manage"),
+  requireAnyPermission(CAN_FILL),
   asyncHandler(async (req, res) => {
     const item = await ensureItem(req.params.itemId, req.user!.organizationId);
     const input = itemPatch.parse(req.body);
@@ -150,7 +153,7 @@ router.patch(
 // DELETE /api/appliances/items/:itemId  (somente linhas manuais)
 router.delete(
   "/items/:itemId",
-  requirePermission("organization.manage"),
+  requireAnyPermission(CAN_FILL),
   asyncHandler(async (req, res) => {
     const item = await ensureItem(req.params.itemId, req.user!.organizationId);
     if (!item.custom) throw new BadRequestError("Só é possível remover itens adicionados manualmente");

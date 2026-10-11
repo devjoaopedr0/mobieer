@@ -15,7 +15,8 @@ import { errorMessage } from "@/lib/utils";
 
 type Item = {
   id: string;
-  category: "COZINHA" | "GOURMET" | "LAVANDERIA" | "OUTROS";
+  /** um dos quatro ambientes da ficha ou o nome de outro ambiente, escrito pela pessoa */
+  category: string;
   name: string;
   owned: boolean;
   willBuy: boolean;
@@ -40,13 +41,17 @@ type Sheet = {
   items: Item[];
 };
 
-const CATEGORY_LABEL: Record<Item["category"], string> = {
+const CATEGORY_LABEL: Record<string, string> = {
   COZINHA: "Cozinha",
   GOURMET: "Cozinha e área gourmet",
   LAVANDERIA: "Lavanderia",
   OUTROS: "Outros ambientes",
 };
-const CATEGORY_ORDER: Item["category"][] = ["COZINHA", "GOURMET", "LAVANDERIA", "OUTROS"];
+const CATEGORY_ORDER = ["COZINHA", "GOURMET", "LAVANDERIA", "OUTROS"];
+const NEW_ROOM = "__novo_ambiente__";
+const labelOf = (cat: string) => CATEGORY_LABEL[cat] ?? cat;
+/** os quatro da ficha e, depois, os ambientes acrescentados (na ordem em que apareceram) */
+const categoriesOf = (items: { category: string }[]) => [...CATEGORY_ORDER, ...[...new Set(items.map((i) => i.category))].filter((c) => !CATEGORY_ORDER.includes(c))];
 const fmtDate = (v: string | null) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
 const dim = (v: number | null) => (v == null ? "—" : `${v}`);
 
@@ -58,8 +63,10 @@ export function ApplianceSheetInternal({ projectId, canManage }: { projectId: st
     queryFn: () => apiGet<{ data: Sheet }>(`/appliances/projects/${projectId}`),
   });
 
-  const [addOpen, setAddOpen] = useState<null | Item["category"]>(null);
+  const [addOpen, setAddOpen] = useState<null | string>(null);
   const [addName, setAddName] = useState("");
+  // ambiente novo: a pessoa escreve o nome e já cadastra o primeiro eletrodoméstico dele
+  const [roomName, setRoomName] = useState("");
 
   const patchSheet = useMutation({
     mutationFn: (body: Record<string, unknown>) => apiPatch(`/appliances/projects/${projectId}`, body),
@@ -72,7 +79,7 @@ export function ApplianceSheetInternal({ projectId, canManage }: { projectId: st
     onError: (e) => toast.error(errorMessage(e, "Falha ao salvar")),
   });
   const addItem = useMutation({
-    mutationFn: () => apiPost(`/appliances/projects/${projectId}/items`, { category: addOpen, name: addName.trim() }),
+    mutationFn: () => apiPost(`/appliances/projects/${projectId}/items`, { category: addOpen === NEW_ROOM ? roomName.trim() : addOpen, name: addName.trim() }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: key }); setAddOpen(null); setAddName(""); },
     onError: (e) => toast.error(errorMessage(e, "Falha ao adicionar")),
   });
@@ -124,12 +131,12 @@ export function ApplianceSheetInternal({ projectId, canManage }: { projectId: st
         </CardContent>
       </Card>
 
-      {CATEGORY_ORDER.map((cat) => {
+      {categoriesOf(sheet.items).map((cat) => {
         const rows = sheet.items.filter((i) => i.category === cat).sort((a, b) => a.position - b.position);
         return (
           <Card key={cat}>
             <CardHeader className="flex flex-row items-center justify-between py-3">
-              <CardTitle className="text-sm">{CATEGORY_LABEL[cat]}</CardTitle>
+              <CardTitle className="text-sm">{labelOf(cat)}</CardTitle>
               {canManage && !locked && (
                 <Button size="sm" variant="ghost" onClick={() => { setAddOpen(cat); setAddName(""); }}>
                   <Plus className="mr-1 h-4 w-4" /> Item
@@ -229,16 +236,28 @@ export function ApplianceSheetInternal({ projectId, canManage }: { projectId: st
         </div>
       )}
 
+      {canManage && !locked && (
+        <Button variant="outline" onClick={() => { setAddOpen(NEW_ROOM); setAddName(""); setRoomName(""); }}>
+          <Plus className="mr-1 h-4 w-4" /> Adicionar outro ambiente
+        </Button>
+      )}
+
       <Dialog open={addOpen !== null} onOpenChange={(v) => !v && setAddOpen(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Adicionar item{addOpen ? ` — ${CATEGORY_LABEL[addOpen]}` : ""}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{addOpen === NEW_ROOM ? "Adicionar ambiente" : `Adicionar item${addOpen ? ` — ${labelOf(addOpen)}` : ""}`}</DialogTitle></DialogHeader>
+          {addOpen === NEW_ROOM && (
+            <div className="space-y-2">
+              <Label>Nome do ambiente</Label>
+              <Input value={roomName} placeholder="Ex.: Suíte master, Varanda, Escritório" onChange={(e) => setRoomName(e.target.value)} autoFocus />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Nome do eletrodoméstico</Label>
             <Input value={addName} onChange={(e) => setAddName(e.target.value)} autoFocus />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(null)}>Cancelar</Button>
-            <Button disabled={addItem.isPending || addName.trim().length < 2} onClick={() => addItem.mutate()}>
+            <Button disabled={addItem.isPending || addName.trim().length < 2 || (addOpen === NEW_ROOM && roomName.trim().length < 2)} onClick={() => addItem.mutate()}>
               {addItem.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Adicionar
             </Button>
           </DialogFooter>

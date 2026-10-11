@@ -18,7 +18,7 @@ export async function loadPricing(): Promise<PricingConfig> {
 }
 
 export const quoteInclude = {
-  client: { select: { id: true, name: true, document: true, phone: true, email: true, address: true, street: true, addressNumber: true, complement: true, district: true, city: true, state: true, zipCode: true } },
+  client: { select: { id: true, name: true, document: true, phone: true, email: true, address: true, street: true, addressNumber: true, complement: true, condominium: true, district: true, city: true, state: true, zipCode: true } },
   opportunity: { select: { id: true, title: true, status: true } },
   project: { select: { id: true, code: true, name: true } },
   seller: { select: { id: true, name: true } },
@@ -177,7 +177,7 @@ export async function quotePdf(q: ReturnType<typeof serializeQuote>, organizatio
   ]);
   const ent = org?.enterprise;
   const c = q.client;
-  const street = [c.street, c.addressNumber, c.complement].filter(Boolean).join(", ");
+  const street = [c.street, c.addressNumber, c.complement, c.condominium ? `Cond. ${c.condominium}` : null].filter(Boolean).join(", ");
   const legacy = splitCityFromAddress(c.address);
   const legacyCity = legacy.city ? { city: legacy.city.split(" / ")[0], uf: legacy.city.split(" / ")[1] } : null;
   const payment = {

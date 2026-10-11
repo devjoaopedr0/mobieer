@@ -10,7 +10,7 @@ import { Router } from "express";
 import { ProductionStage, StageStatus, TimelineStageKey } from "@prisma/client";
 import { z } from "zod";
 import { authenticate } from "../../middlewares/auth";
-import { requirePermission } from "../../middlewares/rbac";
+import { requireAnyPermission, requirePermission } from "../../middlewares/rbac";
 import { assertProjectAccess } from "../../lib/scope";
 import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
@@ -24,6 +24,9 @@ import { START_STAGES, startAtPlan } from "./start-at.rules";
 const router = Router({ mergeParams: true });
 router.use(authenticate);
 
+// Montar o fluxo do projeto no cadastro: a administração, quem edita a linha do tempo e o comercial.
+const CAN_SET_FLOW = ["organization.manage", "timeline.edit", "commercial.manage", "commercial.leads.manage", "commercial.quotes.manage"];
+
 const ORDER_STAGES: ProductionStage[] = ["RELEASED", "IN_PRODUCTION", "PRE_ASSEMBLY", "OUT_FOR_DELIVERY", "DELIVERED"];
 const ORDER_DATE: Record<ProductionStage, string> = { RELEASED: "releasedAt", IN_PRODUCTION: "productionStartedAt", PRE_ASSEMBLY: "preAssemblyAt", OUT_FOR_DELIVERY: "outForDeliveryAt", DELIVERED: "deliveredAt" };
 
@@ -35,7 +38,7 @@ router.get(
 
 router.post(
   "/timeline/start-at",
-  requirePermission("organization.manage"),
+  requireAnyPermission(CAN_SET_FLOW),
   asyncHandler(async (req, res) => {
     const { projectId } = req.params as { projectId: string };
     const organizationId = req.user!.organizationId;
@@ -83,6 +86,35 @@ router.post(
     }
 
     return ok(res, { stage: input.stage, concluded: plan.conclude.length, production }, `Projeto colocado em "${STAGE_LABEL[input.stage]}". As etapas anteriores ficaram concluídas.`);
+  })
+);
+
+/**
+ * Etapas que este projeto não vai ter (cliente que não passa por todos os processos).
+ * Marca cada uma como "Não se aplica", com autor — então a sincronização automática
+ * não reabre. Etapa já concluída é deixada como está.
+ */
+router.post(
+  "/timeline/not-applicable",
+  requireAnyPermission(CAN_SET_FLOW),
+  asyncHandler(async (req, res) => {
+    const { projectId } = req.params as { projectId: string };
+    const input = z.object({ stages: z.array(z.nativeEnum(TimelineStageKey)).min(1).max(20), note: z.string().trim().max(300).optional() }).parse(req.body);
+    const wanted = [...new Set(input.stages)].filter((k) => START_STAGES.includes(k));
+    if (!wanted.length) throw new BadRequestError("Escolha etapas do fluxo do projeto.");
+    await assertProjectAccess(projectId, req.user!);
+    await ensureTimeline(projectId, req.user!.organizationId);
+    const stages = await prisma.projectStage.findMany({ where: { projectId, key: { in: wanted } }, select: { id: true, key: true, status: true } });
+    const target = stages.filter((s) => s.status !== StageStatus.CONCLUIDA && s.status !== StageStatus.NAO_APLICAVEL);
+    const note = input.note || "Este projeto não passa por esta etapa";
+    await prisma.$transaction(async (tx) => {
+      for (const s of target) {
+        await tx.projectStage.update({ where: { id: s.id }, data: { status: StageStatus.NAO_APLICAVEL } });
+        await tx.projectStageEvent.create({ data: { stageId: s.id, userId: req.user!.id, field: "status", fromValue: s.status, toValue: StageStatus.NAO_APLICAVEL, note } });
+      }
+      await tx.auditLog.create({ data: { userId: req.user!.id, action: "PROJECT_STAGES_NOT_APPLICABLE", entity: "Project", entityId: projectId, details: { stages: target.map((s) => s.key) } } });
+    });
+    return ok(res, { marked: target.map((s) => s.key) }, target.length ? `${target.length} ${target.length > 1 ? "etapas marcadas" : "etapa marcada"} como "Não se aplica".` : "Essas etapas já estavam concluídas ou marcadas.");
   })
 );
 

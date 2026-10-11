@@ -31,7 +31,7 @@ export const workOrderInclude = {
       id: true,
       code: true,
       name: true,
-      client: { select: { name: true, phone: true, address: true, street: true, addressNumber: true, complement: true, district: true, city: true, state: true } },
+      client: { select: { name: true, phone: true, address: true, street: true, addressNumber: true, complement: true, condominium: true, deliveryAddress: true, district: true, city: true, state: true } },
     },
   },
   contractor: { select: { id: true, name: true, phone: true } },
@@ -41,10 +41,15 @@ export const workOrderInclude = {
 
 type Row = Prisma.InstallationWorkOrderGetPayload<{ include: typeof workOrderInclude }>;
 
-/** Endereço da obra: o estruturado quando existe, senão o texto antigo. */
+/**
+ * Endereço da obra. Quando o cliente tem endereço de entrega, é para lá que a equipe vai;
+ * senão, o endereço estruturado do cadastro (com o condomínio), ou o texto antigo.
+ */
 export function clientAddress(c: Row["project"]["client"]) {
+  const condo = c.condominium?.trim() ? `Cond. ${c.condominium.trim()}` : null;
+  if (c.deliveryAddress?.trim()) return [c.deliveryAddress.trim(), condo].filter(Boolean).join(" — ");
   const street = [c.street, c.addressNumber].filter(Boolean).join(", ");
-  const parts = [street, c.complement, c.district, [c.city, c.state].filter(Boolean).join("/")].filter(Boolean);
+  const parts = [street, c.complement, condo, c.district, [c.city, c.state].filter(Boolean).join("/")].filter(Boolean);
   return parts.length ? parts.join(" — ") : c.address ?? null;
 }
 

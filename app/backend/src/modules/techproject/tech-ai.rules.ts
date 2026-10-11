@@ -52,7 +52,7 @@ export function techAiBrief(spec: DrawingSpec, ctx: { client: string; room: stri
     cliente: clean(ctx.client),
     ambiente: clean(ctx.room),
     movel: clean(spec.description) || "Móvel planejado",
-    medidas_mm: { largura: L.width, altura: L.height, profundidade: spec.depth && spec.depth > 0 ? spec.depth : null, roda_teto: L.top, rodape: L.base, fechamento_esquerdo: L.sideLeft, fechamento_direito: L.sideRight, espessura_chapa: L.thickness },
+    medidas_mm: { largura: L.bodyWidth, altura: L.height, profundidade: spec.depth && spec.depth > 0 ? spec.depth : null, roda_teto: L.top, rodape: L.base, fechamento_esquerdo: L.sideLeft, fechamento_direito: L.sideRight, espessura_chapa: L.thickness },
     colunas: L.columns.map((c, i) => {
       const typed = spec.columns[i]?.parts?.length ? spec.columns[i].parts! : [spec.columns[i]];
       return {

@@ -14,7 +14,8 @@ import { portalDelete, portalGet, portalPatch, portalPost } from "@/services/por
 
 type Item = {
   id: string;
-  category: "COZINHA" | "GOURMET" | "LAVANDERIA" | "OUTROS";
+  /** um dos quatro ambientes da ficha ou o nome de outro ambiente, escrito pela pessoa */
+  category: string;
   name: string;
   owned: boolean;
   willBuy: boolean;
@@ -36,13 +37,16 @@ type Sheet = {
   project: { id: string; code: string; name: string } | null;
 };
 
-const CATEGORY_LABEL: Record<Item["category"], string> = {
+const CATEGORY_LABEL: Record<string, string> = {
   COZINHA: "Cozinha",
   GOURMET: "Cozinha e área gourmet",
   LAVANDERIA: "Lavanderia",
   OUTROS: "Outros ambientes",
 };
-const CATEGORY_ORDER: Item["category"][] = ["COZINHA", "GOURMET", "LAVANDERIA", "OUTROS"];
+const CATEGORY_ORDER = ["COZINHA", "GOURMET", "LAVANDERIA", "OUTROS"];
+const labelOf = (cat: string) => CATEGORY_LABEL[cat] ?? cat;
+/** os quatro da ficha e, depois, os ambientes acrescentados (na ordem em que apareceram) */
+const categoriesOf = (items: { category: string }[]) => [...CATEGORY_ORDER, ...[...new Set(items.map((i) => i.category))].filter((c) => !CATEGORY_ORDER.includes(c))];
 
 export function PortalApplianceSheet({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
@@ -52,7 +56,7 @@ export function PortalApplianceSheet({ projectId }: { projectId: string }) {
     queryFn: () => portalGet<{ data: Sheet & { items: Item[] } }>(`/projects/${projectId}/appliance-sheet`),
   });
 
-  const [addOpen, setAddOpen] = useState<null | Item["category"]>(null);
+  const [addOpen, setAddOpen] = useState<null | string>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
   const patchItem = useMutation({
@@ -124,12 +128,12 @@ export function PortalApplianceSheet({ projectId }: { projectId: string }) {
         </CardContent>
       </Card>
 
-      {CATEGORY_ORDER.map((cat) => {
+      {categoriesOf(items).map((cat) => {
         const rows = items.filter((i) => i.category === cat).sort((a, b) => a.position - b.position);
         return (
           <Card key={cat}>
             <CardHeader className="flex flex-row items-center justify-between py-3">
-              <CardTitle className="text-sm">{CATEGORY_LABEL[cat]}</CardTitle>
+              <CardTitle className="text-sm">{labelOf(cat)}</CardTitle>
               {!locked && (
                 <Button size="sm" variant="ghost" onClick={() => setAddOpen(cat)}>
                   <Plus className="mr-1 h-4 w-4" /> Item
@@ -291,7 +295,7 @@ function AddItemDialog({
   open, category, pending, onClose, onAdd,
 }: {
   open: boolean;
-  category: Item["category"] | null;
+  category: string | null;
   pending: boolean;
   onClose: () => void;
   onAdd: (name: string) => void;
@@ -302,7 +306,7 @@ function AddItemDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Adicionar item{category ? ` — ${CATEGORY_LABEL[category]}` : ""}</DialogTitle>
+          <DialogTitle>Adicionar item{category ? ` — ${labelOf(category)}` : ""}</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
           <Label>Nome do eletrodoméstico</Label>

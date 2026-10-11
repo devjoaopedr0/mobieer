@@ -31,6 +31,19 @@ export const DEFAULT_APPLIANCE_ITEMS: { category: ApplianceCategory; name: strin
   { category: "OUTROS", name: "TV 3" },
 ];
 
+/**
+ * Ambiente de um item: um dos quatro da ficha da loja ou o nome de outro ambiente
+ * que a pessoa escreveu (Suíte, Varanda, Escritório…). Devolve nulo se não servir.
+ */
+export function normalizeApplianceCategory(raw: unknown): string | null {
+  const s = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
+  if ((APPLIANCE_CATEGORIES as readonly string[]).includes(s.toUpperCase())) return s.toUpperCase();
+  // nome igual ao de um ambiente fixo cai nele, para não duplicar o quadro
+  const fixed = APPLIANCE_CATEGORIES.find((c) => APPLIANCE_CATEGORY_LABELS[c].toLowerCase() === s.toLowerCase());
+  if (fixed) return fixed;
+  return s.length >= 2 && s.length <= 60 ? s : null;
+}
+
 const num = (d: Prisma.Decimal | number | null | undefined) => (d == null ? null : Number(d));
 
 export function serializeItem(i: {
