@@ -12,7 +12,11 @@ if (isProduction && !jwtSecret) {
 
 const resolvedJwtSecret = jwtSecret || "mobieer-dev-secret";
 const frontendUrls = (process.env.FRONTEND_URLS || "http://localhost:5173").split(",").map((s) => s.trim());
-const storageDriver = (process.env.STORAGE_DRIVER || "disk").toLowerCase();
+// Valor colado no painel com aspas, espaço ou quebra de linha no fim não pode derrubar a configuração.
+const cleanEnv = (v: string | undefined) => (v ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+const storageDriver = cleanEnv(process.env.STORAGE_DRIVER).toLowerCase() || "disk";
+const supabaseUrl = cleanEnv(process.env.SUPABASE_URL).replace(/\/$/, "");
+const supabaseServiceKey = cleanEnv(process.env.SUPABASE_SERVICE_ROLE_KEY);
 const mailDriver = (process.env.MAIL_DRIVER || "console").toLowerCase();
 
 // --- Integrações externas (todas opcionais; sem credencial => modo fallback) ---
@@ -25,7 +29,7 @@ const aiEndpoint = resolveAiEndpoint(aiApiKey, process.env.AI_BASE_URL, process.
 const signatureToken = process.env.SIGNATURE_API_TOKEN || "";
 const nfeToken = process.env.NFE_API_TOKEN || "";
 
-if (isProduction && storageDriver === "supabase" && (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+if (isProduction && storageDriver === "supabase" && (!supabaseUrl || !supabaseServiceKey)) {
   throw new Error("STORAGE_DRIVER=supabase exige SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY");
 }
 
@@ -50,9 +54,9 @@ export const env = {
 
   storage: {
     driver: storageDriver as "disk" | "supabase",
-    supabaseUrl: (process.env.SUPABASE_URL || "").replace(/\/$/, ""),
-    supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-    bucket: process.env.SUPABASE_STORAGE_BUCKET || "project-documents",
+    supabaseUrl,
+    supabaseServiceKey,
+    bucket: cleanEnv(process.env.SUPABASE_STORAGE_BUCKET) || "project-documents",
     signedUrlTtl: Number(process.env.STORAGE_SIGNED_URL_TTL || 120),
   },
 

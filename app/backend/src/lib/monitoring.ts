@@ -45,13 +45,24 @@ export async function reportClientError(e: { message: string; path: string; orga
   }
 }
 
+/**
+ * Por que o armazenamento caiu no disco: diz o que este servidor recebeu na
+ * STORAGE_DRIVER (não é segredo) e só se as outras estão presentes, sem mostrar valor.
+ */
+function storageHint(): string {
+  const raw = process.env.STORAGE_DRIVER;
+  const has = (k: string) => (process.env[k]?.trim() ? "ok" : "falta");
+  const driver = raw === undefined ? "STORAGE_DRIVER não chegou a este servidor" : `STORAGE_DRIVER veio como "${raw.slice(0, 24)}" (esperado: supabase)`;
+  return `${driver}; SUPABASE_URL ${has("SUPABASE_URL")}; SUPABASE_SERVICE_ROLE_KEY ${has("SUPABASE_SERVICE_ROLE_KEY")}; SUPABASE_STORAGE_BUCKET ${has("SUPABASE_STORAGE_BUCKET")}`;
+}
+
 /** Saúde de verdade: a API responde e o banco também. */
 export async function healthCheck() {
   const started = Date.now();
   try {
     await prisma.$queryRaw`SELECT 1`;
     // "disco" na Vercel é a pasta temporária da função: o arquivo some a cada deploy ou reinício
-    const storage = env.storage.driver === "supabase" ? "supabase" : process.env.VERCEL ? "disco temporário (arquivos enviados se perdem)" : "disco";
+    const storage = env.storage.driver === "supabase" ? "supabase" : process.env.VERCEL ? `disco temporário (arquivos enviados se perdem) — ${storageHint()}` : "disco";
     return { ok: true, database: "ok", ms: Date.now() - started, assistant: Boolean(env.ai.apiKey || env.assistant.apiKey) ? "configurado" : "sem chave", storage };
   } catch {
     return { ok: false, database: "fora do ar", ms: Date.now() - started };
