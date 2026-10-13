@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, ClipboardPaste, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardPaste, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +16,11 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 
 type Item = { text: string; done: boolean };
-type Task = { id: string; date: string; person: string; title: string; reference: string | null; items: Item[]; done: boolean };
-type Plan = { weekStart: string; days: string[]; today: string; people: string[]; tasks: Task[]; summary: { person: string; total: number; done: number }[]; suggestions: string[] };
+type Task = { id: string; date: string; person: string; title: string; reference: string | null; items: Item[]; done: boolean; missedReason: string | null; missedNote: string | null; movedTo: string | null; moved: boolean };
+type Reason = { code: string; label: string };
+type WeekSummary = { total: number; done: number; missed: number; late: number; open: number; reasons: (Reason & { count: number })[] };
+type Plan = { weekStart: string; days: string[]; today: string; people: string[]; tasks: Task[]; summary: { person: string; total: number; done: number }[]; week: WeekSummary; reasons: Reason[]; suggestions: string[] };
+type Missing = { task: Task; reason: string; note: string; moveTo: string };
 type Parsed = { weekStart: string; tasks: { date: string; person: string; title: string; items: Item[] }[]; warnings: string[] };
 type Editing = { id: string | null; date: string; person: string; title: string; reference: string; items: string };
 
@@ -37,6 +40,10 @@ export function ProductionWeekPlanPage() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [preview, setPreview] = useState<Parsed | null>(null);
+  // "semana" é a grade; "dia" mostra só as metas de um dia, para o celular ou a TV da fábrica
+  const [view, setView] = useState<"semana" | "dia">("semana");
+  const [dayPick, setDayPick] = useState<string | null>(null);
+  const [missing, setMissing] = useState<Missing | null>(null);
 
   const key = ["week-plan", week ?? "atual"];
   const q = useQuery({ queryKey: key, queryFn: () => apiGet<{ data: Plan }>("/production/week-plan", week ? { week } : undefined) });
@@ -47,6 +54,12 @@ export function ProductionWeekPlanPage() {
     mutationFn: (v: { id: string; done: boolean; item?: number }) => apiPatch(`/production/week-plan/tasks/${v.id}/check`, { done: v.done, item: v.item }),
     onSuccess: refresh,
     onError: fail("Não foi possível marcar a tarefa"),
+  });
+  const missed = useMutation({
+    mutationFn: (v: { id: string; reason: string | null; note?: string; moveTo?: string }) =>
+      apiPatch<{ message?: string }>(`/production/week-plan/tasks/${v.id}/missed`, { reason: v.reason, note: v.note?.trim() || null, moveTo: v.moveTo || null }),
+    onSuccess: (r) => { toast.success(r.message ?? "Motivo registrado"); setMissing(null); refresh(); },
+    onError: fail("Não foi possível registrar o motivo"),
   });
   const save = useMutation({
     mutationFn: (e: Editing) => {
@@ -88,6 +101,59 @@ export function ProductionWeekPlanPage() {
   const total = d.tasks.length;
   const done = d.tasks.filter((t) => t.done).length;
   const blank = (date: string, person = ""): Editing => ({ id: null, date, person, title: "", reference: "", items: "" });
+  const reasonLabel = (code: string | null) => d.reasons.find((r) => r.code === code)?.label ?? "Outro";
+  const day = dayPick && days.includes(dayPick) ? dayPick : days.includes(d.today) ? d.today : days[0];
+  // para onde passar a tarefa não cumprida: os próximos dias úteis, desta semana e da seguinte
+  const moveOptions = (from: string) => [...d.days.slice(0, 5), ...d.days.slice(0, 5).map((x) => shift(x, 7))].filter((x) => x > from && x >= d.today);
+  const weekdayOf = (iso: string) => WEEKDAY[(new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7] ?? "";
+
+  const taskCard = (t: Task, big = false) => {
+    const late = !t.done && !t.missedReason && t.date < d.today;
+    const tone = t.done ? "border-success/40 bg-success/5" : t.missedReason ? "border-destructive/40 bg-destructive/5" : late ? "border-warning bg-warning/10" : "bg-background";
+    return (
+      <div key={t.id} className={`group rounded-md border p-2 ${tone}`}>
+        <div className="flex items-start gap-2">
+          <input type="checkbox" className={`mt-0.5 shrink-0 ${big ? "h-5 w-5" : "h-4 w-4"}`} checked={t.done} disabled={check.isPending} title={t.done ? "Desmarcar" : "Marcar como feito"} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked })} />
+          <div className="min-w-0 flex-1">
+            <p className={`break-words leading-snug ${big ? "text-base" : ""} ${t.done ? "text-muted-foreground line-through" : "font-medium"}`}>{t.title}</p>
+            {t.reference && <p className="text-xs text-muted-foreground">{t.reference}</p>}
+            {t.moved && <p className="text-xs text-muted-foreground">veio de outro dia</p>}
+          </div>
+          {canManage && (
+            <button type="button" className="shrink-0 text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100" title="Editar tarefa" onClick={() => setEditing({ id: t.id, date: t.date, person: t.person, title: t.title, reference: t.reference ?? "", items: t.items.map((i) => i.text).join("\n") })}>
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {t.items.length > 0 && (
+          <ul className="mt-1.5 space-y-1 pl-6">
+            {t.items.map((it, k) => (
+              <li key={k}>
+                <label className={`flex items-start gap-1.5 ${big ? "text-sm" : "text-xs"}`}>
+                  <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 shrink-0" checked={it.done} disabled={check.isPending} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked, item: k })} />
+                  <span className={it.done ? "text-muted-foreground line-through" : ""}>{it.text}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        {!t.done && t.missedReason && (
+          <div className="mt-1.5 rounded bg-destructive/10 px-2 py-1 text-xs">
+            <p><span className="font-semibold text-destructive">Não cumprida:</span> {reasonLabel(t.missedReason)}{t.missedNote ? ` — ${t.missedNote}` : ""}</p>
+            {t.movedTo && <p className="text-muted-foreground">Passada para {weekdayOf(t.movedTo).toLowerCase()} {br(t.movedTo)}</p>}
+            <button type="button" className="text-muted-foreground underline hover:text-foreground" onClick={() => setMissing({ task: t, reason: t.missedReason!, note: t.missedNote ?? "", moveTo: "" })}>alterar</button>
+            {" · "}
+            <button type="button" className="text-muted-foreground underline hover:text-foreground" disabled={missed.isPending} onClick={() => missed.mutate({ id: t.id, reason: null })}>desfazer</button>
+          </div>
+        )}
+        {!t.done && !t.missedReason && t.date <= d.today && (
+          <button type="button" className={`mt-1.5 flex items-center gap-1 text-xs underline ${late ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}`} onClick={() => setMissing({ task: t, reason: "", note: "", moveTo: "" })}>
+            {late && <AlertTriangle className="h-3 w-3" />} {late ? "Não foi feita — informar o motivo" : "Não cumprida"}
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -109,16 +175,62 @@ export function ProductionWeekPlanPage() {
           </div>
           <p className="text-sm font-medium">Semana de {br(d.weekStart)} a {br(days[days.length - 1])}</p>
           <Badge variant={total && done === total ? "success" : "secondary"}>{done} de {total} feitas</Badge>
+          <div className="flex overflow-hidden rounded-md border text-sm">
+            {(["semana", "dia"] as const).map((v) => (
+              <button key={v} type="button" className={`px-3 py-1.5 ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setView(v)}>{v === "semana" ? "Semana" : "Dia"}</button>
+            ))}
+          </div>
           {mine && d.people.some((p) => plain(p) === mine) && (
             <label className="ml-auto flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} /> Só as minhas</label>
           )}
         </CardContent>
       </Card>
 
+      {total > 0 && (d.week.missed > 0 || d.week.late > 0) && (
+        <Card>
+          <CardContent className="space-y-2 pt-6 text-sm">
+            <p className="font-medium">Fechamento da semana</p>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="success">{d.week.done} cumpridas</Badge>
+              {d.week.missed > 0 && <Badge variant="danger">{d.week.missed} não cumpridas</Badge>}
+              {d.week.late > 0 && <Badge variant="warning">{d.week.late} sem justificativa</Badge>}
+              {d.week.open > 0 && <Badge variant="secondary">{d.week.open} em aberto</Badge>}
+            </div>
+            {d.week.reasons.length > 0 && <p className="text-muted-foreground">Motivos: {d.week.reasons.map((r) => `${r.label} (${r.count})`).join(" · ")}</p>}
+          </CardContent>
+        </Card>
+      )}
+
       {!d.people.length ? (
         <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
           Nenhuma tarefa nesta semana.{canManage ? " Clique em Colar do WhatsApp para trazer o planejamento que você já escreve, ou em Nova tarefa." : ""}
         </CardContent></Card>
+      ) : view === "dia" ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {days.map((x) => (
+              <Button key={x} size="sm" variant={x === day ? "default" : "outline"} onClick={() => setDayPick(x)}>
+                {WEEKDAY[d.days.indexOf(x)]} {br(x)}{x === d.today ? " · hoje" : ""}
+              </Button>
+            ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {people.map((person) => {
+              const cell = d.tasks.filter((t) => t.person === person && t.date === day);
+              if (!cell.length && !canManage) return null;
+              return (
+                <Card key={person}>
+                  <CardContent className="space-y-2 pt-5">
+                    <div className="flex items-baseline justify-between"><p className="text-base font-semibold">{person}</p><p className="text-xs text-muted-foreground">{cell.filter((t) => t.done).length} de {cell.length}</p></div>
+                    {cell.length ? cell.map((t) => taskCard(t, true)) : <p className="text-sm text-muted-foreground">Sem metas neste dia.</p>}
+                    {canManage && <button type="button" className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed py-1 text-xs text-muted-foreground hover:bg-muted" onClick={() => setEditing(blank(day, person))}><Plus className="h-3 w-3" /> tarefa</button>}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+          {!d.tasks.some((t) => t.date === day) && !canManage && <p className="text-sm text-muted-foreground">Nenhuma meta neste dia.</p>}
+        </div>
       ) : (
         <Card className="overflow-hidden">
           <CardContent className="overflow-x-auto p-0">
@@ -148,34 +260,7 @@ export function ProductionWeekPlanPage() {
                         return (
                           <td key={day} className={`border-b border-r p-1.5 align-top last:border-r-0 ${day === d.today ? "bg-primary/[0.04]" : ""}`}>
                             <div className="space-y-1.5">
-                              {cell.map((t) => (
-                                <div key={t.id} className={`group rounded-md border p-2 ${t.done ? "border-success/40 bg-success/5" : "bg-background"}`}>
-                                  <div className="flex items-start gap-2">
-                                    <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0" checked={t.done} disabled={check.isPending} title={t.done ? "Desmarcar" : "Marcar como feito"} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked })} />
-                                    <div className="min-w-0 flex-1">
-                                      <p className={`break-words leading-snug ${t.done ? "text-muted-foreground line-through" : "font-medium"}`}>{t.title}</p>
-                                      {t.reference && <p className="text-xs text-muted-foreground">{t.reference}</p>}
-                                    </div>
-                                    {canManage && (
-                                      <button type="button" className="shrink-0 text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100" title="Editar tarefa" onClick={() => setEditing({ id: t.id, date: t.date, person: t.person, title: t.title, reference: t.reference ?? "", items: t.items.map((i) => i.text).join("\n") })}>
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </button>
-                                    )}
-                                  </div>
-                                  {t.items.length > 0 && (
-                                    <ul className="mt-1.5 space-y-1 pl-6">
-                                      {t.items.map((it, k) => (
-                                        <li key={k}>
-                                          <label className="flex items-start gap-1.5 text-xs">
-                                            <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 shrink-0" checked={it.done} disabled={check.isPending} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked, item: k })} />
-                                            <span className={it.done ? "text-muted-foreground line-through" : ""}>{it.text}</span>
-                                          </label>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  )}
-                                </div>
-                              ))}
+                              {cell.map((t) => taskCard(t))}
                               {canManage && (
                                 <button type="button" className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed py-1 text-xs text-muted-foreground hover:bg-muted" onClick={() => setEditing(blank(day, person))}>
                                   <Plus className="h-3 w-3" /> tarefa
@@ -226,6 +311,48 @@ export function ProductionWeekPlanPage() {
             <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
             <Button disabled={!editing || !editing.person.trim() || !editing.title.trim() || save.isPending} onClick={() => editing && save.mutate(editing)}>
               {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* não cumprida: motivo e, para quem monta, passar para outro dia */}
+      <Dialog open={missing !== null} onOpenChange={(o) => !o && setMissing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Tarefa não cumprida</DialogTitle>
+            <DialogDescription>{missing ? `${missing.task.person} — ${missing.task.title} (${br(missing.task.date)})` : ""}</DialogDescription>
+          </DialogHeader>
+          {missing && (
+            <div className="space-y-3 text-sm">
+              <div className="space-y-1">
+                <Label className="text-xs">Qual foi o motivo?</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {d.reasons.map((r) => (
+                    <button key={r.code} type="button" aria-pressed={missing.reason === r.code} className={`rounded-full border px-3 py-1 text-xs ${missing.reason === r.code ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setMissing({ ...missing, reason: r.code })}>{r.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{missing.reason === "OUTRO" ? "Escreva o motivo" : "Detalhe (opcional)"}</Label>
+                <Textarea rows={2} maxLength={300} value={missing.note} placeholder="Ex.: a chapa de MDF não chegou" onChange={(e) => setMissing({ ...missing, note: e.target.value })} />
+              </div>
+              {canManage && !missing.task.movedTo && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Passar para outro dia</Label>
+                  <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={missing.moveTo} onChange={(e) => setMissing({ ...missing, moveTo: e.target.value })}>
+                    <option value="">Não passar</option>
+                    {moveOptions(missing.task.date).map((x) => <option key={x} value={x}>{weekdayOf(x)} {br(x)}</option>)}
+                  </select>
+                  <p className="text-xs text-muted-foreground">A tarefa é criada no novo dia só com os passos que faltaram; esta fica registrada como não cumprida.</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMissing(null)}>Cancelar</Button>
+            <Button disabled={!missing || !missing.reason || (missing.reason === "OUTRO" && !missing.note.trim()) || missed.isPending} onClick={() => missing && missed.mutate({ id: missing.task.id, reason: missing.reason, note: missing.note, moveTo: missing.moveTo })}>
+              {missed.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Registrar
             </Button>
           </DialogFooter>
         </DialogContent>

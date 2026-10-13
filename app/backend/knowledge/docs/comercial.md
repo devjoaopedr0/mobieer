@@ -40,6 +40,9 @@ A comissão é acrescentada ao preço. Por isso, com o desconto em R$ ou em %, r
 ## Formas de pagamento
 À vista, PIX, Boleto parcelado, Cartão de crédito, Financeira e as combinadas com entrada no PIX: **Entrada no PIX + boleto**, **Entrada no PIX + cartão** e **Entrada no PIX + financeira**. Nas combinadas, informe o valor da entrada no campo **Entrada no PIX** e as parcelas do saldo; a taxa retida (cartão ou financeira) incide só sobre o saldo. Ao aprovar o orçamento, o financeiro recebe a entrada como PIX e as parcelas na segunda forma.
 
+## Aceite do cliente: vencimentos e comissões
+Ao clicar em **Cliente aceitou**, a janela mostra o que vai para o financeiro. Cada linha tem um campo de **vencimento**: a entrada vem com a data de hoje e o restante pode receber a data combinada com o cliente. As **comissões são pagas conforme a loja recebe**: cada comissão é repartida na mesma proporção dos recebimentos (entrada, restante ou parcelas) e vence junto com cada um; ao mudar a data de um recebimento, a comissão ligada a ele acompanha. O **valor** de cada comissão pode ser alterado nessa janela, e comissão com valor zero não é lançada. O valor dos recebimentos não muda ali, porque é o total do contrato.
+
 ## Gerar o contrato pelo orçamento
 Com o orçamento **aceito pelo cliente**, o quadro **Ações** ganha o botão **Gerar contrato**. Escolha o modelo de contrato e clique em **Gerar e enviar ao cliente**: o sistema preenche o modelo com o cliente, o valor total, a entrada, as parcelas, a condição de pagamento e o prazo do orçamento, baixa o PDF e coloca o contrato nos documentos do projeto, visível no portal do cliente.
 

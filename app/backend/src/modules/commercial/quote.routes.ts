@@ -17,7 +17,7 @@ import { notifyUser, notifyUsersWithPermission } from "../../lib/notify";
 import { storeGeneratedPdf } from "../docgen/docgen.service";
 import { brl } from "../templates/contract.service";
 import { PAYMENT_METHODS, QuoteRuleError, computeQuote, normalizePricing, type PricingConfig } from "./quote.rules";
-import { CATEGORY_SALE, planFinance } from "./quote.finance";
+import { CATEGORY_SALE, FinanceAdjustError, applyAdjustments, planFinance, type FinanceAdjustment } from "./quote.finance";
 import { hasBudgetValues, roomsFromParsed } from "./quote.promob";
 import { PRICING_SETTING, calcToData, loadPricing, nextQuoteNumber, quoteInclude, quotePdf, serializeQuote } from "./quote.service";
 
@@ -489,7 +489,7 @@ type FinanceResult = { created: number; receivable: number; replacedOpportunityE
  * por orçamento. O recebível único criado quando a oportunidade foi ganha é
  * trocado pelas parcelas se ainda não teve pagamento.
  */
-async function generateFinance(tx: Tx, q: ReturnType<typeof serializeQuote> & { organizationId: string }, userId: string): Promise<FinanceResult> {
+async function generateFinance(tx: Tx, q: ReturnType<typeof serializeQuote> & { organizationId: string }, userId: string, adjust?: { adjustments: FinanceAdjustment[]; expected?: number }): Promise<FinanceResult> {
   if (await tx.financeTransaction.findFirst({ where: { originQuoteId: q.id }, select: { id: true } })) {
     return { created: 0, receivable: 0, replacedOpportunityEntry: false, skipped: "o financeiro deste orçamento já foi gerado" };
   }
@@ -507,7 +507,15 @@ async function generateFinance(tx: Tx, q: ReturnType<typeof serializeQuote> & { 
       replaced = true;
     }
   }
-  const plan = planFinance(q, todayDay());
+  let plan = planFinance(q, todayDay());
+  if (adjust) {
+    try {
+      plan = applyAdjustments(plan, adjust.adjustments, todayDay(), adjust.expected);
+    } catch (e) {
+      if (e instanceof FinanceAdjustError) throw new BadRequestError(e.message);
+      throw e;
+    }
+  }
   const group = plan.filter((e) => e.installmentTotal).length ? crypto.randomUUID() : null;
   await tx.financeTransaction.createMany({
     data: plan.map((e) => ({
@@ -551,10 +559,13 @@ router.patch(
   "/:id/status",
   requirePermission("commercial.quotes.manage"),
   asyncHandler(async (req, res) => {
-    const { status, generateFinance: wantsFinance, reason } = z
+    const { status, generateFinance: wantsFinance, reason, financeAdjustments, financeRows } = z
       .object({
         status: z.enum(["DRAFT", "SENT", "NEGOTIATION", "APPROVED", "REJECTED", "CANCELLED"]),
         generateFinance: z.boolean().default(true),
+        // ajustes da janela de aceite: vencimentos e valor das comissões
+        financeAdjustments: z.array(z.object({ index: z.number().int().min(0).max(500), dueDay: z.string().max(10).optional(), amount: z.number().min(0).max(100_000_000).optional() })).max(500).optional(),
+        financeRows: z.number().int().min(0).max(500).optional(),
         reason: z.string().trim().max(500).optional().nullable(),
       })
       .parse(req.body);
@@ -600,7 +611,7 @@ router.patch(
         }
         // Cliente aceitou: a oportunidade passa a valer o total fechado.
         if (cur.opportunityId) await tx.commercialOpportunity.update({ where: { id: cur.opportunityId }, data: { estimatedValue: cur.total } });
-        if (wantsFinance) finance = await generateFinance(tx, { ...serializeQuote(q), organizationId: cur.organizationId }, req.user!.id);
+        if (wantsFinance) finance = await generateFinance(tx, { ...serializeQuote(q), organizationId: cur.organizationId }, req.user!.id, financeAdjustments?.length ? { adjustments: financeAdjustments as FinanceAdjustment[], expected: financeRows } : undefined);
       }
       return q;
     });
