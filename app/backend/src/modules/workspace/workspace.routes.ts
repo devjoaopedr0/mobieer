@@ -24,6 +24,18 @@ function mondayOf(d: Date): Date {
   return x;
 }
 
+/**
+ * Início da semana pedido pela tela. A tela nova manda a segunda-feira. A antiga (ainda
+ * aberta em algum navegador) mandava o domingo, por erro de fuso, querendo a segunda
+ * seguinte — arredondar um domingo para trás devolvia a semana anterior.
+ */
+export function weekStart(day: string): Date {
+  const d = new Date(`${day.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return mondayOf(new Date());
+  if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
+  return mondayOf(d);
+}
+
 // ============================ NOTAS ============================
 
 router.get(
@@ -105,8 +117,8 @@ router.delete(
 router.get(
   "/planner",
   asyncHandler(async (req, res) => {
-    const raw = req.query.weekOf ? new Date(String(req.query.weekOf)) : new Date();
-    const weekOf = mondayOf(Number.isNaN(raw.getTime()) ? new Date() : raw);
+    // sem semana pedida: a semana de hoje no fuso da loja
+    const weekOf = weekStart(req.query.weekOf ? String(req.query.weekOf) : new Date().toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" }));
     const items = await prisma.plannerItem.findMany({
       where: { userId: req.user!.id, weekOf },
       orderBy: [{ weekday: "asc" }, { position: "asc" }, { createdAt: "asc" }],
@@ -125,7 +137,7 @@ router.post(
         text: z.string().trim().min(1).max(500),
       })
       .parse(req.body);
-    const weekOf = mondayOf(new Date(`${input.weekOf}T00:00:00Z`));
+    const weekOf = weekStart(input.weekOf);
     const max = await prisma.plannerItem.aggregate({
       where: { userId: req.user!.id, weekOf, weekday: input.weekday },
       _max: { position: true },
@@ -155,10 +167,22 @@ router.patch(
         done: z.boolean().optional(),
         weekday: z.number().int().min(0).max(6).optional(),
         position: z.number().int().optional(),
+        // mover para outra semana: a segunda-feira dela
+        weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        note: z.string().trim().max(1000).nullable().optional(),
+        dueAt: z.coerce.date().nullable().optional(),
       })
       .parse(req.body);
-    const item = await prisma.plannerItem.update({ where: { id: cur.id }, data: input });
-    return ok(res, item, "Item atualizado");
+    const { weekOf, note, ...rest } = input;
+    const moving = weekOf !== undefined || input.weekday !== undefined;
+    const target = weekOf ? weekStart(weekOf) : cur.weekOf;
+    // item movido vai para o fim da lista do novo dia
+    const last = moving && input.position === undefined ? await prisma.plannerItem.aggregate({ where: { userId: req.user!.id, weekOf: target, weekday: input.weekday ?? cur.weekday }, _max: { position: true } }) : null;
+    const item = await prisma.plannerItem.update({
+      where: { id: cur.id },
+      data: { ...rest, weekOf: weekOf ? target : undefined, note: note === undefined ? undefined : nn(note), position: last ? (last._max.position ?? 0) + 1 : input.position },
+    });
+    return ok(res, item, moving ? "Item movido" : "Item atualizado");
   })
 );
 
