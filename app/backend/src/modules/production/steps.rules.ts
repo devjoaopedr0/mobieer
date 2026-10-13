@@ -119,6 +119,42 @@ export function nextStepStatus(
 
 export const isOpenStep = (s: ProductionStepStatus) => s === "PENDING" || s === "IN_PROGRESS" || s === "BLOCKED";
 
+// ---------------- kanban da produção: um cartão por pedido ----------------
+
+type BoardStep = { id: string; step: ProductionStepKey; position: number; status: ProductionStepStatus };
+
+/** A etapa em que o pedido está: a primeira ainda aberta. Tudo concluído → null. */
+export function currentStep<T extends BoardStep>(steps: T[]): T | null {
+  return [...steps].sort((a, b) => a.position - b.position).find((s) => isOpenStep(s.status)) ?? null;
+}
+
+/**
+ * Arrastar o cartão para uma etapa à frente: conclui as etapas abertas do caminho
+ * e inicia a de destino. Não volta etapa (isso é reabrir, no pedido) e não passa
+ * por cima de etapa bloqueada.
+ */
+export function planBoardMove(
+  steps: BoardStep[],
+  to: ProductionStepKey
+): { ok: true; actions: { id: string; step: ProductionStepKey; action: "COMPLETE" | "START" }[] } | { ok: false; motivo: string } {
+  const ordered = [...steps].sort((a, b) => a.position - b.position);
+  const target = ordered.find((s) => s.step === to);
+  const cur = currentStep(ordered);
+  if (!target) return { ok: false, motivo: "Etapa de destino não existe neste pedido" };
+  if (!cur) return { ok: false, motivo: "Este pedido já concluiu todas as etapas" };
+  if (target.position < cur.position) return { ok: false, motivo: `Para voltar à etapa "${STEP_LABEL[to]}", reabra a etapa dentro do pedido` };
+  if (target.status === "SKIPPED" || target.status === "DONE") return { ok: false, motivo: `A etapa "${STEP_LABEL[to]}" já está ${STEP_STATUS_LABEL[target.status].toLowerCase()} neste pedido` };
+  const path = ordered.filter((s) => s.position >= cur.position && s.position <= target.position);
+  const blocked = path.find((s) => s.status === "BLOCKED");
+  if (blocked) return { ok: false, motivo: `A etapa "${STEP_LABEL[blocked.step]}" está bloqueada. Desbloqueie antes de avançar` };
+  const actions: { id: string; step: ProductionStepKey; action: "COMPLETE" | "START" }[] = path
+    .filter((s) => s.id !== target.id && isOpenStep(s.status))
+    .map((s) => ({ id: s.id, step: s.step, action: "COMPLETE" as const }));
+  if (target.status === "PENDING") actions.push({ id: target.id, step: target.step, action: "START" });
+  if (!actions.length) return { ok: false, motivo: "O pedido já está nesta etapa" };
+  return { ok: true, actions };
+}
+
 /**
  * Aviso que a etapa merece hoje. DUE_SOON: vence em até 1 dia. OVERDUE: já
  * venceu. Dedup: o mesmo tipo não repete em menos de 24h, mas a passagem de

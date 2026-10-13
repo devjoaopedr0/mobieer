@@ -37,7 +37,7 @@ import { AiProviderError } from "../ai/provider";
 import { imageProvider } from "../ai/provider/image";
 import { visionProvider } from "../ai/provider/vision";
 import { parseAiMeasures, techMeasuresPrompt } from "./tech-ai-measures.rules";
-import { layoutDrawing } from "./tech-drawing.rules";
+import { layoutDrawing, IMAGE_PLACEMENTS, perspectiveTitle } from "./tech-drawing.rules";
 import { MAX_AI_EXTRA_CHARS, TECH_AI_VIEWS, techAiBrief, techAiPrompt } from "./tech-ai.rules";
 import { COLUMN_KINDS, DRAWING_FINISHES, DRAWING_LAYOUTS, DrawingError, type DrawingImage, type DrawingSpec } from "./tech-drawing.rules";
 import { SCALES, SHEET_AREA, SHEET_TITLES, nextSheetNumber, pngFromDataUrl, specBlocks, titleFromFile, type TechFolderData, type TechSheet } from "./tech-folder.rules";
@@ -71,7 +71,7 @@ async function load(projectId: string): Promise<TechFolderData> {
   const row = await prisma.setting.findUnique({ where: { key: key(projectId) } });
   try {
     const v = JSON.parse(row?.value ?? "") as TechFolderData;
-    return { sheets: Array.isArray(v.sheets) ? v.sheets : [], includeSpecs: v.includeSpecs !== false, notes: Array.isArray(v.notes) ? v.notes : [] };
+    return { sheets: Array.isArray(v.sheets) ? v.sheets : [], includeSpecs: v.includeSpecs !== false, notes: Array.isArray(v.notes) ? v.notes : [], cover: v.cover === true };
   } catch {
     return { sheets: [], includeSpecs: true, notes: [] };
   }
@@ -114,7 +114,7 @@ router.put(
   requirePermission("organization.manage"),
   asyncHandler(async (req, res) => {
     const p = await projectFor(req.params.projectId, req.user!.organizationId);
-    const input = z.object({ sheets: z.array(sheetInput).max(MAX_SHEETS), includeSpecs: z.boolean().default(true), notes: z.array(z.string().trim().max(150)).max(4).default([]) }).parse(req.body);
+    const input = z.object({ sheets: z.array(sheetInput).max(MAX_SHEETS), includeSpecs: z.boolean().default(true), notes: z.array(z.string().trim().max(150)).max(4).default([]), cover: z.boolean().optional() }).parse(req.body);
     const cur = await load(p.id);
     const byId = new Map(cur.sheets.map((s) => [s.id, s]));
     // a ordem enviada é a ordem da pasta; o arquivo de cada prancha não muda por aqui
@@ -123,7 +123,7 @@ router.put(
       return old ? [{ ...old, room: s.room, title: s.title, scale: s.scale || null, note: s.note || null, stamp: s.stamp ?? old.stamp }] : [];
     });
     if (sheets.length !== cur.sheets.length) throw new BadRequestError("A lista de pranchas mudou em outra tela. Recarregue e tente de novo.");
-    const data = { sheets, includeSpecs: input.includeSpecs, notes: input.notes.filter(Boolean) };
+    const data = { sheets, includeSpecs: input.includeSpecs, notes: input.notes.filter(Boolean), cover: input.cover ?? cur.cover === true };
     await save(p.id, data);
     return ok(res, view(p, data), "Pasta técnica salva");
   })
@@ -215,6 +215,7 @@ const drawingInput = z.object({
           label: z.string().trim().max(24).nullable().optional(),
           shelves: z.coerce.number().int().min(0).max(30).optional(),
           note: z.string().trim().max(200).nullable().optional(),
+          doors: z.coerce.number().int().min(0).max(6).optional(),
           parts: z.array(partInput).max(6).optional(),
         })
       )
@@ -226,6 +227,7 @@ const drawingInput = z.object({
     shelfDepth: mmNum.nullable().optional(),
     specs: z.array(z.string().trim().max(90)).max(10).optional(),
     images: z.object({ closed: imageRef.nullable().optional(), open: imageRef.nullable().optional() }).optional(),
+    imagesPlacement: z.enum(IMAGE_PLACEMENTS).optional(),
   }),
 });
 
@@ -247,7 +249,7 @@ async function renderDrawing(input: z.infer<typeof drawingInput>, projectId: str
     shelfDepth: input.spec.shelfDepth || null,
     images: { closed: ownImage(input.spec.images?.closed, projectId), open: ownImage(input.spec.images?.open, projectId) },
     specs: (input.spec.specs ?? []).filter(Boolean),
-    columns: input.spec.columns.map((c) => ({ kind: c.kind, width: c.width || null, count: c.count, heights: c.heights, label: c.label || null, shelves: c.shelves || 0, note: c.note || null, parts: (c.parts ?? []).length > 1 ? c.parts!.map((p) => ({ kind: p.kind, count: p.count, heights: p.heights, label: p.label || null, shelves: p.shelves || 0, height: p.height || null })) : undefined })),
+    columns: input.spec.columns.map((c) => ({ kind: c.kind, width: c.width || null, count: c.count, heights: c.heights, label: c.label || null, shelves: c.shelves || 0, note: c.note || null, doors: c.doors || 0, parts: (c.parts ?? []).length > 1 ? c.parts!.map((p) => ({ kind: p.kind, count: p.count, heights: p.heights, label: p.label || null, shelves: p.shelves || 0, height: p.height || null })) : undefined })),
   };
   let out: Awaited<ReturnType<typeof drawingPdf>>;
   try {
@@ -510,18 +512,16 @@ router.get(
     const full = await techFolderPdf({
       client: p.client.name,
       project: { code: p.code, name: p.name },
-      sheets: [{ ...s, bytes: (await sheetBytes(s)) ?? lostSheet(s.title), overlayBytes: s.overlay ? await storage.getBytes(s.overlay.storageKey).catch(() => null) : null }],
+      sheets: await withPerspectives([{ ...s, bytes: (await sheetBytes(s)) ?? lostSheet(s.title), overlayBytes: s.overlay ? await storage.getBytes(s.overlay.storageKey).catch(() => null) : null }]),
       specs: [],
       notes: [],
       issuedAt: new Date(),
       hideSheetNumber: true,
+      cover: false,
     });
-    // a primeira página é a capa: aqui interessa só a prancha
-    const doc = await PDFDocument.load(full);
-    doc.removePage(0);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="prancha-${p.code}.pdf"`);
-    return res.send(Buffer.from(await doc.save()));
+    return res.send(full);
   })
 );
 
@@ -540,6 +540,22 @@ async function sheetBytes(s: TechSheet): Promise<Buffer | null> {
     return (await drawingPdf(s.drawing, { closed: await img(s.drawing.images?.closed), open: await img(s.drawing.images?.open) })).pdf;
   }
 }
+type SheetWithBytes = TechSheet & { bytes: Buffer; overlayBytes?: Buffer | null };
+/**
+ * O desenho por medidas pode sair com uma 2ª página (as imagens 3D): ela entra na
+ * pasta como a folha "PERSPECTIVA X", logo depois da vista, como no modelo da loja.
+ */
+async function withPerspectives(sheets: SheetWithBytes[]): Promise<SheetWithBytes[]> {
+  const out: SheetWithBytes[] = [];
+  for (const s of sheets) {
+    out.push(s);
+    if (!s.drawing || s.mime !== "application/pdf") continue;
+    const pages = await PDFDocument.load(s.bytes, { ignoreEncryption: true }).then((d) => d.getPageCount()).catch(() => 1);
+    for (let page = 1; page < pages; page++) out.push({ ...s, id: `${s.id}-p${page}`, title: perspectiveTitle(s.title), scale: null, note: null, page, overlay: null, overlayBytes: null });
+  }
+  return out;
+}
+
 const lostSheet = (title: string): never => {
   throw new BadRequestError(lostMessage([title]));
 };
@@ -563,10 +579,11 @@ async function pdfFor(projectId: string, organizationId: string) {
   const pdf = await techFolderPdf({
     client: p.client.name,
     project: { code: p.code, name: p.name },
-    sheets: await Promise.all(data.sheets.map(async (s) => ({ ...s, bytes: files.get(s.storageKey)!, overlayBytes: s.overlay ? await storage.getBytes(s.overlay.storageKey).catch(() => null) : null }))),
+    sheets: await withPerspectives(await Promise.all(data.sheets.map(async (s) => ({ ...s, bytes: files.get(s.storageKey)!, overlayBytes: s.overlay ? await storage.getBytes(s.overlay.storageKey).catch(() => null) : null })))),
     specs,
     notes: data.notes,
     issuedAt: new Date(),
+    cover: data.cover === true,
   });
   return { p, pdf };
 }

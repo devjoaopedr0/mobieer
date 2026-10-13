@@ -8,14 +8,16 @@ O sistema tem duas partes:
 - **Portal do cliente**, em mobieerprojetos.com.br/portal, onde o cliente acompanha o projeto, confirma a medição, aprova o projeto técnico, vê documentos e pagamentos.
 
 ## Menus do sistema interno
-O menu lateral é dividido em grupos:
+O menu lateral segue a ordem do processo da loja (comercial, projeto, produção, entrega e montagem, pós-venda, financeiro) e depois traz o apoio (estoque, equipe, administração):
 - **Início**: Dashboard, Painel da loja, Central de operações, Pipeline da loja, Chat.
-- **Estoque**: Entrada de Materiais, Saída de Materiais, Movimentações, Produtos, Categorias, Fornecedores, Compras.
-- **Requisições e produção**: Organização interna, Semana da Mobieer, Minhas tarefas, Meu espaço, Clientes e projetos, Medições, Produção, Fábrica, Compras de materiais, Leitor de etiquetas, Modelos de documentos, Requisições de Peças, Atividades, Agenda, Pós-venda.
-- **Controle de estoque**: Inventário, Alertas de Estoque.
-- **Pessoas**: RH — Férias, Montadores externos, Solicitação de peças, Produtividade.
-- **Comercial**: Comercial.
+- **Comercial**: Comercial, Clientes e projetos.
+- **Projeto**: Medições, Modelos de documentos.
+- **Produção**: Produção, Planejamento da semana, Fábrica, Leitor de etiquetas, Requisições de Peças, Compras de materiais, Solicitação de peças.
+- **Entrega e montagem**: Agenda, Montadores externos.
+- **Pós-venda e assistência**: Pós-venda, Assistências.
 - **Financeiro**: Financeiro, Notas fiscais, Solicitar ao financeiro.
+- **Estoque**: Entrada de Materiais, Saída de Materiais, Movimentações, Produtos, Categorias, Fornecedores, Compras, Inventário, Alertas de Estoque.
+- **Equipe e organização**: Organização interna, Semana da Mobieer, Minhas tarefas, Meu espaço, Atividades, RH — Férias, Produtividade.
 - **Administração**: Relatórios, Usuários, Auditoria, Configurações.
 
 Um menu só aparece para quem tem a permissão correspondente. Se um menu citado aqui não aparece para você, o seu perfil não tem acesso; peça a um administrador.

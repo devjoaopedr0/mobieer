@@ -40,7 +40,8 @@ export function pngFromDataUrl(dataUrl: string): Buffer | null {
   return buf.length > 8 && sig.every((b, i) => buf[i] === b) ? buf : null;
 }
 
-export type TechFolderData = { sheets: TechSheet[]; includeSpecs: boolean; notes: string[] };
+/** `cover`: capa com índice e numeração das folhas. O modelo da loja não tem; fica desligada se ninguém ligar. */
+export type TechFolderData = { sheets: TechSheet[]; includeSpecs: boolean; notes: string[]; cover?: boolean };
 
 export const SHEET_TITLES = ["PLANTA BAIXA", "VISTA A", "VISTA A INTERNA", "VISTA B", "VISTA B INTERNA", "VISTA C", "PERSPECTIVA", "DETALHE"];
 export const SCALES = ["1:10", "1:20", "1:25", "1:50"];
@@ -117,8 +118,8 @@ export function specBlocks(items: SpecItem[]): SpecBlock[] {
 }
 
 /** Índice da capa: número da folha de cada prancha, contando capa e especificação. */
-export function sheetIndex(sheets: TechSheet[], specPages: number): { n: number; room: string; title: string }[] {
-  const first = 2 + specPages;
+export function sheetIndex(sheets: TechSheet[], specPages: number, cover = true): { n: number; room: string; title: string }[] {
+  const first = (cover ? 2 : 1) + specPages;
   return sheetsByRoom(sheets)
     .flatMap((g) => g.sheets)
     .map((s, i) => ({ n: first + i, room: clean(s.room) || "Geral", title: s.title }));

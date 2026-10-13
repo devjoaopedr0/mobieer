@@ -155,6 +155,7 @@ model User {
   purchaseOrders        PurchaseOrder[]       @relation("PurchaseOrderCreator")
   purchaseReceipts      PurchaseReceipt[]     @relation("PurchaseReceiver")
   productionSteps       ProductionStep[]      @relation("ProductionStepResponsible")
+  productionFronts      ProductionFront[]     @relation("ProductionFrontResponsible")
   fileRecords           FileRecord[]          @relation("FileRecordAuthor")
   siteInspectionsAsTechnician SiteInspection[] @relation("SiteInspectionTechnician")
   siteInspectionsCreated SiteInspection[] @relation("SiteInspectionCreator")
@@ -1174,6 +1175,7 @@ model AssistanceTicket {
   title                   String
   description             String                  @db.Text
   problemType             String? // tipo do problema escolhido pelo cliente
+  kind                    String                  @default("ASSISTENCIA") // classificação da equipe (ver assistance.rules)
   roomLabel               String? // ambiente/cômodo afetado
   status                  AssistanceStatus        @default(OPEN)
   priority                KanbanTaskPriority      @default(NORMAL)
@@ -2382,6 +2384,8 @@ model Employee {
   organizationId String
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registration   String // matrícula (gerada: EMP-0001)
+  /// número da pessoa no relógio de ponto (EnNo); não é a matrícula do sistema
+  clockRegistration String?
   fullName       String
   document       String? // CPF (só dígitos)
   role           String? // cargo
@@ -2405,6 +2409,7 @@ model Employee {
   updatedAt        DateTime             @updatedAt
 
   @@unique([organizationId, registration])
+  @@unique([organizationId, clockRegistration])
   // CPF não repete dentro da organização. Vários NULL convivem no Postgres,
   // então quem ainda não tem CPF cadastrado não trava o índice.
   @@unique([organizationId, document])
@@ -2898,6 +2903,7 @@ model ProductionOrder {
   requisitions        Requisition[]
   dispatchChecklist   DispatchChecklist?
   steps               ProductionStep[]
+  fronts              ProductionFront[]
 
   @@index([organizationId, stage])
 }
@@ -3872,6 +3878,25 @@ model ProductionPlanTask {
   updatedAt      DateTime     @default(now())
 
   @@index([organizationId, date])
+}
+
+/// Frente de produção que corre em paralelo à marcenaria no mesmo pedido.
+model ProductionFront {
+  id            String          @id @default(cuid())
+  orderId       String
+  order         ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  front         String // METALON | PECAS_ESPECIAIS | PORTAS_VIDRO (ver fronts.rules)
+  status        String          @default("PENDING") // PENDING | IN_PROGRESS | DONE
+  responsibleId String?
+  responsible   User?           @relation("ProductionFrontResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  dueAt         DateTime?
+  notes         String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @default(now())
+
+  @@unique([orderId, front])
 }
 
 /// Linha de uma fatura de cartão: onde foi gasto e quanto.

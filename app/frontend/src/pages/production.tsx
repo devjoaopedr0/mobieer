@@ -20,6 +20,8 @@ import { cn, errorMessage } from "@/lib/utils";
 import { ProductionItemsPanel } from "./production-items";
 import { LeadTimesCard } from "@/components/lead-times";
 import { FactoryStepsOverview, ProductionStepsCard } from "@/components/production-steps";
+import { ProductionBoard } from "@/components/production-board";
+import { ProductionFrontsCard } from "@/components/production-fronts";
 
 export const PRODUCTION_STAGES = ["RELEASED", "IN_PRODUCTION", "PRE_ASSEMBLY", "OUT_FOR_DELIVERY", "DELIVERED"] as const;
 export type ProductionStage = (typeof PRODUCTION_STAGES)[number];
@@ -377,6 +379,7 @@ export function ProductionProjectPanel({ projectId, canManage }: { projectId: st
       </Card>
 
       <ProductionStepsCard projectId={projectId} canEdit={canManage || can("production.steps")} />
+      <ProductionFrontsCard projectId={projectId} canEdit={canManage || can("production.steps")} />
 
       <CutPlanCard projectId={projectId} canManage={canManage} cutPlan={o.cutPlan} onChange={(id) => patch.mutate({ cutPlanImportId: id })} saving={patch.isPending} />
 
@@ -484,6 +487,8 @@ export function ProductionPage() {
   const { can } = useAuth();
   const canManage = can("organization.manage");
   const key = ["production", "all"];
+  // "esteira" é a lista por fase; "kanban" mostra um cartão por pedido na etapa da fábrica
+  const [view, setView] = useState<"esteira" | "kanban">("esteira");
   const q = useQuery({ queryKey: key, queryFn: () => apiGet<{ data: ProductionOrder[] }>("/production?all=1") });
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
 
@@ -500,7 +505,17 @@ export function ProductionPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Produção" description="Esteira dos pedidos: liberado → produção → pré-montagem → entrega." />
+      <PageHeader title="Produção" description="Esteira dos pedidos: liberado → produção → pré-montagem → entrega.">
+        <div className="flex overflow-hidden rounded-md border text-sm">
+          {(["esteira", "kanban"] as const).map((v) => (
+            <button key={v} type="button" className={`px-3 py-1.5 ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setView(v)}>{v === "esteira" ? "Esteira" : "Kanban"}</button>
+          ))}
+        </div>
+      </PageHeader>
+      {view === "kanban" ? (
+        <ProductionBoard />
+      ) : (
+      <>
       <FactoryStepsOverview />
       <LeadTimesCard />
       {total === 0 ? (
@@ -524,6 +539,8 @@ export function ProductionPage() {
             </Card>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

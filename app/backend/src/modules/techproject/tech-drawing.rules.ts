@@ -27,6 +27,11 @@ export type DrawingColumn = {
   /** chamada própria desta coluna, ao lado do móvel (ex.: "PORTAS DE GIRO EM ALUMÍNIO PRATA L 1180 X A 2349") */
   note?: string | null;
   /**
+   * Portas na frente da coluna inteira (nº de folhas). Na vista fechada a coluna sai
+   * como porta; o que está em `parts` é o interior e aparece na vista interna (aberta).
+   */
+  doors?: number;
+  /**
    * Mais de uma coisa na mesma coluna, de cima para baixo (ex.: maleiro, prateleiras,
    * gavetas). Com `parts`, os campos de tipo acima valem só como a primeira parte.
    */
@@ -45,6 +50,8 @@ export type DrawingPart = {
 };
 
 export const DRAWING_LAYOUTS = ["VISTA", "PRANCHA"] as const;
+/** Onde entram as imagens 3D: ao lado da vista ("VISTA A" do modelo) ou em folha própria ("PERSPECTIVA B"). */
+export const IMAGE_PLACEMENTS = ["LADO", "FOLHA"] as const;
 export type DrawingImage = { storageKey: string; fileName: string; mime: string };
 export const DRAWING_FINISHES = ["MADEIRA", "BRANCO", "CINZA", "PRETO"] as const;
 
@@ -69,6 +76,7 @@ export type DrawingSpec = {
   layout?: (typeof DRAWING_LAYOUTS)[number];
   /** imagens 3D (render) que entram ao lado da vista cotada, na mesma folha */
   images?: { closed?: DrawingImage | null; open?: DrawingImage | null };
+  imagesPlacement?: (typeof IMAGE_PLACEMENTS)[number];
   /** espessura das chapas em mm */
   thickness?: number;
   finish?: (typeof DRAWING_FINISHES)[number];
@@ -95,6 +103,8 @@ export type LaidColumn = {
   doors: number;
   /** as faixas ficam atrás das portas: só aparecem na vista interna */
   hidden: boolean;
+  /** portas na frente da coluna inteira (0 = não tem) */
+  cover: number;
   /** os trechos da coluna, de baixo para cima (um só, na coluna simples) */
   parts: LaidPart[];
   /** chapas que separam um trecho do outro (centro, a partir do chão) */
@@ -275,6 +285,7 @@ export function layoutDrawing(spec: DrawingSpec): DrawingLayout {
       bands,
       doors: Math.max(...parts.map((p) => p.doors)),
       hidden: parts.every((p) => p.hidden),
+      cover: Math.max(0, Math.min(6, Math.floor(c.doors || 0))),
       parts,
       separators,
     };
@@ -299,6 +310,25 @@ export function layoutDrawing(spec: DrawingSpec): DrawingLayout {
   const typedDims = /(^|\s)L\s*\d[\d.,]*\s*X\s*A\s*\d/i.test(spec.description);
   const callout = [...wrapWords(spec.description.trim().toUpperCase(), 26).slice(0, 4), ...(typedDims ? [] : [dims])];
   return { width, bodyWidth: body, height, top, base, columns, chain, callout, warnings, thickness: t, sideLeft, sideRight };
+}
+
+/** Há algo atrás de portas? Então a prancha sai com a vista fechada e a vista interna (aberta). */
+export function hasInside(L: DrawingLayout): boolean {
+  return L.columns.some((c) => c.cover > 0 || c.parts.some((p) => p.kind === "PORTAS" && p.bands.length > 0));
+}
+
+/**
+ * As imagens 3D vão para a folha de perspectiva quando a pessoa pediu ou quando a
+ * folha da vista já está ocupada pela vista fechada e a interna.
+ */
+export function imagesOnOwnSheet(spec: Pick<DrawingSpec, "imagesPlacement">, L: DrawingLayout): boolean {
+  return spec.imagesPlacement === "FOLHA" || hasInside(L);
+}
+
+/** Título da folha de perspectiva de uma vista: "VISTA B" → "PERSPECTIVA B". */
+export function perspectiveTitle(title: string): string {
+  const m = /^\s*VISTA\s+(.+?)(?:\s+INTERNA)?\s*$/i.exec(title);
+  return m ? `PERSPECTIVA ${m[1].toUpperCase()}` : `PERSPECTIVA — ${title.trim().toUpperCase()}`;
 }
 
 export function wrapWords(text: string, max: number): string[] {
