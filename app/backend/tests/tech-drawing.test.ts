@@ -137,11 +137,14 @@ test("anotações da prancha: só PNG de verdade é aceito e a anotação entra 
   const base = { client: "Cliente", project: { code: "P-1", name: "Suíte" }, specs: [], notes: [], issuedAt: new Date("2026-10-06T12:00:00Z") };
   const sem = await techFolderPdf({ ...base, sheets: [sheet] });
   const com = await techFolderPdf({ ...base, sheets: [{ ...sheet, overlayBytes: png }] });
-  assert.equal((await PDFDocument.load(com)).getPageCount(), 2);
+  // no modelo da loja a pasta não tem capa: é só a prancha
+  assert.equal((await PDFDocument.load(com)).getPageCount(), 1);
   assert.ok(com.length > sem.length + 1000);
+  // a capa com índice e numeração só entra quando pedem
+  assert.equal((await PDFDocument.load(await techFolderPdf({ ...base, cover: true, sheets: [sheet] }))).getPageCount(), 2);
   // anotação corrompida não derruba a pasta
   const ruim = await techFolderPdf({ ...base, sheets: [{ ...sheet, overlayBytes: Buffer.from("x") }] });
-  assert.equal((await PDFDocument.load(ruim)).getPageCount(), 2);
+  assert.equal((await PDFDocument.load(ruim)).getPageCount(), 1);
 });
 
 test("vista cotada: sapateira, maleiro e 'outros' com o nome escrito", () => {
@@ -212,4 +215,40 @@ test("pasta técnica: a próxima 'PRANCHA n' continua da maior, sem pular por ca
   assert.equal(nextSheetNumber([]), 1);
   assert.equal(nextSheetNumber([{ title: "PRANCHA 1" }, { title: "Prancha 4" }, { title: "VISTA A" }]), 5);
   assert.equal(nextSheetNumber([{ title: "VISTA A" }, { title: "PLANTA BAIXA" }]), 1);
+});
+
+test("modelo da loja: portas na frente da coluna, vista interna e folha de perspectiva", async () => {
+  const { hasInside, imagesOnOwnSheet, perspectiveTitle } = await import("../src/modules/techproject/tech-drawing.rules");
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const png = { bytes: fs.readFileSync(path.join(process.cwd(), "assets", "cronograma", "logo.png")), mime: "image/png" };
+  const part = (kind: string, count: number, height: number | null = null) => ({ kind: kind as never, count, heights: [], label: null, height });
+  // "VISTA B" do modelo: prateleiras à vista e, atrás de 2 portas, maleiro, cabideiro e gavetas
+  const comPortas: DrawingSpec = {
+    ...armario,
+    columns: [
+      { ...part("PRATELEIRAS", 5), width: 1360 },
+      { ...part("MALEIRO", 0), width: null, doors: 2, parts: [part("MALEIRO", 0, 400), part("VAO", 0), part("GAVETAS", 4, 800)] },
+    ],
+  };
+  const l = layoutDrawing(comPortas);
+  assert.deepEqual(l.columns.map((c) => c.cover), [0, 2]);
+  assert.equal(l.columns[1].parts.length, 3); // o interior continua desenhado para a vista aberta
+  assert.equal(hasInside(l), true);
+  assert.equal(hasInside(layoutDrawing(armario)), false);
+  // com vista interna, as imagens 3D sempre vão para a folha de perspectiva
+  assert.equal(imagesOnOwnSheet({}, l), true);
+  assert.equal(imagesOnOwnSheet({}, layoutDrawing(armario)), false);
+  assert.equal(imagesOnOwnSheet({ imagesPlacement: "FOLHA" }, layoutDrawing(armario)), true);
+
+  assert.equal((await drawingPdf(comPortas)).pages, 1); // sem imagem não há perspectiva
+  assert.equal((await drawingPdf(comPortas, { closed: png })).pages, 2);
+  assert.equal((await drawingPdf(armario, { closed: png })).pages, 1); // ao lado da vista, como a "VISTA A"
+  assert.equal((await drawingPdf({ ...armario, imagesPlacement: "FOLHA" }, { closed: png, open: png })).pages, 2);
+  // imagem ilegível não vira folha em branco
+  assert.equal((await drawingPdf(comPortas, { closed: { bytes: Buffer.from("x"), mime: "image/png" } })).pages, 1);
+
+  assert.equal(perspectiveTitle("VISTA B"), "PERSPECTIVA B");
+  assert.equal(perspectiveTitle("vista c interna"), "PERSPECTIVA C");
+  assert.equal(perspectiveTitle("Prancha 3"), "PERSPECTIVA — PRANCHA 3");
 });

@@ -29,6 +29,7 @@ test("IA do projeto técnico: o resumo traz medidas e colunas como foram digitad
     posicao: 1,
     largura_mm: 1360,
     observacao: null,
+    portas_na_frente: 0,
     trechos: [{ tipo: "prateleiras", nome: null, altura_mm: 2260, portas: 0, prateleiras: 5, gavetas: 0, alturas_mm: 6 }],
   });
   const portas = b.colunas[1];

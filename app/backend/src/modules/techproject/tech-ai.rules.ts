@@ -36,6 +36,7 @@ export type TechAiBrief = {
     posicao: number;
     largura_mm: number;
     observacao: string | null;
+    portas_na_frente: number;
     /** de cima para baixo; a coluna simples tem um trecho só */
     trechos: TechAiPart[];
   }[];
@@ -59,6 +60,8 @@ export function techAiBrief(spec: DrawingSpec, ctx: { client: string; room: stri
         posicao: i + 1,
         largura_mm: r1(c.width),
         observacao: clean(spec.columns[i]?.note) || null,
+        // portas na frente da coluna inteira: os trechos abaixo são o interior
+        portas_na_frente: c.cover,
         // o desenho guarda de baixo para cima; aqui vai na ordem em que foi digitado
         trechos: [...c.parts].reverse().map((p, j) => ({
           tipo: KIND[p.kind],
@@ -94,7 +97,8 @@ export function describeColumns(brief: TechAiBrief): string[] {
     const inner = brief.medidas_mm.altura - brief.medidas_mm.roda_teto - brief.medidas_mm.rodape;
     const share = (h: number) => (inner > 0 ? `, cerca de ${Math.round((h / inner) * 100)}% da altura` : "");
     const what = c.trechos.length > 1 ? `de cima para baixo: ${c.trechos.map((p) => `${describePart(p)} (${mm(p.altura_mm)} mm de altura${share(p.altura_mm)})`).join("; ")}` : describePart(c.trechos[0]);
-    return `Coluna ${c.posicao} (${mm(c.largura_mm)} mm de largura): ${what}${c.observacao ? ` — ${c.observacao}` : ""}.`;
+    const front = c.portas_na_frente > 0 ? `fechada por ${c.portas_na_frente} ${c.portas_na_frente > 1 ? "portas de abrir" : "porta de abrir"} na altura toda; por dentro, ` : "";
+    return `Coluna ${c.posicao} (${mm(c.largura_mm)} mm de largura): ${front}${what}${c.observacao ? ` — ${c.observacao}` : ""}.`;
   });
 }
 

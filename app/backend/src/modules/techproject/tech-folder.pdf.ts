@@ -61,6 +61,8 @@ export type TechFolderPdfInput = {
   issuedAt: Date;
   /** prévia de uma prancha só: sem "FOLHA 02/02" */
   hideSheetNumber?: boolean;
+  /** capa com índice e numeração das folhas (o modelo da loja não tem) */
+  cover?: boolean;
 };
 
 export async function techFolderPdf(d: TechFolderPdfInput): Promise<Buffer> {
@@ -89,10 +91,13 @@ export async function techFolderPdf(d: TechFolderPdfInput): Promise<Buffer> {
   // ---------------- capa e especificação: montadas antes para o índice saber as folhas
   const specPages: SpecBlock[][] = [];
   for (let i = 0; i < d.specs.length; i += 4) specPages.push(d.specs.slice(i, i + 4));
-  const index = sheetIndex(d.sheets, specPages.length);
-  const total = 1 + specPages.length + d.sheets.length;
+  const withCover = d.cover === true;
+  const numbered = withCover && !d.hideSheetNumber;
+  const index = sheetIndex(d.sheets, specPages.length, withCover);
+  const total = (withCover ? 1 : 0) + specPages.length + d.sheets.length;
   const ambientes = [...new Set([...d.specs.map((s) => s.room), ...sheetsByRoom(d.sheets).map((g) => g.room)])];
 
+  if (withCover) {
   const cover = doc.addPage([W, H]);
   if (logo) {
     const lh = 54;
@@ -130,6 +135,7 @@ export async function techFolderPdf(d: TechFolderPdfInput): Promise<Buffer> {
   for (const [i, n] of d.notes.filter(Boolean).slice(0, 4).entries()) text(cover, `• ${n}`.slice(0, 150), M + 30, STAMP.y + STAMP.h + 14 + (3 - i) * 12, 9, font, GRAY);
   stamp(cover, ambientes.join(", ").slice(0, 60) || d.project.name);
   right(cover, `FOLHA 01/${String(total).padStart(2, "0")}`, W - M, STAMP.y - 14, 8, font, GRAY);
+  }
 
   specPages.forEach((blocks, pi) => {
     const p = doc.addPage([W, H]);
@@ -155,7 +161,7 @@ export async function techFolderPdf(d: TechFolderPdfInput): Promise<Buffer> {
     });
     stamp(p, blocks.map((b) => b.room).join(", ").slice(0, 60));
     right(p, "ESPECIFICAÇÃO", W - M - 22, STAMP.y + STAMP.h + 10, 10);
-    right(p, `FOLHA ${String(2 + pi).padStart(2, "0")}/${String(total).padStart(2, "0")}`, W - M, STAMP.y - 14, 8, font, GRAY);
+    if (numbered) right(p, `FOLHA ${String(2 + pi).padStart(2, "0")}/${String(total).padStart(2, "0")}`, W - M, STAMP.y - 14, 8, font, GRAY);
   });
 
   // ---------------- pranchas
@@ -198,7 +204,7 @@ export async function techFolderPdf(d: TechFolderPdfInput): Promise<Buffer> {
     if (s.scale) text(p, s.scale, W / 2 - font.widthOfTextAtSize(s.scale, 8) / 2, baseY, 8);
     if (s.note) right(p, s.note, W - M - 22, baseY + 16, 9, font, RED);
     stamp(p, s.room);
-    if (!d.hideSheetNumber) right(p, folha, W - M, STAMP.y - 14, 8, font, GRAY);
+    if (numbered) right(p, folha, W - M, STAMP.y - 14, 8, font, GRAY);
   }
 
   return Buffer.from(await doc.save());

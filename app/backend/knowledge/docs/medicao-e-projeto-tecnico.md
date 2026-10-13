@@ -50,6 +50,16 @@ Perspectiva ou planta sozinha em uma folha continua sendo enviada em **Enviar pr
 
 Se as alturas não fecharem com o vão interno (altura menos topo e rodapé), o sistema desenha mesmo assim e avisa a diferença. Para mudar as medidas depois, use o botão de lápis e régua na prancha. O desenho é só a vista frontal em 2D: perspectiva e planta continuam vindo do Promob.
 
+## Modelo das folhas do projeto técnico
+O projeto técnico segue sempre o modelo da loja ("Projeto Técnico Suíte Master"): folha deitada com o carimbo laranja no rodapé (cliente e ambiente à esquerda, logotipo à direita), o título da folha no canto ("PLANTA BAIXA", "VISTA B", "PERSPECTIVA B") e a escala embaixo do desenho. A pasta começa direto nas folhas, sem capa e sem numeração; quem quiser a capa com índice e a numeração liga na seção **Capa (opcional)**.
+
+Cada vista desenhada por medidas sai assim:
+- **Vista fechada**: o móvel como é visto, com as portas, a chamada (descrição + L x A x P) com a linha e o ponto, as cotas em milímetros e os nomes em vermelho (PRATELEIRA, GAVETA, MALEIRO, SAPATEIRA).
+- **Vista interna**: quando há algo atrás de portas, a mesma folha traz ao lado a vista aberta, com o interior cotado. Para isso, em **Portas na frente (nº)** da coluna informe quantas portas fecham a coluna e descreva embaixo o que há dentro (maleiro, vão do cabideiro, gavetas…).
+- **Imagens 3D**: entram ao lado da vista, na mesma folha, ou em folha própria chamada **PERSPECTIVA** (escolha em **Onde entram**). Quando a folha já tem a vista interna, as imagens vão sempre para a folha de Perspectiva, que entra logo depois da vista.
+
+A planta baixa não é desenhada pelo sistema: envie a imagem ou o PDF e use o título PLANTA BAIXA.
+
 ## Preencher as medidas por foto (IA, em preparação)
 No topo da janela **Desenhar por medidas** há o botão **Preencher por foto (IA)**. Você envia a foto de um rascunho ou um print com as medidas escritas, e a IA preenche os campos: largura, altura, roda-teto, rodapé, fechamentos e o que tem em cada coluna. Nada é salvo sozinho: os campos ficam na tela para você conferir e corrigir, e um quadro amarelo mostra o que a IA não conseguiu ler ou teve de supor.
 

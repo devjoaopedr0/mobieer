@@ -18,7 +18,7 @@ import { getToken } from "@/services/api";
 
 type Sheet = { id: string; room: string; title: string; scale: string | null; note: string | null; fileName: string; mime: string; page: number | null; stamp: boolean; drawing?: DrawingSpec; annotated?: boolean };
 type Spec = { room: string; rows: { label: string; value: string }[]; description: string | null };
-type Folder = { sheets: Sheet[]; includeSpecs: boolean; notes: string[]; specs: Spec[]; rooms: string[]; quote: { number: string; status: string } | null; titles: string[]; scales: string[]; area?: { w: number; h: number }; ai?: { image: boolean; measures?: boolean } };
+type Folder = { sheets: Sheet[]; includeSpecs: boolean; notes: string[]; cover?: boolean; specs: Spec[]; rooms: string[]; quote: { number: string; status: string } | null; titles: string[]; scales: string[]; area?: { w: number; h: number }; ai?: { image: boolean; measures?: boolean } };
 
 /** Uma etapa da elaboração: número, título e uma frase dizendo o que se faz ali. */
 function Section({ n, title, description, children }: { n: number; title: string; description: string; children: React.ReactNode }) {
@@ -151,6 +151,8 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
   const [sheets, setSheets] = useState<Sheet[]>([]);
   const [includeSpecs, setIncludeSpecs] = useState(true);
   const [notes, setNotes] = useState("");
+  // capa com índice e numeração: o modelo da loja não tem, então começa desligada
+  const [cover, setCover] = useState(false);
   const [room, setRoom] = useState("");
   const [dirty, setDirty] = useState(false);
   // desenho por medidas: null = fechado; "new" = novo; ou a prancha em edição
@@ -164,16 +166,17 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
     setSheets(d.sheets);
     setIncludeSpecs(d.includeSpecs);
     setNotes(d.notes.join("\n"));
+    setCover(d.cover === true);
     setDirty(false);
     qc.setQueryData(key, { data: d });
   };
   useEffect(() => {
     const d = q.data?.data;
-    if (d && !dirty) { setSheets(d.sheets); setIncludeSpecs(d.includeSpecs); setNotes(d.notes.join("\n")); if (!room && d.rooms[0]) setRoom(d.rooms[0]); }
+    if (d && !dirty) { setSheets(d.sheets); setIncludeSpecs(d.includeSpecs); setNotes(d.notes.join("\n")); setCover(d.cover === true); if (!room && d.rooms[0]) setRoom(d.rooms[0]); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.data]);
 
-  const body = () => ({ sheets: sheets.map((s) => ({ id: s.id, room: s.room, title: s.title, scale: s.scale, note: s.note, stamp: s.stamp })), includeSpecs, notes: notes.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 4) });
+  const body = () => ({ sheets: sheets.map((s) => ({ id: s.id, room: s.room, title: s.title, scale: s.scale, note: s.note, stamp: s.stamp })), includeSpecs, notes: notes.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 4), cover });
   const fail = (e: unknown) => toast.error(errorMessage(e, "Não foi possível atualizar a pasta técnica"));
   const save = useMutation({ mutationFn: () => apiPut<{ data: Folder; message?: string }>(base, body()), onSuccess: (r) => { apply(r.data); toast.success(r.message ?? "Pasta técnica salva"); }, onError: fail });
   const upload = useMutation({
@@ -314,8 +317,12 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
         </div>
         </Section>
 
-        <Section n={4} title="Capa" description="A capa sai com cliente, projeto, ambientes e o índice das folhas. Aqui entram as observações dela.">
-        <div className="space-y-1">
+        <Section n={4} title="Capa (opcional)" description="O modelo da loja começa direto nas folhas, sem capa. Ligue se quiser uma capa com cliente, projeto, ambientes, índice e a numeração das folhas.">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4" checked={cover} disabled={!canManage} onChange={(e) => { setCover(e.target.checked); setDirty(true); }} />
+          Incluir capa com índice e numerar as folhas (FOLHA 01/05)
+        </label>
+        <div className={cover ? "space-y-1" : "hidden"}>
           <Label className="text-xs">Observações da capa (uma por linha, até 4)</Label>
           <Textarea rows={2} disabled={!canManage} placeholder="Ex.: Prateleira e fechamento maiores para galgar in loco." value={notes} onChange={(e) => { setNotes(e.target.value); setDirty(true); }} />
         </div>

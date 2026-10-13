@@ -23,9 +23,10 @@ export type DrawingSpec = {
   base: number;
   sideLeft?: number;
   sideRight?: number;
-  columns: { kind: Kind; width: number | null; count: number; heights: number[]; label: string | null; shelves?: number; note?: string | null; parts?: { kind: Kind; count: number; heights: number[]; label: string | null; shelves?: number; height?: number | null }[] }[];
+  columns: { kind: Kind; width: number | null; count: number; heights: number[]; label: string | null; shelves?: number; note?: string | null; doors?: number; parts?: { kind: Kind; count: number; heights: number[]; label: string | null; shelves?: number; height?: number | null }[] }[];
   layout?: "VISTA" | "PRANCHA";
   images?: { closed?: Img | null; open?: Img | null };
+  imagesPlacement?: "LADO" | "FOLHA";
   thickness?: number;
   finish?: Finish;
   shelfDepth?: number | null;
@@ -41,9 +42,10 @@ const COUNT_LABEL: Record<Kind, string> = { PRATELEIRAS: "Nº de prateleiras", P
 
 /** um trecho da coluna, de cima para baixo */
 type Part = { kind: Kind; count: string; heights: string; shelves: string; label: string; height: string };
-type Col = { width: string; note: string; parts: Part[] };
+/** `doors`: portas na frente da coluna inteira; os trechos são o interior */
+type Col = { width: string; note: string; doors: string; parts: Part[] };
 const newPart = (kind: Kind): Part => ({ kind, count: kind === "PORTAS" ? "2" : kind === "MALEIRO" || kind === "OUTROS" || kind === "VAO" ? "0" : kind === "GAVETAS" ? "4" : "5", heights: "", shelves: "0", label: "", height: "" });
-type Form = { room: string; title: string; scale: string; description: string; width: string; height: string; depth: string; top: string; base: string; sideLeft: string; sideRight: string; columns: Col[]; layout: "VISTA" | "PRANCHA"; closed: Img | null; open: Img | null; thickness: string; finish: Finish; shelfDepth: string; specs: string };
+type Form = { room: string; title: string; scale: string; description: string; width: string; height: string; depth: string; top: string; base: string; sideLeft: string; sideRight: string; columns: Col[]; layout: "VISTA" | "PRANCHA"; closed: Img | null; open: Img | null; placement: "LADO" | "FOLHA"; thickness: string; finish: Finish; shelfDepth: string; specs: string };
 
 const num = (s: string) => Number(s.trim().replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")) || 0;
 const show = (n: number | null | undefined) => (n ? String(n).replace(".", ",") : "");
@@ -57,6 +59,7 @@ const emptyForm = (room: string): Form => ({
   layout: "PRANCHA",
   closed: null,
   open: null,
+  placement: "LADO",
   thickness: "15,5",
   finish: "MADEIRA",
   shelfDepth: "",
@@ -69,7 +72,7 @@ const emptyForm = (room: string): Form => ({
   base: "",
   sideLeft: "",
   sideRight: "",
-  columns: [{ width: "", note: "", parts: [newPart("PRATELEIRAS")] }],
+  columns: [{ width: "", note: "", doors: "0", parts: [newPart("PRATELEIRAS")] }],
 });
 
 const fromSheet = (s: DrawingSheet): Form => ({
@@ -87,12 +90,14 @@ const fromSheet = (s: DrawingSheet): Form => ({
   columns: s.drawing!.columns.map((c) => ({
     width: show(c.width),
     note: c.note ?? "",
+    doors: String(c.doors ?? 0),
     // coluna antiga (um tipo só) vira um trecho
     parts: (c.parts?.length ? c.parts : [c]).map((p) => ({ kind: p.kind, count: String(p.count), heights: p.heights.map((h) => show(h)).join("; "), shelves: String(p.shelves ?? 0), label: p.label ?? "", height: show("height" in p ? p.height : null) })),
   })),
   layout: s.drawing!.layout ?? "VISTA",
   closed: s.drawing!.images?.closed ?? null,
   open: s.drawing!.images?.open ?? null,
+  placement: s.drawing!.imagesPlacement ?? "LADO",
   thickness: show(s.drawing!.thickness) || "15,5",
   finish: s.drawing!.finish ?? "MADEIRA",
   shelfDepth: show(s.drawing!.shelfDepth),
@@ -129,7 +134,7 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
       const { spec, doubts, warnings } = r.data;
       if (spec) {
         // ambiente, título, escala e imagens 3D continuam os que já estavam na tela
-        setF((cur) => ({ ...fromSheet({ id: "", room: cur.room, title: cur.title, scale: cur.scale, drawing: spec }), closed: cur.closed, open: cur.open, layout: cur.layout }));
+        setF((cur) => ({ ...fromSheet({ id: "", room: cur.room, title: cur.title, scale: cur.scale, drawing: spec }), closed: cur.closed, open: cur.open, layout: cur.layout, placement: cur.placement }));
         toast.success("Medidas preenchidas pela IA. Confira antes de salvar.");
       } else toast.error("Não consegui ler as medidas desta imagem.");
       setAiNotes([...doubts, ...warnings]);
@@ -194,10 +199,11 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
           columns: f.columns.map((c) => {
             const parts = c.parts.map((p) => ({ kind: p.kind, count: p.kind === "VAO" ? 0 : Math.round(num(p.count)), heights: heightsOf(p.heights), label: p.kind === "OUTROS" ? p.label.trim() || null : null, shelves: p.kind === "PORTAS" ? Math.round(num(p.shelves)) : 0, height: num(p.height) || null }));
             // o primeiro trecho também vai nos campos da coluna, que é como as pranchas antigas estão guardadas
-            return { ...parts[0], width: num(c.width) || null, note: c.note.trim() || null, parts };
+            return { ...parts[0], width: num(c.width) || null, note: c.note.trim() || null, doors: Math.max(0, Math.round(num(c.doors)) || 0), parts };
           }),
           layout: f.layout,
           images: { closed: f.closed, open: f.open },
+          imagesPlacement: f.placement,
           thickness: num(f.thickness) || 15.5,
           finish: f.finish,
           shelfDepth: num(f.shelfDepth) || null,
@@ -248,7 +254,17 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
           </div>
           {(
             <div className="space-y-1">
-              <Label className="text-xs">Imagens 3D (PNG ou JPG) — opcional; entram ao lado da vista, na mesma folha</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label className="text-xs">Imagens 3D (PNG ou JPG) — opcional</Label>
+                <label className="flex items-center gap-2 text-xs">
+                  Onde entram
+                  <select aria-label="Onde entram as imagens 3D" className="h-8 rounded-md border bg-background px-2 text-xs" value={f.placement} onChange={(e) => set("placement", e.target.value as Form["placement"])}>
+                    <option value="LADO">Ao lado da vista, na mesma folha</option>
+                    <option value="FOLHA">Em folha própria (Perspectiva)</option>
+                  </select>
+                </label>
+              </div>
+              {f.columns.some((c) => Math.round(num(c.doors)) > 0 || c.parts.some((p) => p.kind === "PORTAS" && Math.round(num(p.shelves)) > 0)) && <p className="text-xs text-muted-foreground">Este móvel tem vista interna (portas abertas), que ocupa a folha ao lado da vista fechada: as imagens 3D saem na folha de Perspectiva.</p>}
               <div className="grid gap-2 sm:grid-cols-2">
                 {([["closed", "Imagem 3D"], ["open", "Segunda imagem 3D"]] as const).map(([slot, label]) => (
                   <div key={slot} className="rounded-lg border p-2.5">
@@ -305,7 +321,7 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs">Colunas, da esquerda para a direita</Label>
-              <Button type="button" size="sm" variant="outline" disabled={f.columns.length >= 8} onClick={() => set("columns", [...f.columns, { width: "", note: "", parts: [newPart("PORTAS")] }])}>
+              <Button type="button" size="sm" variant="outline" disabled={f.columns.length >= 8} onClick={() => set("columns", [...f.columns, { width: "", note: "", doors: "0", parts: [newPart("PORTAS")] }])}>
                 <Plus className="mr-1 h-3.5 w-3.5" /> Coluna
               </Button>
             </div>
@@ -314,6 +330,7 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
                 <div className="flex items-end gap-2">
                   <p className="pb-2 text-xs font-medium">Coluna {i + 1}</p>
                   <div className="w-40 space-y-1"><Label className="text-xs">Largura da coluna</Label><Input inputMode="decimal" value={c.width} placeholder="o que sobrar" onChange={(e) => setCol(i, { width: e.target.value })} /></div>
+                  <div className="w-44 space-y-1"><Label className="text-xs" title="Portas que fecham a coluna inteira. Na vista fechada a coluna sai como porta; o que você descrever abaixo é o interior e sai na vista interna (aberta), ao lado.">Portas na frente (nº)</Label><Input inputMode="numeric" value={c.doors} placeholder="0 = sem portas" onChange={(e) => setCol(i, { doors: e.target.value })} /></div>
                   <Button type="button" variant="ghost" size="icon" className="ml-auto h-9 w-9" disabled={f.columns.length === 1} title="Remover coluna" onClick={() => set("columns", f.columns.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>
                 </div>
                 {i > 0 && (
