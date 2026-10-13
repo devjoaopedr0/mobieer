@@ -7,13 +7,13 @@ Menu **Medições**, ou a aba **Medição** dentro do projeto. Cada visita de me
 - Na visita é possível anexar fotos e usar a **prancheta de desenho**: desenhar à mão, tirar uma foto na hora ou escolher da galeria e desenhar por cima, e anotar fotos já anexadas.
 
 ## Pasta técnica
-Fica na aba **Projeto técnico** do projeto, no cartão **Pasta técnica**. O sistema monta o PDF do projeto executivo com:
+Fica na aba **Elaboração do projeto**, dentro do projeto. A tela é dividida em cinco seções numeradas: 1. Especificação, 2. Adicionar folhas, 3. Folhas da pasta, 4. Capa e 5. Gerar a pasta. O sistema monta o PDF do projeto executivo com:
 - **capa** com cliente, projeto, ambientes e índice de folhas;
 - **folha de especificação**, preenchida sozinha com os acabamentos do orçamento do projeto (caixaria, portas e frentes, puxador, complemento, modelo);
 - **pranchas**: as imagens exportadas do Promob (planta baixa, vistas, perspectiva). Cada imagem recebe o carimbo da loja com cliente, ambiente e logotipo, mais o título e a escala.
 
 Como montar:
-1. No cartão Pasta técnica, informe o ambiente e clique em **Enviar pranchas do Promob** (imagens PNG ou JPG, ou o PDF exportado).
+1. Na seção 2. Adicionar folhas, informe o ambiente e clique em **Enviar pranchas do Promob** (imagens PNG ou JPG, ou o PDF exportado).
 2. Ajuste o título, o ambiente, a escala e a observação de cada prancha; use as setas para mudar a ordem.
 3. Clique em **Gerar PDF** para conferir.
 4. Clique em **Salvar nos documentos** para guardar a pasta nos documentos do projeto.
@@ -21,7 +21,7 @@ Como montar:
 PDF exportado do Promob entra página por página. Se a página já vem com carimbo, desmarque a opção Carimbo daquela prancha.
 
 ## Desenhar por medidas (vista cotada sem o Promob)
-No cartão **Pasta técnica** há o botão **Desenhar por medidas**. Você digita as medidas em milímetros e o sistema desenha a vista frontal do móvel com as cotas, e coloca como uma prancha da pasta:
+Na seção **2. Adicionar folhas** há o botão **Desenhar por medidas**. Você digita as medidas em milímetros e o sistema desenha a vista frontal do móvel com as cotas, e coloca como uma prancha da pasta:
 1. Informe o ambiente, o título da prancha (ex.: VISTA A INTERNA) e a escala.
 2. Escreva a descrição do móvel (sai na chamada, junto com L x A x P) e informe largura, altura, profundidade, roda-teto e rodapé.
 3. Monte as colunas, da esquerda para a direita. Cada coluna pode ter **prateleiras**, **portas**, **gavetas** ou ser um **vão livre**. Largura em branco fica com o que sobrar.
@@ -61,6 +61,8 @@ Cada prancha da pasta técnica tem o botão **Anotar** (o lápis). Ele abre a pr
 As anotações ficam numa camada separada: a borracha nunca apaga o desenho, e dá para reabrir e continuar depois. Elas saem no PDF da pasta técnica no mesmo lugar. Funciona em imagem, em PDF e nas pranchas desenhadas por medidas; só não vale para página de PDF que entra sem o carimbo da loja.
 
 ## Aprovação do projeto técnico
+Fica na aba **Aprovação do cliente**, separada da elaboração: a elaboração é o trabalho de montar a pasta; a aprovação é o envio ao cliente e o retorno dele.
+
 Na mesma aba fica a aprovação: a equipe publica o projeto técnico para o cliente, que aprova ou pede ajustes pelo portal. Cada rodada fica registrada com data, quem decidiu e o comentário do cliente. Com a aprovação, o projeto pode ser liberado para produção.
 
 ## Render com IA

@@ -10,7 +10,7 @@ No Financeiro, use o botão Ler boleto: digite a linha digitável, use a câmera
 No menu Compras de materiais, com o filtro Com pendência. A lista de um projeto específico fica na aba Materiais do projeto.
 
 ## Como gero a pasta técnica?
-No projeto, aba Projeto técnico, cartão Pasta técnica: envie as pranchas do Promob, ajuste títulos e escalas e clique em Gerar PDF.
+No projeto, aba Elaboração do projeto: envie as pranchas do Promob, ajuste títulos e escalas e clique em Gerar PDF.
 
 ## Como imprimo as etiquetas da produção?
 No projeto, aba Produção, use o botão de etiquetas e escolha folha A4 ou impressora térmica.
