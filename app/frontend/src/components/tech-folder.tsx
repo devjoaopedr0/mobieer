@@ -18,7 +18,7 @@ import { getToken } from "@/services/api";
 
 type Sheet = { id: string; room: string; title: string; scale: string | null; note: string | null; fileName: string; mime: string; page: number | null; stamp: boolean; drawing?: DrawingSpec; annotated?: boolean };
 type Spec = { room: string; rows: { label: string; value: string }[]; description: string | null };
-type Folder = { sheets: Sheet[]; includeSpecs: boolean; notes: string[]; specs: Spec[]; rooms: string[]; quote: { number: string; status: string } | null; titles: string[]; scales: string[]; area?: { w: number; h: number }; ai?: { image: boolean } };
+type Folder = { sheets: Sheet[]; includeSpecs: boolean; notes: string[]; specs: Spec[]; rooms: string[]; quote: { number: string; status: string } | null; titles: string[]; scales: string[]; area?: { w: number; h: number }; ai?: { image: boolean; measures?: boolean } };
 
 /** Uma etapa da elaboração: número, título e uma frase dizendo o que se faz ali. */
 function Section({ n, title, description, children }: { n: number; title: string; description: string; children: React.ReactNode }) {
@@ -330,7 +330,7 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
         </Section>
       </CardContent>
       <AnnotateDialog base={base} sheet={annotating} aspect={d.area ? d.area.w / d.area.h : 801.92 / 453.32} onClose={() => setAnnotating(null)} onSaved={apply} />
-      <TechDrawingDialog<Folder> base={base} open={drawing !== null} onClose={() => setDrawing(null)} onSaved={apply} sheet={drawing && drawing !== "new" ? drawing : null} defaultRoom={room.trim() || d.rooms[0] || ""} aiImage={d.ai?.image} />
+      <TechDrawingDialog<Folder> base={base} open={drawing !== null} onClose={() => setDrawing(null)} onSaved={apply} sheet={drawing && drawing !== "new" ? drawing : null} defaultRoom={room.trim() || d.rooms[0] || ""} aiImage={d.ai?.image} aiMeasures={d.ai?.measures} />
     </Card>
   );
 }

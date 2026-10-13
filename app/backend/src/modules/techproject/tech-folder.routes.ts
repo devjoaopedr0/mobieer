@@ -9,6 +9,7 @@
  *   POST /drawings            desenha uma vista cotada a partir das medidas
  *   PUT  /drawings/:sheetId   refaz o desenho com medidas novas
  *   GET/PUT/DELETE /sheets/:sheetId/overlay   anotações por cima da prancha
+ *   POST /ai-measures                a IA lê uma foto/rascunho e devolve as medidas para conferir
  *   GET  /sheets/:sheetId/ai-brief   o móvel em dados + a instrução para a IA
  *   POST /sheets/:sheetId/ai-image   a IA gera a imagem 3D a partir da vista cotada
  *   GET  /sheets/:sheetId/preview.pdf   só esta prancha, já com o carimbo
@@ -34,6 +35,9 @@ import { ApiError } from "../../utils/ApiError";
 import { hitLimit, type RateStore } from "../../utils/rate-limit";
 import { AiProviderError } from "../ai/provider";
 import { imageProvider } from "../ai/provider/image";
+import { visionProvider } from "../ai/provider/vision";
+import { parseAiMeasures, techMeasuresPrompt } from "./tech-ai-measures.rules";
+import { layoutDrawing } from "./tech-drawing.rules";
 import { MAX_AI_EXTRA_CHARS, TECH_AI_VIEWS, techAiBrief, techAiPrompt } from "./tech-ai.rules";
 import { COLUMN_KINDS, DRAWING_FINISHES, DRAWING_LAYOUTS, DrawingError, type DrawingImage, type DrawingSpec } from "./tech-drawing.rules";
 import { SCALES, SHEET_AREA, SHEET_TITLES, nextSheetNumber, pngFromDataUrl, specBlocks, titleFromFile, type TechFolderData, type TechSheet } from "./tech-folder.rules";
@@ -84,7 +88,7 @@ function view(p: Awaited<ReturnType<typeof projectFor>>, data: TechFolderData) {
   const rooms = [...new Set([...specs.map((s) => s.room), ...(quote?.items ?? []).map((i) => i.room?.trim()).filter((r): r is string => Boolean(r))])];
   // a tela só precisa saber se a prancha tem anotação, não onde o arquivo está
   const sheets = data.sheets.map((s) => ({ ...s, overlay: undefined, annotated: Boolean(s.overlay) }));
-  return { ...data, sheets, specs, rooms, quote: quote ? { number: quote.number, status: quote.status } : null, titles: SHEET_TITLES, scales: SCALES, area: SHEET_AREA, ai: { image: imageProvider().enabled } };
+  return { ...data, sheets, specs, rooms, quote: quote ? { number: quote.number, status: quote.status } : null, titles: SHEET_TITLES, scales: SCALES, area: SHEET_AREA, ai: { image: imageProvider().enabled, measures: visionProvider().enabled } };
 }
 
 router.get(
@@ -344,6 +348,49 @@ router.get(
 /** Cada imagem custa uma chamada paga de geração de imagem. */
 const AI_LIMIT = { windowMs: 60 * 60_000, max: 20 };
 const aiStore: RateStore = new Map();
+
+// "Preencher por foto": a IA lê o rascunho e devolve as medidas. Não grava nada —
+// a resposta só preenche o formulário, e quem salva é a pessoa, depois de conferir.
+router.post(
+  "/projects/:projectId/tech-folder/ai-measures",
+  requirePermission("organization.manage"),
+  uploadDocument.single("file"),
+  asyncHandler(async (req, res) => {
+    const p = await projectFor(req.params.projectId, req.user!.organizationId);
+    if (!visionProvider().enabled) throw new BadRequestError("A leitura por IA ainda não está configurada neste ambiente (falta a chave GEMINI_API_KEY). Enquanto isso, digite as medidas.");
+    if (!req.file || !/^image\/(png|jpe?g|webp)$/i.test(req.file.mimetype)) throw new BadRequestError("Envie uma foto ou imagem (PNG, JPG ou WEBP) do rascunho ou da prancha.");
+
+    const limit = hitLimit(aiStore, `tech-ai:${req.user!.id}`, AI_LIMIT);
+    if (!limit.allowed) throw new ApiError(429, `Limite de usos da IA por hora atingido. Tente de novo em ${Math.ceil(limit.retryAfterSec / 60)} minutos.`, undefined, "RATE_LIMITED");
+
+    const started = Date.now();
+    let raw: string;
+    try {
+      raw = await visionProvider().readJson({ bytes: req.file.buffer, mime: req.file.mimetype, prompt: techMeasuresPrompt() });
+    } catch (e) {
+      if (e instanceof AiProviderError) {
+        console.warn("[projeto-tecnico-ia] measures provider error", JSON.stringify({ status: e.status ?? null, detail: e.detail ?? e.message }));
+        throw new ApiError(e.status === 429 ? 429 : 502, e.status === 429 ? "A IA está com muitas solicitações agora. Tente de novo em instantes." : `Não consegui ler a imagem: ${e.status ? "a IA recusou ou falhou" : e.message}.`, undefined, e.status === 429 ? "RATE_LIMITED" : "EXTERNAL_SERVICE_ERROR");
+      }
+      throw e;
+    }
+    const out = parseAiMeasures(raw);
+    console.info("[projeto-tecnico-ia] measures read", JSON.stringify({ project: p.code, ms: Date.now() - started, ok: Boolean(out.spec), doubts: out.doubts.length }));
+
+    // o que o desenho diria destas medidas (avisos e erros), para a pessoa já ver ao conferir
+    const warnings: string[] = [];
+    if (out.spec && out.spec.width > 0 && out.spec.height > 0) {
+      try {
+        warnings.push(...layoutDrawing(out.spec).warnings);
+      } catch (e) {
+        if (e instanceof DrawingError) warnings.push(e.message);
+        else throw e;
+      }
+    }
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action: "TECH_AI_MEASURES_READ", entity: "Project", entityId: p.id, details: { ok: Boolean(out.spec), doubts: out.doubts.length } } });
+    return ok(res, { spec: out.spec, doubts: out.doubts, warnings }, out.spec ? "Medidas lidas. Confira antes de salvar." : "Não consegui ler as medidas desta imagem.");
+  })
+);
 
 router.get(
   "/projects/:projectId/tech-folder/sheets/:sheetId/ai-brief",

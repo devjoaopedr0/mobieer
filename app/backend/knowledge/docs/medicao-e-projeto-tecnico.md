@@ -50,6 +50,11 @@ Perspectiva ou planta sozinha em uma folha continua sendo enviada em **Enviar pr
 
 Se as alturas não fecharem com o vão interno (altura menos topo e rodapé), o sistema desenha mesmo assim e avisa a diferença. Para mudar as medidas depois, use o botão de lápis e régua na prancha. O desenho é só a vista frontal em 2D: perspectiva e planta continuam vindo do Promob.
 
+## Preencher as medidas por foto (IA, em preparação)
+No topo da janela **Desenhar por medidas** há o botão **Preencher por foto (IA)**. Você envia a foto de um rascunho ou um print com as medidas escritas, e a IA preenche os campos: largura, altura, roda-teto, rodapé, fechamentos e o que tem em cada coluna. Nada é salvo sozinho: os campos ficam na tela para você conferir e corrigir, e um quadro amarelo mostra o que a IA não conseguiu ler ou teve de supor.
+
+A IA só usa números que estão escritos na imagem; o que não estiver escrito fica em branco para você digitar. O botão só funciona quando a chave da IA (GEMINI_API_KEY) está configurada no servidor; sem ela, fica desativado e as medidas são digitadas normalmente.
+
 ## Imagem 3D gerada por IA (em preparação)
 Na tela **Desenhar por medidas**, cada espaço de imagem 3D tem o botão **Gerar com IA**. A IA recebe a vista cotada já salva e as medidas digitadas, e devolve a perspectiva do móvel (fechado ou aberto), que entra ao lado da vista na mesma folha. Ela não pode mudar medidas, quantidade nem posição de portas, prateleiras e gavetas.
 

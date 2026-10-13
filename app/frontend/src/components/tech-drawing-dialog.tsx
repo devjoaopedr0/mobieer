@@ -103,10 +103,11 @@ const fromSheet = (s: DrawingSheet): Form => ({
  * Desenho por medidas: a pessoa digita largura, altura, topo, rodapé e o que há
  * em cada coluna, e o sistema gera a vista cotada como uma prancha da pasta.
  */
-export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defaultRoom, aiImage }: { base: string; open: boolean; onClose: () => void; onSaved: (data: T) => void; sheet: DrawingSheet | null; defaultRoom: string; /** a IA de imagem está configurada no servidor */ aiImage?: boolean }) {
+export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defaultRoom, aiImage, aiMeasures }: { base: string; open: boolean; onClose: () => void; onSaved: (data: T) => void; sheet: DrawingSheet | null; defaultRoom: string; /** a IA de imagem está configurada no servidor */ aiImage?: boolean; /** a IA que lê foto e preenche as medidas está configurada */ aiMeasures?: boolean }) {
   const [f, setF] = useState<Form>(emptyForm(defaultRoom));
   useEffect(() => {
     if (open) setF(sheet?.drawing ? fromSheet(sheet) : emptyForm(defaultRoom));
+    if (open) setAiNotes(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, sheet?.id]);
 
@@ -116,6 +117,28 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
 
   const inner = num(f.height) - num(f.top) - num(f.base);
   const [uploading, setUploading] = useState<"closed" | "open" | null>(null);
+  // "Preencher por foto": a IA lê o rascunho e devolve as medidas; nada é salvo até a pessoa conferir
+  const [reading, setReading] = useState(false);
+  const [aiNotes, setAiNotes] = useState<string[] | null>(null);
+  const readPhoto = async (file: File) => {
+    setReading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await apiPostForm<{ data: { spec: DrawingSpec | null; doubts: string[]; warnings: string[] }; message?: string }>(`${base}/ai-measures`, form);
+      const { spec, doubts, warnings } = r.data;
+      if (spec) {
+        // ambiente, título, escala e imagens 3D continuam os que já estavam na tela
+        setF((cur) => ({ ...fromSheet({ id: "", room: cur.room, title: cur.title, scale: cur.scale, drawing: spec }), closed: cur.closed, open: cur.open, layout: cur.layout }));
+        toast.success("Medidas preenchidas pela IA. Confira antes de salvar.");
+      } else toast.error("Não consegui ler as medidas desta imagem.");
+      setAiNotes([...doubts, ...warnings]);
+    } catch (e) {
+      toast.error(errorMessage(e, "Não foi possível ler a imagem com a IA"));
+    } finally {
+      setReading(false);
+    }
+  };
   // IA: a vista cotada já salva vira imagem aqui na tela e vai para o servidor, que chama a IA
   const [generating, setGenerating] = useState<"closed" | "open" | null>(null);
   const generate = async (slot: "closed" | "open") => {
@@ -206,6 +229,23 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
+          <div className="rounded-lg border border-dashed p-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium ${aiMeasures && !reading ? "cursor-pointer hover:bg-muted" : "cursor-not-allowed opacity-50"}`} title={aiMeasures ? "Envie a foto de um rascunho ou um print com as medidas escritas" : "A leitura por IA ainda não está configurada (falta a chave GEMINI_API_KEY no servidor)"}>
+                {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Preencher por foto (IA)
+                <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={!aiMeasures || reading} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void readPhoto(file); }} />
+              </label>
+              <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                {aiMeasures ? "Envie a foto do rascunho ou um print com as medidas escritas. A IA preenche os campos abaixo e você confere antes de salvar." : "Aguardando a chave da IA no servidor. Enquanto isso, digite as medidas abaixo."}
+              </p>
+            </div>
+            {aiNotes && (
+              <div className="mt-2 rounded-md bg-warning/15 p-2.5 text-xs">
+                <p className="font-medium">Confira as medidas: a IA pode ler um número errado.</p>
+                {aiNotes.length > 0 && <ul className="mt-1 list-disc space-y-0.5 pl-4">{aiNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+              </div>
+            )}
+          </div>
           {(
             <div className="space-y-1">
               <Label className="text-xs">Imagens 3D (PNG ou JPG) — opcional; entram ao lado da vista, na mesma folha</Label>
