@@ -17,6 +17,7 @@ import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { getOrCreateOrder } from "./production.service";
 import { ensureSteps, ensureStepsForOpenOrders, impliedStage, loadStepDays, notifyStep, STEP_DAYS_SETTING, syncOrderStage } from "./steps.service";
+import { EXTRA_FRONTS, FRONT_STATUS_LABEL, frontLabel, type FrontStatus } from "./fronts.rules";
 import { STEP_LABEL, STEP_ORDER, STEP_STATUS_LABEL, currentStep, daysLate, isOpenStep, nextStepStatus, planBoardMove, type StepAction } from "./steps.rules";
 
 const router = Router();
@@ -132,6 +133,7 @@ router.get(
         estimatedDeliveryAt: true,
         project: { select: { id: true, code: true, name: true, client: { select: { name: true } } } },
         steps: { select: { id: true, step: true, position: true, status: true, dueAt: true, blockedReason: true, responsible: { select: { id: true, name: true } } }, orderBy: { position: "asc" } },
+        fronts: { select: { front: true, status: true }, orderBy: { createdAt: "asc" } },
       },
       orderBy: { estimatedDeliveryAt: { sort: "asc", nulls: "last" } },
       take: 300,
@@ -153,10 +155,12 @@ router.get(
         done: counted.filter((s) => s.status === "DONE").length,
         total: counted.length,
         estimatedDeliveryAt: o.estimatedDeliveryAt,
+        // frentes em paralelo à marcenaria (metalon, peças especiais, vidro)
+        fronts: o.fronts.map((f) => ({ front: f.front, label: frontLabel(f.front), status: f.status, statusLabel: FRONT_STATUS_LABEL[f.status as FrontStatus] ?? f.status })),
       };
     });
     const columns = [...STEP_ORDER.map((step) => ({ key: step as string, label: STEP_LABEL[step] })), { key: "CONCLUIDO", label: "Pronto para entrega" }];
-    return ok(res, { columns, cards });
+    return ok(res, { columns, cards, fronts: EXTRA_FRONTS });
   })
 );
 

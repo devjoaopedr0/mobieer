@@ -57,6 +57,7 @@ import promobRoutes from "./modules/promob/promob.routes";
 import workspaceRoutes from "./modules/workspace/workspace.routes";
 import purchasesRoutes from "./modules/purchases/purchases.routes";
 import productionStepsRoutes from "./modules/production/steps.routes";
+import productionFrontsRoutes from "./modules/production/fronts.routes";
 import filesRoutes from "./modules/files/files.routes";
 import aftersalesRoutes from "./modules/aftersales/aftersales.routes";
 import productivityRoutes from "./modules/productivity/productivity.routes";
@@ -193,6 +194,7 @@ export function createApp() {
   app.use("/api/production", renderRoutes);
   app.use("/api/weekly", weeklyRoutes);
   app.use("/api/production", productionStepsRoutes);
+  app.use("/api/production", productionFrontsRoutes);
   app.use("/api/fiscal/import", fiscalImportRoutes);
   app.use("/api/fiscal", fiscalRoutes);
   app.use("/api/promob", promobRoutes);

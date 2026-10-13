@@ -155,6 +155,7 @@ model User {
   purchaseOrders        PurchaseOrder[]       @relation("PurchaseOrderCreator")
   purchaseReceipts      PurchaseReceipt[]     @relation("PurchaseReceiver")
   productionSteps       ProductionStep[]      @relation("ProductionStepResponsible")
+  productionFronts      ProductionFront[]     @relation("ProductionFrontResponsible")
   fileRecords           FileRecord[]          @relation("FileRecordAuthor")
   siteInspectionsAsTechnician SiteInspection[] @relation("SiteInspectionTechnician")
   siteInspectionsCreated SiteInspection[] @relation("SiteInspectionCreator")
@@ -2899,6 +2900,7 @@ model ProductionOrder {
   requisitions        Requisition[]
   dispatchChecklist   DispatchChecklist?
   steps               ProductionStep[]
+  fronts              ProductionFront[]
 
   @@index([organizationId, stage])
 }
@@ -3873,6 +3875,25 @@ model ProductionPlanTask {
   updatedAt      DateTime     @default(now())
 
   @@index([organizationId, date])
+}
+
+/// Frente de produção que corre em paralelo à marcenaria no mesmo pedido.
+model ProductionFront {
+  id            String          @id @default(cuid())
+  orderId       String
+  order         ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  front         String // METALON | PECAS_ESPECIAIS | PORTAS_VIDRO (ver fronts.rules)
+  status        String          @default("PENDING") // PENDING | IN_PROGRESS | DONE
+  responsibleId String?
+  responsible   User?           @relation("ProductionFrontResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  dueAt         DateTime?
+  notes         String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @default(now())
+
+  @@unique([orderId, front])
 }
 
 /// Linha de uma fatura de cartão: onde foi gasto e quanto.

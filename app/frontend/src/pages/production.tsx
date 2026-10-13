@@ -21,6 +21,7 @@ import { ProductionItemsPanel } from "./production-items";
 import { LeadTimesCard } from "@/components/lead-times";
 import { FactoryStepsOverview, ProductionStepsCard } from "@/components/production-steps";
 import { ProductionBoard } from "@/components/production-board";
+import { ProductionFrontsCard } from "@/components/production-fronts";
 
 export const PRODUCTION_STAGES = ["RELEASED", "IN_PRODUCTION", "PRE_ASSEMBLY", "OUT_FOR_DELIVERY", "DELIVERED"] as const;
 export type ProductionStage = (typeof PRODUCTION_STAGES)[number];
@@ -378,6 +379,7 @@ export function ProductionProjectPanel({ projectId, canManage }: { projectId: st
       </Card>
 
       <ProductionStepsCard projectId={projectId} canEdit={canManage || can("production.steps")} />
+      <ProductionFrontsCard projectId={projectId} canEdit={canManage || can("production.steps")} />
 
       <CutPlanCard projectId={projectId} canManage={canManage} cutPlan={o.cutPlan} onChange={(id) => patch.mutate({ cutPlanImportId: id })} saving={patch.isPending} />
 

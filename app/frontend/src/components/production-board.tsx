@@ -24,8 +24,9 @@ type BoardCard = {
   done: number;
   total: number;
   estimatedDeliveryAt: string | null;
+  fronts: { front: string; label: string; status: "PENDING" | "IN_PROGRESS" | "DONE"; statusLabel: string }[];
 };
-type Board = { columns: { key: string; label: string }[]; cards: BoardCard[] };
+type Board = { columns: { key: string; label: string }[]; cards: BoardCard[]; fronts: { code: string; label: string }[] };
 
 const fmt = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 const EDGE: Record<BoardCard["status"], string> = { PENDING: "border-l-slate-300", IN_PROGRESS: "border-l-blue-500", BLOCKED: "border-l-red-500", DONE: "border-l-emerald-500" };
@@ -37,6 +38,7 @@ export function ProductionBoard() {
   const canMove = can("organization.manage") || can("production.steps");
   const [search, setSearch] = useState("");
   const [responsible, setResponsible] = useState("");
+  const [front, setFront] = useState("");
   const [dragOver, setDragOver] = useState<string | null>(null);
 
   const q = useQuery({ queryKey: ["production", "board"], queryFn: () => apiGet<{ data: Board }>("/production/steps/board") });
@@ -50,8 +52,8 @@ export function ProductionBoard() {
   const columns = q.data?.data.columns ?? [];
   const cards = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return all.filter((c) => (!term || `${c.project.code} ${c.project.name} ${c.project.clientName ?? ""}`.toLowerCase().includes(term)) && (!responsible || c.responsible?.id === responsible));
-  }, [all, search, responsible]);
+    return all.filter((c) => (!term || `${c.project.code} ${c.project.name} ${c.project.clientName ?? ""}`.toLowerCase().includes(term)) && (!responsible || c.responsible?.id === responsible) && (!front || c.fronts.some((f) => f.front === front)));
+  }, [all, search, responsible, front]);
   const people = useMemo(() => [...new Map(all.filter((c) => c.responsible).map((c) => [c.responsible!.id, c.responsible!])).values()], [all]);
 
   if (q.isLoading) return <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Carregando o quadro…</CardContent></Card>;
@@ -68,6 +70,10 @@ export function ProductionBoard() {
           <select aria-label="Responsável" className="h-9 rounded-md border bg-background px-2 text-sm" value={responsible} onChange={(e) => setResponsible(e.target.value)}>
             <option value="">Todos os responsáveis</option>
             {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select aria-label="Frente" className="h-9 rounded-md border bg-background px-2 text-sm" value={front} onChange={(e) => setFront(e.target.value)}>
+            <option value="">Todas as frentes</option>
+            {(q.data?.data.fronts ?? []).map((f) => <option key={f.code} value={f.code}>{f.label}</option>)}
           </select>
           <Badge variant="secondary">{all.length} pedidos</Badge>
           {late > 0 && <Badge variant="danger">{late} com etapa atrasada</Badge>}
@@ -99,6 +105,13 @@ export function ProductionBoard() {
                       {c.responsible && <span className="ml-auto flex items-center gap-1"><CircleUserRound className="h-3 w-3" />{c.responsible.name.split(" ")[0]}</span>}
                     </div>
                     {c.status === "BLOCKED" && c.blockedReason && <p className="mt-1 flex items-start gap-1 text-[11px] text-red-700"><Lock className="mt-0.5 h-3 w-3 shrink-0" />{c.blockedReason}</p>}
+                    {c.fronts.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {c.fronts.map((f) => (
+                          <span key={f.front} title={f.statusLabel} className={cn("rounded-full border px-1.5 py-0.5 text-[10px]", f.status === "DONE" ? "border-emerald-400 text-emerald-700" : f.status === "IN_PROGRESS" ? "border-blue-400 text-blue-700" : "border-slate-300 text-slate-600")}>{f.label}: {f.statusLabel.toLowerCase()}</span>
+                        ))}
+                      </div>
+                    )}
                     {c.estimatedDeliveryAt && <p className="mt-1 text-[11px] text-muted-foreground">Entrega prevista: {fmt(c.estimatedDeliveryAt)}</p>}
                   </Link>
                 ))}
