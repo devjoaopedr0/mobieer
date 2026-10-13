@@ -37,6 +37,7 @@ import {
   Tags,
   Truck,
   Users,
+  CalendarRange,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -98,6 +99,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Clientes e projetos", to: "/clientes-projetos", icon: Building2, permission: "organization.read" },
       { label: "Medições", to: "/medicoes", icon: Ruler, permission: "organization.read" },
       { label: "Produção", to: "/producao", icon: Factory, permission: "organization.read", end: true },
+      { label: "Planejamento da semana", to: "/producao/planejamento", icon: CalendarRange, permission: "organization.read" },
       { label: "Fábrica", to: "/producao/fabrica", icon: SquareKanban, permission: "organization.read" },
       { label: "Compras de materiais", to: "/materiais", icon: ShoppingCart, permission: "organization.read" },
       { label: "Leitor de etiquetas", to: "/producao/leitor", icon: ScanBarcode, permission: "organization.read" },

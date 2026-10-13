@@ -18,7 +18,23 @@ import { getToken } from "@/services/api";
 
 type Sheet = { id: string; room: string; title: string; scale: string | null; note: string | null; fileName: string; mime: string; page: number | null; stamp: boolean; drawing?: DrawingSpec; annotated?: boolean };
 type Spec = { room: string; rows: { label: string; value: string }[]; description: string | null };
-type Folder = { sheets: Sheet[]; includeSpecs: boolean; notes: string[]; specs: Spec[]; rooms: string[]; quote: { number: string; status: string } | null; titles: string[]; scales: string[]; area?: { w: number; h: number }; ai?: { image: boolean } };
+type Folder = { sheets: Sheet[]; includeSpecs: boolean; notes: string[]; specs: Spec[]; rooms: string[]; quote: { number: string; status: string } | null; titles: string[]; scales: string[]; area?: { w: number; h: number }; ai?: { image: boolean; measures?: boolean } };
+
+/** Uma etapa da elaboração: número, título e uma frase dizendo o que se faz ali. */
+function Section({ n, title, description, children }: { n: number; title: string; description: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3 py-5 first:pt-0 last:pb-0">
+      <div className="flex items-start gap-3">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">{n}</span>
+        <div>
+          <h3 className="text-sm font-semibold leading-6">{title}</h3>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      <div className="space-y-3 sm:pl-9">{children}</div>
+    </section>
+  );
+}
 
 /** Tela de anotar uma prancha: carrega a prancha de fundo e as anotações já salvas. */
 function AnnotateDialog({ base, sheet, aspect, onClose, onSaved }: { base: string; sheet: Sheet | null; aspect: number; onClose: () => void; onSaved: (d: Folder) => void }) {
@@ -214,16 +230,14 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 py-4">
         <div>
-          <CardTitle className="flex items-center gap-2 text-base"><FolderUp className="h-4 w-4" /> Pasta técnica</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">Capa, especificação do orçamento e as pranchas do Promob com o carimbo da loja.</p>
+          <CardTitle className="flex items-center gap-2 text-base"><FolderUp className="h-4 w-4" /> Elaboração do projeto técnico</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">Monte a pasta técnica passo a passo: especificação, folhas, capa e, no fim, o PDF.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {dirty && canManage && <Button size="sm" variant="outline" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar</Button>}
-          <Button size="sm" variant="outline" disabled={empty || openPdf.isPending} onClick={() => openPdf.mutate()}>{openPdf.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} Gerar PDF</Button>
-          {canManage && <Button size="sm" disabled={empty || publish.isPending} onClick={() => publish.mutate()}>{publish.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderUp className="h-4 w-4" />} Salvar nos documentos</Button>}
-        </div>
+        {/* alteração de título, ordem ou observação que ainda não foi gravada */}
+        {dirty && canManage && <Button size="sm" variant="outline" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar alterações</Button>}
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-0 divide-y">
+        <Section n={1} title="Especificação" description="A folha com os acabamentos de cada ambiente. Sai sozinha do orçamento do projeto.">
         <div className="rounded-lg border p-3">
           <label className="flex items-center gap-2 text-sm font-medium">
             <input type="checkbox" className="h-4 w-4" checked={includeSpecs} disabled={!canManage} onChange={(e) => { setIncludeSpecs(e.target.checked); setDirty(true); }} />
@@ -243,7 +257,10 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
             <p className="mt-2 text-xs text-muted-foreground">Sai sozinha quando o orçamento do projeto tem os acabamentos por ambiente (caixaria, portas, puxador). Este projeto ainda não tem.</p>
           )}
         </div>
+        </Section>
 
+        <Section n={2} title="Adicionar folhas" description="Há dois jeitos: enviar as imagens exportadas do Promob ou digitar as medidas para o sistema desenhar a vista.">
+        {!canManage && <p className="text-sm text-muted-foreground">Seu acesso é só de leitura: você vê as folhas, mas não adiciona nem altera.</p>}
         {canManage && (
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
@@ -258,10 +275,12 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
             <Button variant="outline" disabled={saving} title="Digite as medidas e o sistema desenha a vista cotada" onClick={() => void afterSave(() => setDrawing("new"))}>
               <PencilRuler className="h-4 w-4" /> Desenhar por medidas
             </Button>
-            <p className="basis-full text-xs text-muted-foreground">Imagens (PNG ou JPG) de planta, vistas e perspectiva recebem o carimbo. PDF exportado do Promob entra página por página.</p>
+            <p className="basis-full text-xs text-muted-foreground"><span className="font-medium text-foreground">Promob:</span> imagens (PNG ou JPG) de planta, vistas e perspectiva recebem o carimbo; PDF entra página por página. <span className="font-medium text-foreground">Por medidas:</span> você informa largura, altura e o que tem em cada coluna, e a vista sai cotada.</p>
           </div>
         )}
+        </Section>
 
+        <Section n={3} title={`Folhas da pasta (${sheets.length})`} description="Confira o título, o ambiente e a escala de cada folha, mude a ordem e, se precisar, desenhe ou escreva por cima.">
         {!sheets.length && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Nenhuma prancha ainda. Exporte as imagens do Promob (planta baixa, vistas, perspectiva) e envie aqui.</p>}
         <div className="space-y-2">
           {sheets.map((s, i) => (
@@ -293,14 +312,25 @@ export function TechFolderPanel({ projectId, canManage }: { projectId: string; c
           <datalist id={`tf-titles-${projectId}`}>{d.titles.map((t) => <option key={t} value={t} />)}</datalist>
           <datalist id={`tf-scales-${projectId}`}>{d.scales.map((t) => <option key={t} value={t} />)}</datalist>
         </div>
+        </Section>
 
+        <Section n={4} title="Capa" description="A capa sai com cliente, projeto, ambientes e o índice das folhas. Aqui entram as observações dela.">
         <div className="space-y-1">
           <Label className="text-xs">Observações da capa (uma por linha, até 4)</Label>
           <Textarea rows={2} disabled={!canManage} placeholder="Ex.: Prateleira e fechamento maiores para galgar in loco." value={notes} onChange={(e) => { setNotes(e.target.value); setDirty(true); }} />
         </div>
+        </Section>
+
+        <Section n={5} title="Gerar a pasta" description="Confira o PDF e, quando estiver pronto, guarde nos documentos do projeto. O envio ao cliente é feito na aba Aprovação do cliente.">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" disabled={empty || openPdf.isPending} onClick={() => openPdf.mutate()}>{openPdf.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} Gerar PDF para conferir</Button>
+            {canManage && <Button disabled={empty || publish.isPending} onClick={() => publish.mutate()}>{publish.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderUp className="h-4 w-4" />} Salvar nos documentos</Button>}
+            {empty && <p className="basis-full text-xs text-muted-foreground">Adicione pelo menos uma folha (ou tenha a especificação preenchida) para gerar a pasta.</p>}
+          </div>
+        </Section>
       </CardContent>
       <AnnotateDialog base={base} sheet={annotating} aspect={d.area ? d.area.w / d.area.h : 801.92 / 453.32} onClose={() => setAnnotating(null)} onSaved={apply} />
-      <TechDrawingDialog<Folder> base={base} open={drawing !== null} onClose={() => setDrawing(null)} onSaved={apply} sheet={drawing && drawing !== "new" ? drawing : null} defaultRoom={room.trim() || d.rooms[0] || ""} aiImage={d.ai?.image} />
+      <TechDrawingDialog<Folder> base={base} open={drawing !== null} onClose={() => setDrawing(null)} onSaved={apply} sheet={drawing && drawing !== "new" ? drawing : null} defaultRoom={room.trim() || d.rooms[0] || ""} aiImage={d.ai?.image} aiMeasures={d.ai?.measures} />
     </Card>
   );
 }

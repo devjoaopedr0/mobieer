@@ -238,7 +238,8 @@ export function ProjectDetailPage() {
           <TabsTrigger value="documents">Documentos ({p._count.documents})</TabsTrigger>
           <TabsTrigger value="ficha">Ficha de eletros</TabsTrigger>
           <TabsTrigger value="medicao">Medição</TabsTrigger>
-          <TabsTrigger value="projeto">Projeto técnico</TabsTrigger>
+          <TabsTrigger value="projeto">Elaboração do projeto</TabsTrigger>
+          <TabsTrigger value="aprovacao">Aprovação do cliente</TabsTrigger>
           <TabsTrigger value="render">Render</TabsTrigger>
           <TabsTrigger value="campo">Campo</TabsTrigger>
           <TabsTrigger value="producao">Produção</TabsTrigger>
@@ -374,8 +375,12 @@ export function ProjectDetailPage() {
           <MeasurementProjectPanel projectId={projectId} canManage={canManageAccounts} />
         </TabsContent>
 
+        {/* elaboração (trabalho do projetista) e aprovação (o que vai para o cliente) em abas separadas */}
         <TabsContent value="projeto" className="space-y-4">
           <TechFolderPanel projectId={projectId} canManage={canManageAccounts} />
+        </TabsContent>
+
+        <TabsContent value="aprovacao" className="space-y-4">
           <TechApprovalInternal projectId={projectId} canManage={canManageAccounts} />
         </TabsContent>
 
