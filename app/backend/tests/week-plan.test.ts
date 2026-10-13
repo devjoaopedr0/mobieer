@@ -3,7 +3,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addDays, isDone, mondayOf, normalizeItems, parseWeekPlan, summarize, weekDays, weekFromHeader, weekdayIndex } from "../src/modules/production/week-plan.rules";
+import { addDays, isDone, mondayOf, normalizeItems, parseWeekPlan, pendingItems, reasonLabel, summarize, taskStatus, weekDays, weekFromHeader, weekSummary, weekdayIndex } from "../src/modules/production/week-plan.rules";
 
 const TEXTO = `LANEJAMENTO SEMANA 13/10 - 16-/10
 
@@ -93,4 +93,25 @@ test("tarefa feita e resumo por pessoa", () => {
     { person: "LARA", total: 2, done: 1 },
     { person: "WESLEY", total: 1, done: 0 },
   ]);
+});
+
+test("situação da tarefa: feita, não cumprida, atrasada sem justificativa ou em aberto", () => {
+  const t = (over: object) => ({ date: "2026-10-13", done: false, items: [], missedReason: null, ...over });
+  assert.equal(taskStatus(t({ done: true, missedReason: "MATERIAL" }), "2026-10-14"), "FEITA"); // feita vale mais que o motivo
+  assert.equal(taskStatus(t({ missedReason: "MATERIAL" }), "2026-10-13"), "NAO_CUMPRIDA");
+  assert.equal(taskStatus(t({}), "2026-10-14"), "ATRASADA");
+  assert.equal(taskStatus(t({}), "2026-10-13"), "ABERTA"); // o dia ainda não acabou
+  assert.equal(taskStatus(t({ items: [{ text: "a", done: true }] }), "2026-10-20"), "FEITA");
+});
+
+test("fechamento da semana: contagem e motivos mais frequentes; reagendar leva só o que faltou", () => {
+  const t = (date: string, over: object = {}) => ({ date, done: false, items: [], missedReason: null, ...over });
+  const s = weekSummary(
+    [t("2026-10-13", { done: true }), t("2026-10-13", { missedReason: "MATERIAL" }), t("2026-10-14", { missedReason: "MATERIAL" }), t("2026-10-14", { missedReason: "PESSOA" }), t("2026-10-14"), t("2026-10-16")],
+    "2026-10-15"
+  );
+  assert.deepEqual({ total: s.total, done: s.done, missed: s.missed, late: s.late, open: s.open }, { total: 6, done: 1, missed: 3, late: 1, open: 1 });
+  assert.deepEqual(s.reasons, [{ code: "MATERIAL", label: "Faltou material", count: 2 }, { code: "PESSOA", label: "Faltou pessoa", count: 1 }]);
+  assert.equal(reasonLabel("codigo-antigo"), "Outro");
+  assert.deepEqual(pendingItems([{ text: "corte da viga", done: true }, { text: "pré montar", done: false }]), [{ text: "pré montar", done: false }]);
 });

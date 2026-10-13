@@ -39,3 +39,11 @@ Quem monta o planejamento (a administração e quem atualiza as etapas da produ�
 - O lápis na tarefa abre a edição; dali também se remove.
 
 Quem executa: abre a mesma tela, vê as suas tarefas e marca a caixinha da tarefa ou de cada passo quando termina. Uma tarefa com passos fica feita quando todos estão marcados. **Só as minhas** mostra apenas a linha de quem está logado (pelo primeiro nome). O nome da pessoa é o que a loja escreve; não precisa ser um usuário do sistema para aparecer na grade.
+
+### Tarefa não cumprida e o motivo
+Quando a tarefa do dia não foi feita, clique em **Não cumprida** (no dia) ou em **Não foi feita — informar o motivo** (quando o dia já passou; a tarefa fica em amarelo até alguém justificar). Escolha o motivo — faltou material, faltou pessoa, máquina ou ferramenta, retrabalho, dúvida ou erro no projeto, outra prioridade entrou, ou outro — e, se quiser, escreva um detalhe. Quem executa também pode informar o motivo. A tarefa fica em vermelho com o motivo escrito; **desfazer** tira a justificativa e marcar como feita também.
+
+Quem monta o planejamento pode, na mesma janela, **passar para outro dia**: a tarefa é criada no novo dia só com os passos que faltaram, e a original continua registrada como não cumprida, com o motivo e o dia para onde foi.
+
+### Visão do dia e fechamento da semana
+O botão **Dia** troca a grade pelas metas de um só dia, uma caixa por pessoa, mais fácil de ler no celular ou numa TV da fábrica; os botões acima escolhem o dia. O quadro **Fechamento da semana** aparece quando há tarefa não cumprida ou sem justificativa e mostra quantas foram cumpridas, quantas não, quantas estão sem justificativa e os motivos mais frequentes.

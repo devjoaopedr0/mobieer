@@ -144,6 +144,52 @@ export function normalizeItems(raw: unknown): PlanItem[] {
 /** Uma tarefa com subtarefas está feita quando todas estão; sem subtarefas, vale a marca dela. */
 export const isDone = (t: { done: boolean; items: PlanItem[] }) => (t.items.length ? t.items.every((i) => i.done) : t.done);
 
+/** Por que a tarefa do dia não foi cumprida. */
+export const MISSED_REASONS = [
+  { code: "MATERIAL", label: "Faltou material" },
+  { code: "PESSOA", label: "Faltou pessoa" },
+  { code: "MAQUINA", label: "Máquina ou ferramenta" },
+  { code: "RETRABALHO", label: "Retrabalho" },
+  { code: "PROJETO", label: "Dúvida ou erro no projeto" },
+  { code: "PRIORIDADE", label: "Outra prioridade entrou" },
+  { code: "OUTRO", label: "Outro" },
+] as const;
+export type MissedReason = (typeof MISSED_REASONS)[number]["code"];
+export const MISSED_CODES = MISSED_REASONS.map((r) => r.code) as [MissedReason, ...MissedReason[]];
+export const reasonLabel = (code: string | null | undefined) => MISSED_REASONS.find((r) => r.code === code)?.label ?? "Outro";
+
+export type TaskStatus = "FEITA" | "NAO_CUMPRIDA" | "ATRASADA" | "ABERTA";
+type Tracked = { date: string; done: boolean; items: PlanItem[]; missedReason?: string | null };
+
+/** Feita; não cumprida (com motivo); atrasada (o dia passou e ninguém disse por quê); ou em aberto. */
+export function taskStatus(t: Tracked, today: string): TaskStatus {
+  if (isDone(t)) return "FEITA";
+  if (t.missedReason) return "NAO_CUMPRIDA";
+  return t.date < today ? "ATRASADA" : "ABERTA";
+}
+
+/** Os passos que ficaram por fazer: é o que segue para o novo dia ao reagendar. */
+export const pendingItems = (items: PlanItem[]): PlanItem[] => items.filter((i) => !i.done).map((i) => ({ text: i.text, done: false }));
+
+/** Fechamento da semana: cumpridas, não cumpridas, sem justificativa e os motivos mais frequentes. */
+export function weekSummary(tasks: Tracked[], today: string) {
+  const count = { total: tasks.length, done: 0, missed: 0, late: 0, open: 0 };
+  const reasons = new Map<string, number>();
+  for (const t of tasks) {
+    const s = taskStatus(t, today);
+    if (s === "FEITA") count.done += 1;
+    else if (s === "NAO_CUMPRIDA") {
+      count.missed += 1;
+      reasons.set(t.missedReason!, (reasons.get(t.missedReason!) ?? 0) + 1);
+    } else if (s === "ATRASADA") count.late += 1;
+    else count.open += 1;
+  }
+  return {
+    ...count,
+    reasons: [...reasons.entries()].map(([code, n]) => ({ code, label: reasonLabel(code), count: n })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+  };
+}
+
 /** Resumo da semana por pessoa: quantas tarefas e quantas feitas. */
 export function summarize(tasks: { person: string; done: boolean; items: PlanItem[] }[]): { person: string; total: number; done: number }[] {
   const map = new Map<string, { person: string; total: number; done: number }>();

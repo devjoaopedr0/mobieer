@@ -5,6 +5,7 @@
  *   POST   /tasks             cria uma tarefa
  *   PATCH  /tasks/:id         altera texto, pessoa, dia, subtarefas ou a marca de feito
  *   PATCH  /tasks/:id/check   marca a tarefa ou uma subtarefa como feita (quem executa também pode)
+ *   PATCH  /tasks/:id/missed  não cumprida: registra o motivo e, para quem monta, passa para outro dia
  *   DELETE /tasks/:id         remove
  *   POST   /parse             lê o texto colado do WhatsApp e devolve a prévia (não grava)
  *   POST   /import            grava as tarefas da prévia
@@ -16,9 +17,9 @@ import { authenticate } from "../../middlewares/auth";
 import { requireAnyPermission, requirePermission } from "../../middlewares/rbac";
 import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
-import { NotFoundError } from "../../utils/ApiError";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { addDays, dateToDay, dayToDate, isDone, mondayOf, normalizeItems, parseWeekPlan, summarize, todayIso, weekDays } from "./week-plan.rules";
+import { MISSED_CODES, MISSED_REASONS, addDays, dateToDay, dayToDate, isDone, mondayOf, normalizeItems, parseWeekPlan, pendingItems, summarize, todayIso, weekDays, weekSummary } from "./week-plan.rules";
 
 const router = Router();
 router.use(authenticate);
@@ -41,7 +42,13 @@ const taskInput = z.object({
 type Row = Prisma.ProductionPlanTaskGetPayload<Record<string, never>>;
 const serialize = (t: Row) => {
   const items = normalizeItems(t.items);
-  return { id: t.id, date: dateToDay(t.date), person: t.person, title: t.title, reference: t.reference, items, done: isDone({ done: t.done, items }), position: t.position };
+  const done = isDone({ done: t.done, items });
+  return {
+    id: t.id, date: dateToDay(t.date), person: t.person, title: t.title, reference: t.reference, items, done, position: t.position,
+    // feita depois de justificada: o motivo deixa de valer
+    missedReason: done ? null : t.missedReason, missedNote: done ? null : t.missedNote,
+    movedTo: t.movedToDate ? dateToDay(t.movedToDate) : null, moved: Boolean(t.movedFromId),
+  };
 };
 
 router.get(
@@ -61,7 +68,8 @@ router.get(
     // quem aparece na grade: na ordem em que entrou no planejamento da semana
     const people = [...new Set(tasks.map((t) => t.person))];
     const suggestions = [...new Set([...recent.map((r) => r.person), ...employees.map((e) => e.fullName.split(" ")[0].toUpperCase())])].sort();
-    return ok(res, { weekStart, days: weekDays(weekStart), today: todayIso(), people, tasks, summary: summarize(tasks), suggestions });
+    const today = todayIso();
+    return ok(res, { weekStart, days: weekDays(weekStart), today, people, tasks, summary: summarize(tasks), week: weekSummary(tasks, today), reasons: MISSED_REASONS, suggestions });
   })
 );
 
@@ -130,6 +138,46 @@ router.patch(
     const done = next.length ? next.every((i) => i.done) : input.done;
     const t = await prisma.productionPlanTask.update({ where: { id: current.id }, data: { items: next, done, doneAt: done ? current.doneAt ?? new Date() : null, updatedAt: new Date() } });
     return ok(res, serialize(t));
+  })
+);
+
+// Não cumprida: quem executa diz o motivo. Passar para outro dia cria a tarefa lá
+// (só com os passos que faltaram) e é de quem monta o planejamento.
+router.patch(
+  "/week-plan/tasks/:id/missed",
+  canRead,
+  asyncHandler(async (req, res) => {
+    const current = await ensureTask(req.params.id, req.user!.organizationId);
+    const input = z
+      .object({ reason: z.enum(MISSED_CODES).nullable(), note: z.string().trim().max(300).nullable().optional(), moveTo: day.nullable().optional() })
+      .parse(req.body);
+    if (input.reason === null) {
+      const t = await prisma.productionPlanTask.update({ where: { id: current.id }, data: { missedReason: null, missedNote: null, missedAt: null, updatedAt: new Date() } });
+      return ok(res, serialize(t), "Justificativa removida");
+    }
+    const items = normalizeItems(current.items);
+    if (isDone({ done: current.done, items })) throw new BadRequestError("Esta tarefa já está marcada como feita");
+    if (input.reason === "OUTRO" && !input.note) throw new BadRequestError("Escreva o motivo");
+    const from = dateToDay(current.date);
+    if (input.moveTo) {
+      if (!["organization.manage", "production.steps"].some((p) => req.user!.permissions.includes(p))) throw new ForbiddenError("Passar a tarefa para outro dia é de quem monta o planejamento");
+      if (current.movedToDate) throw new BadRequestError("Esta tarefa já foi passada para outro dia");
+      if (input.moveTo <= from || input.moveTo < todayIso()) throw new BadRequestError("Escolha um dia de hoje em diante, depois do dia da tarefa");
+      if (input.moveTo > addDays(from, 60)) throw new BadRequestError("Escolha um dia mais próximo");
+    }
+    const t = await prisma.$transaction(async (tx) => {
+      if (input.moveTo) {
+        const last = await tx.productionPlanTask.aggregate({ where: { organizationId: current.organizationId, date: dayToDate(input.moveTo), person: current.person }, _max: { position: true } });
+        await tx.productionPlanTask.create({
+          data: { organizationId: current.organizationId, date: dayToDate(input.moveTo), person: current.person, title: current.title, reference: current.reference, items: pendingItems(items), position: (last._max.position ?? -1) + 1, movedFromId: current.id, createdById: req.user!.id },
+        });
+      }
+      return tx.productionPlanTask.update({
+        where: { id: current.id },
+        data: { missedReason: input.reason, missedNote: input.note || null, missedAt: new Date(), movedToDate: input.moveTo ? dayToDate(input.moveTo) : undefined, updatedAt: new Date() },
+      });
+    });
+    return ok(res, serialize(t), input.moveTo ? `Motivo registrado e tarefa passada para ${input.moveTo.split("-").reverse().slice(0, 2).join("/")}` : "Motivo registrado");
   })
 );
 

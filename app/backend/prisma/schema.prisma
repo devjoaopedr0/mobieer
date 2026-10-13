@@ -3860,6 +3860,11 @@ model ProductionPlanTask {
   items          Json         @default("[]") // subtarefas: [{ text, done }]
   done           Boolean      @default(false)
   doneAt         DateTime?
+  missedReason   String? // não cumprida: código do motivo (ver week-plan.rules)
+  missedNote     String?
+  missedAt       DateTime?
+  movedToDate    DateTime? // não cumprida e passada para este dia
+  movedFromId    String? // veio de uma tarefa não cumprida de outro dia
   position       Int          @default(0)
   createdById    String?
   createdBy      User?        @relation("ProductionPlanTaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
