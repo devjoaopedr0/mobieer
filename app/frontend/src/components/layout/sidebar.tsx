@@ -37,6 +37,7 @@ import {
   Tags,
   Truck,
   Users,
+  Headphones,
   CalendarRange,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -108,6 +109,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Atividades", to: "/atividades", icon: FileClock, permission: "activities.read" },
       { label: "Agenda", to: "/agenda", icon: CalendarDays, permission: "agenda.read" },
       { label: "Pós-venda", to: "/pos-venda", icon: ShieldCheck, permission: "organization.read" },
+      { label: "Assistências", to: "/assistencias", icon: Headphones, permission: "organization.read" },
     ],
   },
   {

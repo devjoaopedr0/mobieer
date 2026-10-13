@@ -24,3 +24,11 @@ Como emitir:
 5. O cliente abre o portal, lê o termo nos documentos do projeto e assina por lá.
 
 Quando os dois assinam, o sistema guarda a cópia assinada. Enviar o termo de novo cria uma nova versão: a anterior sai da vista do cliente e as assinaturas recomeçam.
+
+## Tela de Assistências
+Menu **Assistências**. Reúne todos os chamados de assistência em três visões:
+- **Lista**: número, situação, data de abertura, cliente, tipo, projeto, local (bairro e cidade do cliente, para juntar visitas da mesma região), visita marcada, prioridade e responsável. Há busca e filtros por tipo, situação e responsável; os chamados resolvidos e cancelados só aparecem marcando **Mostrar encerradas**.
+- **Kanban**: uma coluna por situação (Aberto, Em análise, Agendado, Em execução, Aguardando cliente, Resolvido). Arrastar o cartão para outra coluna muda a situação.
+- **Agenda**: as visitas marcadas, agrupadas por dia, com o horário e se o cliente já confirmou.
+
+Clicar em um chamado abre o detalhe, com a descrição e as fotos enviadas pelo cliente. Ali a equipe define o **tipo** (Assistência, Ajuste pós-montagem, Manutenção, Erro interno ou Retrabalho), a prioridade, o responsável e usa **Agendar visita** para enviar as datas ao cliente. Alterar situação, tipo, prioridade e responsável é de quem pode atualizar todas as tarefas; os demais só consultam. O chamado continua sendo aberto pelo cliente, no portal.

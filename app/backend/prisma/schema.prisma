@@ -1174,6 +1174,7 @@ model AssistanceTicket {
   title                   String
   description             String                  @db.Text
   problemType             String? // tipo do problema escolhido pelo cliente
+  kind                    String                  @default("ASSISTENCIA") // classificação da equipe (ver assistance.rules)
   roomLabel               String? // ambiente/cômodo afetado
   status                  AssistanceStatus        @default(OPEN)
   priority                KanbanTaskPriority      @default(NORMAL)

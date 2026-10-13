@@ -16,6 +16,7 @@ const FinanceRequestsPage = lazy(() => import("@/components/finance-recurring").
 const OperationPanelPage = lazy(() => import("@/pages/operation-panel").then((m) => ({ default: m.OperationPanelPage })));
 const QuoteEditorPage = lazy(() => import("@/pages/quotes").then((m) => ({ default: m.QuoteEditorPage })));
 const ProductivityPage = lazy(() => import("@/pages/productivity").then((m) => ({ default: m.ProductivityPage })));
+const AssistancesPage = lazy(() => import("@/pages/assistances").then((m) => ({ default: m.AssistancesPage })));
 const AftersalesPage = lazy(() => import("@/pages/aftersales").then((m) => ({ default: m.AftersalesPage })));
 const StockEntryPage = lazy(() => import("@/pages/stock-entry").then((m) => ({ default: m.StockEntryPage })));
 const StockExitPage = lazy(() => import("@/pages/stock-exit").then((m) => ({ default: m.StockExitPage })));
@@ -120,6 +121,7 @@ export const router = createBrowserRouter([
           { path: "/produtividade", element: <ProductivityPage /> },
           { path: "/painel-operacao", element: <OperationPanelPage /> },
           { path: "/solicitacoes-financeiras", element: <PermissionGate permission="finance.request"><FinanceRequestsPage /></PermissionGate> },
+          { path: "/assistencias", element: <PermissionGate permission="organization.read"><AssistancesPage /></PermissionGate> },
           { path: "/pos-venda", element: <PermissionGate permission="organization.read"><AftersalesPage /></PermissionGate> },
           { path: "/inventario", element: <PermissionGate permission="inventory.read"><InventoryPage /></PermissionGate> },
           { path: "/inventario/:id", element: <PermissionGate permission="inventory.read"><InventoryDetailPage /></PermissionGate> },
