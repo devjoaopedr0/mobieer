@@ -67,6 +67,8 @@ type NavGroup = {
   items: NavItem[];
 };
 
+// O menu segue a ordem do processo da loja: comercial → projeto → produção →
+// entrega e montagem → pós-venda → financeiro; depois o apoio (estoque, equipe, administração).
 const NAV_GROUPS: NavGroup[] = [
   {
     items: [
@@ -79,6 +81,54 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Comercial",
+    items: [
+      { label: "Comercial", to: "/comercial", icon: Target, permission: "commercial.read" },
+      { label: "Clientes e projetos", to: "/clientes-projetos", icon: Building2, permission: "organization.read" },
+    ],
+  },
+  {
+    label: "Projeto",
+    items: [
+      { label: "Medições", to: "/medicoes", icon: Ruler, permission: "organization.read" },
+      { label: "Modelos de documentos", to: "/modelos", icon: FileSignature, permission: "documents.read" },
+    ],
+  },
+  {
+    label: "Produção",
+    items: [
+      { label: "Produção", to: "/producao", icon: Factory, permission: "organization.read", end: true },
+      { label: "Planejamento da semana", to: "/producao/planejamento", icon: CalendarRange, permission: "organization.read" },
+      { label: "Fábrica", to: "/producao/fabrica", icon: SquareKanban, permission: "organization.read" },
+      { label: "Leitor de etiquetas", to: "/producao/leitor", icon: ScanBarcode, permission: "organization.read" },
+      { label: "Requisições de Peças", to: "/requisicoes", icon: Scissors, permission: "requisitions.read" },
+      { label: "Compras de materiais", to: "/materiais", icon: ShoppingCart, permission: "organization.read" },
+      { label: "Solicitação de peças", to: "/solicitacao-pecas", icon: Package, permission: "parts.read" },
+    ],
+  },
+  {
+    label: "Entrega e montagem",
+    items: [
+      { label: "Agenda", to: "/agenda", icon: CalendarDays, permission: "agenda.read" },
+      { label: "Montadores externos", to: "/montadores", icon: HardHat, permission: "hr.read" },
+    ],
+  },
+  {
+    label: "Pós-venda e assistência",
+    items: [
+      { label: "Pós-venda", to: "/pos-venda", icon: ShieldCheck, permission: "organization.read" },
+      { label: "Assistências", to: "/assistencias", icon: Headphones, permission: "organization.read" },
+    ],
+  },
+  {
+    label: "Financeiro",
+    items: [
+      { label: "Financeiro", to: "/financeiro", icon: Wallet, permission: "finance.read" },
+      { label: "Notas fiscais", to: "/notas-fiscais", icon: ScrollText, permission: "finance.read" },
+      { label: "Solicitar ao financeiro", to: "/solicitacoes-financeiras", icon: HandCoins, permission: "finance.request" },
+    ],
+  },
+  {
     label: "Estoque",
     items: [
       { label: "Entrada de Materiais", to: "/entrada", icon: ArrowDownToLine, permission: "stock.entry" },
@@ -88,56 +138,20 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Categorias", to: "/categorias", icon: Tags, permission: "categories.read" },
       { label: "Fornecedores", to: "/fornecedores", icon: Truck, permission: "suppliers.read" },
       { label: "Compras", to: "/compras", icon: ShoppingCart, permission: "purchases.read" },
-    ],
-  },
-  {
-    label: "Requisições e produção",
-    items: [
-      { label: "Organização interna", to: "/organizacao", icon: SquareKanban, permission: "organization.read" },
-      { label: "Semana da Mobieer", to: "/semana", icon: CalendarDays, permission: "organization.read" },
-      { label: "Minhas tarefas", to: "/minhas-tarefas", icon: ListTodo, permission: "organization.read" },
-      { label: "Meu espaço", to: "/meu-espaco", icon: NotebookPen },
-      { label: "Clientes e projetos", to: "/clientes-projetos", icon: Building2, permission: "organization.read" },
-      { label: "Medições", to: "/medicoes", icon: Ruler, permission: "organization.read" },
-      { label: "Produção", to: "/producao", icon: Factory, permission: "organization.read", end: true },
-      { label: "Planejamento da semana", to: "/producao/planejamento", icon: CalendarRange, permission: "organization.read" },
-      { label: "Fábrica", to: "/producao/fabrica", icon: SquareKanban, permission: "organization.read" },
-      { label: "Compras de materiais", to: "/materiais", icon: ShoppingCart, permission: "organization.read" },
-      { label: "Leitor de etiquetas", to: "/producao/leitor", icon: ScanBarcode, permission: "organization.read" },
-      { label: "Modelos de documentos", to: "/modelos", icon: FileSignature, permission: "documents.read" },
-      { label: "Requisições de Peças", to: "/requisicoes", icon: Scissors, permission: "requisitions.read" },
-      { label: "Atividades", to: "/atividades", icon: FileClock, permission: "activities.read" },
-      { label: "Agenda", to: "/agenda", icon: CalendarDays, permission: "agenda.read" },
-      { label: "Pós-venda", to: "/pos-venda", icon: ShieldCheck, permission: "organization.read" },
-      { label: "Assistências", to: "/assistencias", icon: Headphones, permission: "organization.read" },
-    ],
-  },
-  {
-    label: "Controle de estoque",
-    items: [
       { label: "Inventário", to: "/inventario", icon: ClipboardCheck, permission: "inventory.read" },
       { label: "Alertas de Estoque", to: "/alertas", icon: AlertTriangle, permission: "stock.read" },
     ],
   },
   {
-    label: "Pessoas",
+    label: "Equipe e organização",
     items: [
+      { label: "Organização interna", to: "/organizacao", icon: SquareKanban, permission: "organization.read" },
+      { label: "Semana da Mobieer", to: "/semana", icon: CalendarDays, permission: "organization.read" },
+      { label: "Minhas tarefas", to: "/minhas-tarefas", icon: ListTodo, permission: "organization.read" },
+      { label: "Meu espaço", to: "/meu-espaco", icon: NotebookPen },
+      { label: "Atividades", to: "/atividades", icon: FileClock, permission: "activities.read" },
       { label: "RH — Férias", to: "/rh", icon: CalendarClock, permission: "hr.read" },
-      { label: "Montadores externos", to: "/montadores", icon: HardHat, permission: "hr.read" },
-      { label: "Solicitação de peças", to: "/solicitacao-pecas", icon: Package, permission: "parts.read" },
       { label: "Produtividade", to: "/produtividade", icon: Gauge, hideForRoles: ["MONTADOR"] },
-    ],
-  },
-  {
-    label: "Comercial",
-    items: [{ label: "Comercial", to: "/comercial", icon: Target, permission: "commercial.read" }],
-  },
-  {
-    label: "Financeiro",
-    items: [
-      { label: "Financeiro", to: "/financeiro", icon: Wallet, permission: "finance.read" },
-      { label: "Notas fiscais", to: "/notas-fiscais", icon: ScrollText, permission: "finance.read" },
-      { label: "Solicitar ao financeiro", to: "/solicitacoes-financeiras", icon: HandCoins, permission: "finance.request" },
     ],
   },
   {
