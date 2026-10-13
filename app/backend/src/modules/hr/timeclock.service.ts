@@ -199,6 +199,65 @@ export function looksLikeSamePerson(fileName: string | null | undefined, employe
 }
 
 /** Alterna IN/OUT pela ordem cronológica das marcações do dia. */
+export type ClockPerson = { registration: string; name: string | null };
+export type ClockEmployee = { id: string; registration: string; clockRegistration: string | null; fullName: string };
+/** RELOGIO: já ligado pelo número do relógio; NOME: ligado agora pelo nome; MATRICULA: arquivo sem nomes, pela matrícula. */
+export type ClockMatch = { registration: string; employeeId: string | null; how: "RELOGIO" | "NOME" | "MATRICULA" | null; ambiguous: boolean };
+
+/**
+ * Liga cada pessoa do relógio a um colaborador do cadastro.
+ *
+ * O número do relógio (EnNo) não é a matrícula do sistema: o "1" do aparelho pode
+ * ser a Joana e o EMP-0001 a Camila. Por isso a ordem é:
+ *  1. quem já tem aquele número do relógio guardado no cadastro;
+ *  2. pelo nome, quando o nome do relógio aponta para um colaborador só e nenhuma
+ *     outra pessoa do relógio aponta para o mesmo;
+ *  3. pela matrícula, só quando o arquivo não traz nome (formato simples).
+ * O que sobrar fica sem colaborador — nunca é adivinhado.
+ */
+export function matchClockPeople(people: ClockPerson[], employees: ClockEmployee[]): ClockMatch[] {
+  const digitsOf = (s: string) => s.replace(/\D/g, "").replace(/^0+/, "");
+  const out = new Map<string, ClockMatch>(people.map((p) => [p.registration, { registration: p.registration, employeeId: null, how: null, ambiguous: false }]));
+  const taken = new Set<string>();
+  for (const p of people) {
+    const e = employees.find((x) => x.clockRegistration != null && x.clockRegistration === p.registration);
+    if (e) {
+      out.set(p.registration, { registration: p.registration, employeeId: e.id, how: "RELOGIO", ambiguous: false });
+      taken.add(e.id);
+    }
+  }
+  // pelo nome: só quem ainda não tem número de relógio pode receber um
+  const free = employees.filter((e) => !taken.has(e.id) && !e.clockRegistration);
+  const candidates = new Map<string, string[]>();
+  for (const p of people) {
+    if (out.get(p.registration)!.employeeId || !p.name?.trim()) continue;
+    candidates.set(p.registration, free.filter((e) => looksLikeSamePerson(p.name, e.fullName)).map((e) => e.id));
+  }
+  const claims = new Map<string, number>();
+  for (const ids of candidates.values()) if (ids.length === 1) claims.set(ids[0], (claims.get(ids[0]) ?? 0) + 1);
+  for (const [reg, ids] of candidates) {
+    if (ids.length === 1 && claims.get(ids[0]) === 1) {
+      out.set(reg, { registration: reg, employeeId: ids[0], how: "NOME", ambiguous: false });
+      taken.add(ids[0]);
+    } else if (ids.length > 0) out.set(reg, { registration: reg, employeeId: null, how: null, ambiguous: true });
+  }
+  for (const p of people) {
+    if (out.get(p.registration)!.employeeId || p.name?.trim()) continue;
+    const e = employees.find((x) => !taken.has(x.id) && !x.clockRegistration && (x.registration.toUpperCase() === p.registration.toUpperCase() || (digitsOf(x.registration) !== "" && digitsOf(x.registration) === digitsOf(p.registration))));
+    if (e) {
+      out.set(p.registration, { registration: p.registration, employeeId: e.id, how: "MATRICULA", ambiguous: false });
+      taken.add(e.id);
+    }
+  }
+  return people.map((p) => out.get(p.registration)!);
+}
+
+/** Nome do relógio ("marcio v") como nome de cadastro ("MARCIO V"); sem nome, "COLABORADOR 7". */
+export function clockDisplayName(p: ClockPerson): string {
+  const n = (p.name ?? "").replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 120);
+  return n || `COLABORADOR ${p.registration}`;
+}
+
 export function inferKinds(sorted: Date[]): TimeEntryKind[] {
   // Marcações de um dia, em ordem: par entra, ímpar sai. A última saída do dia
   // é o fim do expediente (OUT); as saídas do meio são intervalo (BREAK_OUT).

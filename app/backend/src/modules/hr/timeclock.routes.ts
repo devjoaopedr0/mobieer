@@ -7,7 +7,8 @@ import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { buildMirror, computeHourBank, fortalezaDay, inferKinds, looksLikeSamePerson, monthsBetween, parseTimeClockFile } from "./timeclock.service";
+import { buildMirror, clockDisplayName, computeHourBank, fortalezaDay, inferKinds, looksLikeSamePerson, matchClockPeople, monthsBetween, parseTimeClockFile } from "./timeclock.service";
+import { nextRegistration } from "./hr.service";
 
 const router = Router();
 router.use(authenticate);
@@ -213,16 +214,7 @@ router.delete(
  */
 async function mapPunches(buffer: Buffer, organizationId: string) {
   const parsed = parseTimeClockFile(buffer);
-  const employees = await prisma.employee.findMany({ where: { organizationId }, select: { id: true, registration: true, fullName: true, status: true } });
-  // Casa por matrícula exata OU pela parte numérica (ex.: "EMP-0002" <-> "0002" <-> "2").
-  const digitsOf = (s: string) => s.replace(/\D/g, "").replace(/^0+/, "");
-  const byReg = new Map<string, (typeof employees)[number]>();
-  for (const e of employees) {
-    byReg.set(e.registration.toUpperCase(), e);
-    const d = digitsOf(e.registration);
-    if (d) byReg.set(d, e);
-  }
-  const lookup = (reg: string) => byReg.get(reg.toUpperCase()) ?? byReg.get(digitsOf(reg));
+  const employees = await prisma.employee.findMany({ where: { organizationId }, select: { id: true, registration: true, clockRegistration: true, fullName: true, status: true } });
 
   const porMatricula = new Map<string, { registration: string; fileName: string | null; punches: typeof parsed.punches }>();
   for (const p of parsed.punches) {
@@ -231,15 +223,23 @@ async function mapPunches(buffer: Buffer, organizationId: string) {
     cur.punches.push(p);
     porMatricula.set(p.registration, cur);
   }
+  // o número do relógio não é a matrícula do sistema: quem liga é matchClockPeople
+  const matches = new Map(matchClockPeople([...porMatricula.values()].map((g) => ({ registration: g.registration, name: g.fileName })), employees).map((m) => [m.registration, m]));
 
   const rows = [...porMatricula.values()]
     .map((g) => {
-      const emp = lookup(g.registration);
+      const m = matches.get(g.registration)!;
+      const emp = m.employeeId ? employees.find((e) => e.id === m.employeeId) ?? null : null;
       const times = g.punches.map((p) => p.timestamp.getTime());
       return {
         registration: g.registration,
         fileName: g.fileName,
         employee: emp ? { id: emp.id, registration: emp.registration, fullName: emp.fullName, status: emp.status } : null,
+        // como a ligação foi feita (RELOGIO, NOME, MATRICULA) ou por que não foi
+        how: m.how,
+        ambiguous: m.ambiguous,
+        // quem não está no cadastro pode ser cadastrado com o nome e o número do relógio
+        newName: emp ? null : clockDisplayName({ registration: g.registration, name: g.fileName }),
         punches: g.punches.length,
         from: new Date(Math.min(...times)),
         to: new Date(Math.max(...times)),
@@ -272,7 +272,7 @@ router.post(
       rowsError: parsed.errors,
       rows,
       warnings: {
-        unmatched: naoEncontrados.map((r) => ({ registration: r.registration, fileName: r.fileName, punches: r.punches })),
+        unmatched: naoEncontrados.map((r) => ({ registration: r.registration, fileName: r.fileName, punches: r.punches, ambiguous: r.ambiguous, newName: r.newName })),
         nameMismatch: divergentes.map((r) => ({ registration: r.registration, fileName: r.fileName, employee: r.employee!.fullName })),
       },
       // o import só grava com confirmarDivergencias quando há nome diferente
@@ -306,6 +306,27 @@ router.post(
 
     const byRegistration = new Map(rows.filter((r) => r.employee).map((r) => [r.registration, r.employee!.id]));
     const lookup = (reg: string) => byRegistration.get(reg);
+
+    // Ligado pelo nome ou pela matrícula: guarda o número do relógio no cadastro,
+    // para a próxima importação não depender do nome.
+    for (const r of rows) {
+      if (r.employee && (r.how === "NOME" || r.how === "MATRICULA")) await prisma.employee.update({ where: { id: r.employee.id }, data: { clockRegistration: r.registration } });
+    }
+    // Quem não está no cadastro: cadastra o colaborador com o nome e o número do relógio.
+    // Não cria usuário de acesso ao sistema — só a ficha, para o ponto ter onde ficar.
+    const cadastrar = String(req.body?.cadastrarNaoEncontrados ?? "") === "true";
+    const cadastrados: { registration: string; fullName: string; clockRegistration: string }[] = [];
+    if (cadastrar) {
+      for (const r of rows.filter((x) => !x.employee)) {
+        const fullName = r.newName ?? `COLABORADOR ${r.registration}`;
+        const emp = await prisma.employee.create({
+          data: { organizationId: req.user!.organizationId, registration: await nextRegistration(req.user!.organizationId), clockRegistration: r.registration, fullName, admittedAt: r.from, status: "ACTIVE" },
+        });
+        byRegistration.set(r.registration, emp.id);
+        cadastrados.push({ registration: emp.registration, fullName, clockRegistration: r.registration });
+        await prisma.auditLog.create({ data: { userId: req.user!.id, action: "EMPLOYEE_CREATED_FROM_TIMECLOCK", entity: "Employee", entityId: emp.id, details: { registration: emp.registration, clockRegistration: r.registration, fullName } } });
+      }
+    }
 
     const timestamps = parsed.punches.map((p) => p.timestamp.getTime());
     const periodFrom = new Date(Math.min(...timestamps));
@@ -366,11 +387,29 @@ router.post(
         reconhecidas: parsed.punches.length,
         importadas: created.count,
         semColaborador: unmatched,
+        cadastrados,
         linhasInvalidas: parsed.errors,
         periodo: { de: periodFrom, ate: periodTo },
       },
       "Arquivo importado"
     );
+  })
+);
+
+// DELETE /api/hr/timeclock/imports/:id — desfaz uma importação: tira as marcações que vieram dela.
+// Marcação lançada à mão e de outras importações ficam; colaboradores cadastrados também.
+router.delete(
+  "/imports/:id",
+  requirePermission("hr.timeclock.manage"),
+  asyncHandler(async (req, res) => {
+    const imp = await prisma.timeEntryImport.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+    if (!imp) throw new NotFoundError("Importação não encontrada");
+    const [removed] = await prisma.$transaction([
+      prisma.timeEntry.deleteMany({ where: { importId: imp.id, organizationId: req.user!.organizationId } }),
+      prisma.timeEntryImport.delete({ where: { id: imp.id } }),
+    ]);
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action: "TIMEENTRY_IMPORT_UNDONE", entity: "TimeEntryImport", entityId: imp.id, details: { fileName: imp.fileName, removed: removed.count } } });
+    return ok(res, { removed: removed.count }, `Importação desfeita: ${removed.count} marcações removidas`);
   })
 );
 

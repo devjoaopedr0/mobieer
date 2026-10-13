@@ -43,3 +43,11 @@ No cadastro do usuário (menu **Usuários**), além do **Perfil** principal, o c
 - Se a loja usa restrição de horário por perfil, a pessoa entra quando pelo menos um dos cargos dela está liberado.
 - Para tirar um cargo, edite o usuário e desmarque.
 
+## Ponto: importar o arquivo do relógio
+Menu **RH — Férias**, aba **Ponto**, botão **Importar arquivo do aparelho** (o arquivo que o relógio exporta no pendrive, como o AGL_001.TXT). Antes de gravar, a janela **Conferir antes de importar** mostra cada pessoa do relógio e para qual colaborador as batidas vão.
+
+O **número do relógio não é a matrícula do sistema**: o "1" do aparelho pode ser uma pessoa e o EMP-0001 outra. Por isso, na primeira vez a ligação é feita pelo **nome** (o nome do relógio precisa apontar para um colaborador só) e o número do relógio fica guardado no cadastro; nas próximas importações vale esse número. Nome que serve para mais de um colaborador não é adivinhado: a pessoa fica sem colaborador.
+
+Quem está no relógio e não está no sistema pode ser cadastrado na hora: marque **Cadastrar os que estão no relógio e não estão no sistema**. O sistema cria a ficha do colaborador com o nome e o número do relógio, admitido na data da primeira batida. Não cria usuário de acesso ao sistema; complete depois o nome completo, o CPF e o cargo. Desmarcando, as batidas dessas pessoas são ignoradas.
+
+O botão **Importações** lista os arquivos já importados. **Desfazer** tira as marcações que vieram daquele arquivo (as lançadas à mão e os colaboradores cadastrados continuam) — use quando um arquivo foi importado com as pessoas trocadas e importe de novo. Importar o mesmo arquivo duas vezes não duplica as batidas. Importar e desfazer é de quem tem a permissão de gerenciar o ponto.

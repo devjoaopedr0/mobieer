@@ -33,8 +33,12 @@ type PontoPreview = {
     to: string;
     nameMismatch: boolean;
     inactive: boolean;
+    how: "RELOGIO" | "NOME" | "MATRICULA" | null;
+    ambiguous: boolean;
+    newName: string | null;
   }[];
 };
+type PontoImport = { id: string; fileName: string; createdAt: string; rowsOk: number; rowsError: number; periodFrom: string | null; periodTo: string | null };
 
 
 
@@ -169,6 +173,15 @@ export function HrPage() {
     enabled: Boolean(pontoEmp) && /^\d{4}-\d{2}$/.test(pontoMonth),
   });
   const [conferencia, setConferencia] = useState<{ file: File; data: PontoPreview } | null>(null);
+  // quem está no relógio e não está no cadastro: cadastrar com o nome e o número do relógio
+  const [cadastrarNovos, setCadastrarNovos] = useState(true);
+  const [historico, setHistorico] = useState(false);
+  const importacoes = useQuery({ queryKey: ["hr", "timeclock-imports"], queryFn: () => apiGet<{ data: PontoImport[] }>("/hr/timeclock/imports"), enabled: historico });
+  const desfazerImportacao = useMutation({
+    mutationFn: (id: string) => apiDelete<{ message?: string }>(`/hr/timeclock/imports/${id}`),
+    onSuccess: (r) => { toast.success(r.message ?? "Importação desfeita"); qc.invalidateQueries({ queryKey: ["hr"] }); },
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível desfazer a importação")),
+  });
 
   const conferirPonto = useMutation({
     mutationFn: (file: File) => {
@@ -181,16 +194,19 @@ export function HrPage() {
   });
 
   const importPonto = useMutation({
-    mutationFn: ({ file, confirmar }: { file: File; confirmar: boolean }) => {
+    mutationFn: ({ file, confirmar, cadastrar }: { file: File; confirmar: boolean; cadastrar: boolean }) => {
       const fd = new FormData();
       fd.append("file", file);
       if (confirmar) fd.append("confirmarDivergencias", "true");
-      return apiPostForm<{ data: { importadas: number; reconhecidas: number; semColaborador: number; linhasInvalidas: number } }>("/hr/timeclock/import", fd);
+      if (cadastrar) fd.append("cadastrarNaoEncontrados", "true");
+      return apiPostForm<{ data: { importadas: number; reconhecidas: number; semColaborador: number; linhasInvalidas: number; cadastrados?: { fullName: string }[] } }>("/hr/timeclock/import", fd);
     },
     onSuccess: (r) => {
-      toast.success(`Importado: ${r.data.importadas} marcações (${r.data.semColaborador} sem colaborador, ${r.data.linhasInvalidas} inválidas)`);
+      const novos = r.data.cadastrados?.length ?? 0;
+      toast.success(`Importado: ${r.data.importadas} marcações (${novos ? `${novos} colaborador(es) cadastrado(s), ` : ""}${r.data.semColaborador} sem colaborador, ${r.data.linhasInvalidas} inválidas)`);
       setConferencia(null);
-      qc.invalidateQueries({ queryKey: ["hr", "mirror"] });
+      // colaborador novo aparece nas listas; o espelho e o histórico também mudam
+      qc.invalidateQueries({ queryKey: ["hr"] });
     },
     onError: (e) => toast.error(errorMessage(e, "Falha ao importar")),
   });
@@ -471,6 +487,7 @@ export function HrPage() {
                   {conferirPonto.isPending || importPonto.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                   Importar arquivo do aparelho
                 </Button>
+                <Button variant="ghost" onClick={() => setHistorico(true)}>Importações</Button>
                 <Button variant="ghost" disabled={!pontoEmp} onClick={() => setDialog("manualPunch")}>
                   <Plus className="mr-2 h-4 w-4" /> Marcação manual
                 </Button>
@@ -945,6 +962,37 @@ export function HrPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={historico} onOpenChange={setHistorico}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Importações do relógio de ponto</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">Desfazer tira as marcações que vieram daquele arquivo. Marcações lançadas à mão e colaboradores cadastrados continuam.</p>
+          <div className="max-h-[50vh] overflow-y-auto rounded-md border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-xs">
+                <tr><th className="px-2 py-1.5 text-left">Arquivo</th><th className="px-2 py-1.5 text-left">Importado em</th><th className="px-2 py-1.5 text-right">Marcações</th><th className="px-2 py-1.5 text-right">Fora</th><th /></tr>
+              </thead>
+              <tbody>
+                {(importacoes.data?.data ?? []).map((i) => (
+                  <tr key={i.id} className="border-t">
+                    <td className="px-2 py-1.5">{i.fileName}</td>
+                    <td className="px-2 py-1.5">{new Date(i.createdAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{i.rowsOk}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{i.rowsError}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      {canTimeclock && <Button size="sm" variant="ghost" className="text-destructive" disabled={desfazerImportacao.isPending} onClick={() => { if (window.confirm(`Desfazer a importação de ${i.fileName}? As ${i.rowsOk} marcações que vieram dela serão removidas.`)) desfazerImportacao.mutate(i.id); }}>Desfazer</Button>}
+                    </td>
+                  </tr>
+                ))}
+                {importacoes.isLoading && <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">Carregando…</td></tr>}
+                {!importacoes.isLoading && !(importacoes.data?.data ?? []).length && <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">Nenhuma importação.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {conferencia && (
         <Dialog open onOpenChange={() => setConferencia(null)}>
           <DialogContent className="max-w-2xl">
@@ -960,7 +1008,7 @@ export function HrPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 text-xs">
                     <tr>
-                      <th className="px-2 py-1.5 text-left">Matrícula</th>
+                      <th className="px-2 py-1.5 text-left">Nº no relógio</th>
                       <th className="px-2 py-1.5 text-left">No relógio</th>
                       <th className="px-2 py-1.5 text-left">Vai para</th>
                       <th className="px-2 py-1.5 text-right">Marcações</th>
@@ -976,9 +1024,12 @@ export function HrPage() {
                             <span className={r.nameMismatch ? "font-medium text-destructive" : ""}>
                               {r.employee.fullName} ({r.employee.registration})
                               {r.nameMismatch && " — nome diferente!"}
+                              {!r.nameMismatch && r.how === "NOME" && <span className="text-xs text-muted-foreground"> · ligado pelo nome</span>}
                             </span>
+                          ) : cadastrarNovos ? (
+                            <span className="text-primary">Novo colaborador: {r.newName}{r.ambiguous ? " (o nome parece com mais de um cadastro)" : ""}</span>
                           ) : (
-                            <span className="text-warning">Sem colaborador — será ignorado</span>
+                            <span className="text-warning">Sem colaborador — será ignorado{r.ambiguous ? " (o nome parece com mais de um cadastro)" : ""}</span>
                           )}
                         </td>
                         <td className="px-2 py-1.5 text-right tabular-nums">{r.punches}</td>
@@ -987,6 +1038,16 @@ export function HrPage() {
                   </tbody>
                 </table>
               </div>
+              {conferencia.data.rows.some((r) => !r.employee) && (
+                <label className="flex items-start gap-2 rounded-md border p-2 text-sm">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4" checked={cadastrarNovos} onChange={(e) => setCadastrarNovos(e.target.checked)} />
+                  <span>
+                    Cadastrar os {conferencia.data.rows.filter((r) => !r.employee).length} que estão no relógio e não estão no sistema
+                    <span className="block text-xs text-muted-foreground">Cria a ficha do colaborador com o nome e o número do relógio, admitido na data da primeira batida. Não cria usuário de acesso ao sistema; complete o cadastro depois (nome completo, CPF, cargo).</span>
+                  </span>
+                </label>
+              )}
+              <p className="text-xs text-muted-foreground">O número do relógio não é a matrícula do sistema. Quem já foi ligado fica guardado no cadastro; na primeira vez, a ligação é feita pelo nome.</p>
               {conferencia.data.requiresConfirmation && (
                 <p className="rounded-md bg-destructive/10 p-2 text-xs">
                   O nome no relógio não bate com o cadastro nas linhas em vermelho. Isso costuma ser matrícula reaproveitada — importar assim
@@ -1000,7 +1061,7 @@ export function HrPage() {
               <Button
                 variant={conferencia.data.requiresConfirmation ? "destructive" : "default"}
                 disabled={importPonto.isPending}
-                onClick={() => importPonto.mutate({ file: conferencia.file, confirmar: conferencia.data.requiresConfirmation })}
+                onClick={() => importPonto.mutate({ file: conferencia.file, confirmar: conferencia.data.requiresConfirmation, cadastrar: cadastrarNovos && conferencia.data.rows.some((r) => !r.employee) })}
               >
                 {importPonto.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {conferencia.data.requiresConfirmation ? "Importar mesmo assim" : "Importar"}

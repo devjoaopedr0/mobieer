@@ -2384,6 +2384,8 @@ model Employee {
   organizationId String
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registration   String // matrícula (gerada: EMP-0001)
+  /// número da pessoa no relógio de ponto (EnNo); não é a matrícula do sistema
+  clockRegistration String?
   fullName       String
   document       String? // CPF (só dígitos)
   role           String? // cargo
@@ -2407,6 +2409,7 @@ model Employee {
   updatedAt        DateTime             @updatedAt
 
   @@unique([organizationId, registration])
+  @@unique([organizationId, clockRegistration])
   // CPF não repete dentro da organização. Vários NULL convivem no Postgres,
   // então quem ainda não tem CPF cadastrado não trava o índice.
   @@unique([organizationId, document])
