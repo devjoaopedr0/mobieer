@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Copy, FileDown, Plus, Send, Settings2, ShieldAlert, Trash2, XCircle } from "lucide-react";
@@ -74,7 +74,8 @@ type Quote = {
   futureReleaseDate?: string | null;
 };
 type FinanceEntry = { id: string; type: "RECEITA" | "DESPESA"; category: string; amount: number; dueDate: string; status: string; description: string | null };
-type PlannedEntry = { type: "RECEITA" | "DESPESA"; category: string; amount: number; dueDay: string; description: string };
+type PlannedEntry = { type: "RECEITA" | "DESPESA"; category: string; amount: number; dueDay: string; description: string; follows?: number };
+type FinanceAdjust = { adjustments: { index: number; dueDay?: string; amount?: number }[]; rows: number };
 // vencimento é data de calendário (meia-noite UTC): mostra o dia sem converter fuso
 const dayBR = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 
@@ -855,6 +856,8 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
   const [accepting, setAccepting] = useState(false);
   const [competence, setCompetence] = useState<string | null>(null);
   const [withFinance, setWithFinance] = useState(true);
+  // ajustes de data e de comissão feitos na janela de aceite
+  const acceptAdjust = useRef<FinanceAdjust | null>(null);
   const [note, setNote] = useState("");
   const released = quote.approval.status === "NOT_REQUIRED" || quote.approval.status === "APPROVED";
   const manage = can("commercial.quotes.manage");
@@ -869,7 +872,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
       }
       if (action === "sent") return (await apiPatch<{ message: string }>(`${base}/status`, { status: "SENT" })).message;
       if (action === "accepted") {
-        const r = await apiPatch<{ message: string }>(`${base}/status`, { status: "APPROVED", generateFinance: withFinance });
+        const r = await apiPatch<{ message: string }>(`${base}/status`, { status: "APPROVED", generateFinance: withFinance, ...(withFinance && acceptAdjust.current?.adjustments.length ? { financeAdjustments: acceptAdjust.current.adjustments, financeRows: acceptAdjust.current.rows } : {}) });
         setAccepting(false);
         return r.message;
       }
@@ -974,7 +977,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
         </Dialog>
       )}
       {accepting && (
-        <AcceptDialog quoteId={quote.id} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={() => run.mutate("accepted")} onClose={() => setAccepting(false)} />
+        <AcceptDialog quoteId={quote.id} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={(adjust) => { acceptAdjust.current = adjust; run.mutate("accepted"); }} onClose={() => setAccepting(false)} />
       )}
 
       <Dialog open={deciding !== null} onOpenChange={(o) => !o && setDeciding(null)}>
@@ -992,22 +995,65 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
   );
 }
 
-function AcceptDialog(props: { quoteId: string; withFinance: boolean; setWithFinance: (v: boolean) => void; pending: boolean; onConfirm: () => void; onClose: () => void }) {
-  const plan = useQuery({ queryKey: ["quote-finance-preview", props.quoteId], queryFn: () => apiGet<{ data: PlannedEntry[] }>(`/commercial/quotes/${props.quoteId}/finance-preview`) });
+const COMMISSION_CATEGORIES = ["Comissão de venda", "Reserva técnica"];
+const parseMoney = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
+
+export function AcceptDialog(props: { quoteId: string; withFinance: boolean; setWithFinance: (v: boolean) => void; pending: boolean; onConfirm: (adjust: FinanceAdjust) => void; onClose: () => void }) {
+  const plan = useQuery({ queryKey: ["quote-finance-preview", props.quoteId], queryFn: () => apiGet<{ data: PlannedEntry[] }>(`/commercial/quotes/${props.quoteId}/finance-preview`), staleTime: 0 });
   const rows = plan.data?.data ?? [];
+  // o que a pessoa mudou: data de qualquer linha, valor só de comissão
+  const [days, setDays] = useState<Record<number, string>>({});
+  const [amounts, setAmounts] = useState<Record<number, string>>({});
+  const dayOf = (i: number) => days[i] ?? rows[i].dueDay;
+  const amountOf = (i: number) => (amounts[i] !== undefined ? parseMoney(amounts[i]) : rows[i].amount);
+  // mudar a data de um recebimento leva junto a comissão que é paga quando ele entra
+  const setDay = (i: number, v: string) => setDays((d) => ({ ...d, [i]: v, ...Object.fromEntries(rows.map((r, k) => [k, r] as const).filter(([, r]) => r.follows === i).map(([k]) => [k, v])) }));
+  const invalid = rows.some((_, i) => !dayOf(i) || !(amountOf(i) >= 0));
+  const total = (type: PlannedEntry["type"]) => rows.reduce((s, r, i) => (r.type === type ? s + (amountOf(i) || 0) : s), 0);
+  const confirm = () => {
+    const adjustments = rows
+      .map((r, index) => ({ index, ...(dayOf(index) !== r.dueDay ? { dueDay: dayOf(index) } : {}), ...(amounts[index] !== undefined && amountOf(index) !== r.amount ? { amount: amountOf(index) } : {}) }))
+      .filter((a) => a.dueDay !== undefined || a.amount !== undefined);
+    props.onConfirm({ adjustments, rows: rows.length });
+  };
   return (
     <Dialog open onOpenChange={(o) => !o && props.onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader><DialogTitle>Cliente aceitou o orçamento</DialogTitle></DialogHeader>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={props.withFinance} onChange={(e) => props.setWithFinance(e.target.checked)} />
           Lançar parcelas, taxas e comissões no financeiro
         </label>
-        {props.withFinance && (plan.isLoading ? <p className="text-sm text-muted-foreground">Calculando…</p> : <FinanceList rows={rows.map((r, i) => ({ key: String(i), type: r.type, description: r.description, day: r.dueDay, amount: r.amount }))} />)}
-        <p className="text-xs text-muted-foreground">Se a oportunidade já tinha o recebível único de quando foi ganha, ele é trocado por estas parcelas.</p>
+        {props.withFinance && (plan.isLoading ? <p className="text-sm text-muted-foreground">Calculando…</p> : !rows.length ? <p className="text-sm text-muted-foreground">Nada a lançar.</p> : (
+          <>
+            <p className="text-xs text-muted-foreground">Ajuste o vencimento de cada linha e, se precisar, o valor das comissões. A comissão é repartida conforme a loja recebe.</p>
+            <ul className="divide-y text-sm">
+              {rows.map((r, i) => {
+                const commission = COMMISSION_CATEGORIES.includes(r.category);
+                return (
+                  <li key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                    <span className="min-w-0 flex-1 basis-56">{r.description}</span>
+                    <Input type="date" aria-label={`Vencimento de ${r.description}`} className="h-8 w-40" value={dayOf(i)} onChange={(e) => setDay(i, e.target.value)} />
+                    {commission ? (
+                      <span className="flex items-center gap-1 text-destructive">
+                        - R$
+                        <Input inputMode="decimal" aria-label={`Valor de ${r.description}`} className="h-8 w-24 text-right" value={amounts[i] ?? r.amount.toFixed(2).replace(".", ",")} onChange={(e) => setAmounts((a) => ({ ...a, [i]: e.target.value }))} />
+                      </span>
+                    ) : (
+                      <span className={`w-32 shrink-0 text-right font-medium ${r.type === "RECEITA" ? "text-success" : "text-destructive"}`}>{r.type === "RECEITA" ? "+" : "-"} {formatCurrency(r.amount)}</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="flex justify-between text-sm"><span>A receber: <strong className="text-success">{formatCurrency(total("RECEITA"))}</strong></span><span>Comissões e taxas: <strong className="text-destructive">{formatCurrency(total("DESPESA"))}</strong></span></p>
+            {invalid && <p className="text-xs text-destructive">Há data em branco ou valor inválido.</p>}
+          </>
+        ))}
+        <p className="text-xs text-muted-foreground">Comissão com valor zero não é lançada. Se a oportunidade já tinha o recebível único de quando foi ganha, ele é trocado por estas parcelas.</p>
         <DialogFooter>
           <Button variant="outline" onClick={props.onClose}>Cancelar</Button>
-          <Button disabled={props.pending} onClick={props.onConfirm}>Confirmar aceite</Button>
+          <Button disabled={props.pending || (props.withFinance && (plan.isLoading || invalid))} onClick={confirm}>Confirmar aceite</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
