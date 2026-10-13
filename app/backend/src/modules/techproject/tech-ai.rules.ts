@@ -79,9 +79,10 @@ export function techAiBrief(spec: DrawingSpec, ctx: { client: string; room: stri
 function describePart(c: TechAiPart): string {
   const n = c.prateleiras;
   if (c.tipo === "portas") return `${c.portas} ${c.portas > 1 ? "portas de abrir" : "porta de abrir"}${n ? `, com ${n} ${n > 1 ? "prateleiras" : "prateleira"} por dentro` : ""}`;
-  if (c.tipo === "prateleiras") return `nicho aberto com ${n} ${n === 1 ? "prateleira" : "prateleiras"}`;
+  // a IA de imagem erra a contagem: dizer também os vãos ajuda ("2 prateleiras, formando 3 vãos")
+  if (c.tipo === "prateleiras") return `nicho aberto com ${n} ${n === 1 ? "prateleira" : "prateleiras"}${n ? `, formando ${n + 1} vãos` : ""}`;
   if (c.tipo === "gavetas") return `${c.gavetas} ${c.gavetas > 1 ? "gavetas" : "gaveta"}`;
-  if (c.tipo === "sapateira") return `sapateira com ${n} ${n === 1 ? "prateleira inclinada" : "prateleiras inclinadas"} para sapatos`;
+  if (c.tipo === "sapateira") return `sapateira com exatamente ${n} ${n === 1 ? "prateleira inclinada" : "prateleiras inclinadas"} para sapatos`;
   if (c.tipo === "maleiro") return `maleiro (compartimento alto para malas)${n ? `, com ${n} ${n > 1 ? "divisões" : "divisão"}` : ""}`;
   if (c.tipo === "outros") return `${c.nome ?? "outro compartimento"}${n ? `, com ${n} ${n > 1 ? "divisões" : "divisão"}` : ""}`;
   return "vão livre, sem frente";
@@ -89,7 +90,10 @@ function describePart(c: TechAiPart): string {
 
 export function describeColumns(brief: TechAiBrief): string[] {
   return brief.colunas.map((c) => {
-    const what = c.trechos.length > 1 ? `de cima para baixo: ${c.trechos.map((p) => `${describePart(p)} (${mm(p.altura_mm)} mm de altura)`).join("; ")}` : describePart(c.trechos[0]);
+    // a altura de cada trecho vai também em proporção: sem isso o maleiro saiu com quase o dobro da altura
+    const inner = brief.medidas_mm.altura - brief.medidas_mm.roda_teto - brief.medidas_mm.rodape;
+    const share = (h: number) => (inner > 0 ? `, cerca de ${Math.round((h / inner) * 100)}% da altura` : "");
+    const what = c.trechos.length > 1 ? `de cima para baixo: ${c.trechos.map((p) => `${describePart(p)} (${mm(p.altura_mm)} mm de altura${share(p.altura_mm)})`).join("; ")}` : describePart(c.trechos[0]);
     return `Coluna ${c.posicao} (${mm(c.largura_mm)} mm de largura): ${what}${c.observacao ? ` — ${c.observacao}` : ""}.`;
   });
 }
@@ -115,6 +119,7 @@ export function techAiPrompt(spec: DrawingSpec, ctx: { client: string; room: str
     "",
     "Obrigatório:",
     "- Mantenha as proporções da vista: mesma largura de cada coluna, mesma quantidade e mesma posição de portas, prateleiras e gavetas.",
+    "- Antes de gerar, conte na vista enviada as prateleiras, as gavetas e as portas de cada coluna: a imagem tem de ter exatamente as mesmas quantidades descritas acima.",
     "- Não acrescente, não remova e não mova nada. Não invente puxadores, nichos, iluminação ou objetos que não estão descritos.",
     "- Perspectiva levemente de lado e de cima, mostrando frente, uma lateral e o tampo; o móvel inteiro dentro do quadro.",
     "- Fundo neutro e claro de estúdio, piso discreto, sombra suave. Sem pessoas e sem decoração.",

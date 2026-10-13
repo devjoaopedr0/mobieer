@@ -379,6 +379,11 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
             ))}
           </div>
 
+          <div className="space-y-1">
+            <Label className="text-xs">Materiais e acabamentos (uma linha por item) — usados pela IA ao gerar a imagem 3D</Label>
+            <Textarea rows={3} value={f.specs} placeholder={"Ex.: Caixaria em MDF Cinza Urban" + String.fromCharCode(10) + "Portas de giro em alumínio prata com espelho" + String.fromCharCode(10) + "Puxador cava"} onChange={(e) => set("specs", e.target.value)} />
+            <p className="text-xs text-muted-foreground">Não sai escrito na vista cotada; serve para a imagem 3D ficar com a cor e o material certos.</p>
+          </div>
         </div>
 
         <DialogFooter>

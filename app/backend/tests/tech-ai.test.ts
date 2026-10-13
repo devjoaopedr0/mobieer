@@ -34,7 +34,7 @@ test("IA do projeto técnico: o resumo traz medidas e colunas como foram digitad
   const portas = b.colunas[1];
   assert.deepEqual({ largura: portas.largura_mm, obs: portas.observacao, tipo: portas.trechos[0].tipo, portas: portas.trechos[0].portas, prateleiras: portas.trechos[0].prateleiras }, { largura: 1180, obs: "Portas de giro em alumínio prata", tipo: "portas", portas: 2, prateleiras: 3 });
   assert.deepEqual(describeColumns(b), [
-    "Coluna 1 (1360 mm de largura): nicho aberto com 5 prateleiras.",
+    "Coluna 1 (1360 mm de largura): nicho aberto com 5 prateleiras, formando 6 vãos.",
     "Coluna 2 (1180 mm de largura): 2 portas de abrir, com 3 prateleiras por dentro — Portas de giro em alumínio prata.",
   ]);
 });
@@ -45,6 +45,7 @@ test("IA do projeto técnico: a instrução fixa as medidas e proíbe inventar",
   assert.match(fechado, /Largura 2540 mm, altura 2380 mm, profundidade 550 mm/);
   assert.match(fechado, /Não acrescente, não remova e não mova nada/);
   assert.match(fechado, /Nenhum texto na imagem/);
+  assert.match(fechado, /conte na vista enviada/);
   assert.match(fechado, /Puxador cava/);
   assert.ok(!/Pedido da equipe/.test(fechado));
   const aberto = techAiPrompt(spec, ctx, "ABERTO", "  madeira   mais clara ");
@@ -65,5 +66,5 @@ test("IA do projeto técnico: coluna com mais de um trecho é descrita de cima p
   );
   assert.deepEqual(b.colunas[0].trechos.map((t) => t.tipo), ["maleiro", "prateleiras", "gavetas"]);
   assert.deepEqual(b.colunas[0].trechos.map((t) => t.altura_mm), [400, 1029, 800]); // 2260 - 400 - 800 - 2 chapas de 15,5
-  assert.equal(describeColumns(b)[0], "Coluna 1 (2540 mm de largura): de cima para baixo: maleiro (compartimento alto para malas) (400 mm de altura); nicho aberto com 2 prateleiras (1029 mm de altura); 4 gavetas (800 mm de altura).");
+  assert.equal(describeColumns(b)[0], "Coluna 1 (2540 mm de largura): de cima para baixo: maleiro (compartimento alto para malas) (400 mm de altura, cerca de 18% da altura); nicho aberto com 2 prateleiras, formando 3 vãos (1029 mm de altura, cerca de 46% da altura); 4 gavetas (800 mm de altura, cerca de 35% da altura).");
 });
