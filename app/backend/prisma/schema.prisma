@@ -165,6 +165,7 @@ model User {
 
   @@index([roleId])
   @@index([organizationId])
+  productionPlanTasks ProductionPlanTask[] @relation("ProductionPlanTaskCreator")
 }
 
 enum EnterpriseStatus {
@@ -288,6 +289,7 @@ model Organization {
   employeeGoals          EmployeeGoal[]
 
   @@index([enterpriseId])
+  productionPlanTasks ProductionPlanTask[]
 }
 
 model Role {
@@ -3846,6 +3848,27 @@ model FinancePayment {
 }
 
 /// Arquivos do documento financeiro (o boleto/NF e os comprovantes).
+/// Planejamento da semana da produção: uma tarefa de uma pessoa em um dia.
+model ProductionPlanTask {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  date           DateTime // o dia, guardado ao meio-dia UTC
+  person         String // nome como a loja escreve; não exige usuário
+  title          String
+  reference      String? // cliente ou projeto, quando quiser dizer de quem é
+  items          Json         @default("[]") // subtarefas: [{ text, done }]
+  done           Boolean      @default(false)
+  doneAt         DateTime?
+  position       Int          @default(0)
+  createdById    String?
+  createdBy      User?        @relation("ProductionPlanTaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @default(now())
+
+  @@index([organizationId, date])
+}
+
 /// Linha de uma fatura de cartão: onde foi gasto e quanto.
 model FinanceDocumentItem {
   id            String             @id @default(cuid())

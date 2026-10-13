@@ -29,3 +29,13 @@ Menu **Compras de materiais**, ou a aba **Materiais** do projeto. É a lista de 
 4. No menu Compras de materiais aparecem todos os clientes juntos, com o filtro **Com pendência** ou **Todos**.
 
 Atualizar a lista pelo Promob não apaga o que já foi marcado como comprado nem o que foi digitado.
+
+## Planejamento da semana
+Menu **Produção → Planejamento da semana**. É uma grade com os dias da semana nas colunas (segunda a sexta; o sábado aparece quando tem tarefa) e as pessoas nas linhas. Em cada quadrinho ficam as tarefas daquela pessoa naquele dia, e uma tarefa pode ter passos (por exemplo "finalizar a cozinha": corte da viga, rasgo de fundo, pré-montar).
+
+Quem monta o planejamento (a administração e quem atualiza as etapas da produção):
+- **Colar do WhatsApp**: cole o texto como já é escrito — a semana ("SEMANA 13/10 - 16/10"), os dias ("TERÇA FEIRA:"), o nome de cada pessoa entre asteriscos ("*VIVIANE*") e as tarefas embaixo. Linha começando com "-" vira um passo da tarefa de cima. O sistema mostra a prévia para conferir e só então acrescenta à semana.
+- **Nova tarefa** ou o botão **+ tarefa** dentro de um quadrinho: escolha a pessoa, o dia, escreva a tarefa e, se quiser, o cliente e os passos.
+- O lápis na tarefa abre a edição; dali também se remove.
+
+Quem executa: abre a mesma tela, vê as suas tarefas e marca a caixinha da tarefa ou de cada passo quando termina. Uma tarefa com passos fica feita quando todos estão marcados. **Só as minhas** mostra apenas a linha de quem está logado (pelo primeiro nome). O nome da pessoa é o que a loja escreve; não precisa ser um usuário do sistema para aparecer na grade.
