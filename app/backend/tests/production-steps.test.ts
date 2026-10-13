@@ -91,3 +91,33 @@ test("pedido antigo: etapas que a esteira já passou nascem concluídas", () => 
   assert.deepEqual(stepsDoneByStage("PRE_ASSEMBLY"), ["PLANO_CORTE", "CORTE", "FITA_BORDA", "PECAS_ESPECIAIS", "LIMPEZA", "EMBALAGEM"]);
   assert.equal(stepsDoneByStage("OUT_FOR_DELIVERY").length, STEP_ORDER.length);
 });
+
+// ---------------- kanban da produção ----------------
+import { currentStep as curStep, planBoardMove as moveCard } from "../src/modules/production/steps.rules";
+
+const board = (statuses: string[]) =>
+  ["PLANO_CORTE", "CORTE", "FITA_BORDA", "PECAS_ESPECIAIS", "LIMPEZA"].map((step, i) => ({ id: `s${i}`, step: step as never, position: i, status: (statuses[i] ?? "PENDING") as never }));
+
+test("kanban: o pedido fica na primeira etapa aberta; tudo concluído sai das colunas", () => {
+  assert.equal(curStep(board(["DONE", "IN_PROGRESS"]))!.step, "CORTE");
+  assert.equal(curStep(board(["DONE", "SKIPPED", "PENDING"]))!.step, "FITA_BORDA");
+  assert.equal(curStep(board(["DONE", "DONE", "DONE", "SKIPPED", "DONE"])), null);
+});
+
+test("kanban: arrastar para frente conclui o caminho e inicia o destino", () => {
+  const r = moveCard(board(["DONE", "IN_PROGRESS", "PENDING", "SKIPPED", "PENDING"]), "LIMPEZA" as never);
+  assert.ok(r.ok);
+  // peças especiais não se aplica: fica como está
+  assert.deepEqual(r.ok && r.actions.map((a) => `${a.step}:${a.action}`), ["CORTE:COMPLETE", "FITA_BORDA:COMPLETE", "LIMPEZA:START"]);
+  const mesma = moveCard(board(["DONE", "PENDING"]), "CORTE" as never);
+  assert.deepEqual(mesma.ok && mesma.actions.map((a) => a.action), ["START"]); // soltar na própria coluna inicia a etapa
+});
+
+test("kanban: o que o arrastar não faz", () => {
+  const motivo = (r: ReturnType<typeof moveCard>) => (r.ok ? "" : r.motivo);
+  assert.match(motivo(moveCard(board(["DONE", "DONE", "IN_PROGRESS"]), "CORTE" as never)), /reabra a etapa/);
+  assert.match(motivo(moveCard(board(["DONE", "BLOCKED"]), "FITA_BORDA" as never)), /bloqueada/);
+  assert.match(motivo(moveCard(board(["DONE", "IN_PROGRESS", "PENDING", "SKIPPED"]), "PECAS_ESPECIAIS" as never)), /não se aplica/);
+  assert.match(motivo(moveCard(board(["DONE", "IN_PROGRESS"]), "CORTE" as never)), /já está nesta etapa/);
+  assert.match(motivo(moveCard(board(["DONE", "DONE", "DONE", "DONE", "DONE"]), "LIMPEZA" as never)), /concluiu todas/);
+});

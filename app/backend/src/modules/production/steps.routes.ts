@@ -17,7 +17,7 @@ import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { getOrCreateOrder } from "./production.service";
 import { ensureSteps, ensureStepsForOpenOrders, impliedStage, loadStepDays, notifyStep, STEP_DAYS_SETTING, syncOrderStage } from "./steps.service";
-import { STEP_LABEL, STEP_ORDER, STEP_STATUS_LABEL, daysLate, isOpenStep, nextStepStatus, type StepAction } from "./steps.rules";
+import { STEP_LABEL, STEP_ORDER, STEP_STATUS_LABEL, currentStep, daysLate, isOpenStep, nextStepStatus, planBoardMove, type StepAction } from "./steps.rules";
 
 const router = Router();
 router.use(authenticate);
@@ -114,6 +114,82 @@ router.get(
       }),
     ]);
     return ok(res, { counts: { late, blocked, dueSoon }, steps: steps.map((s) => serializeStep(s, counts.get(s.id) ?? 0, now)) });
+  })
+);
+
+// GET /api/production/steps/board — kanban: um cartão por pedido, na coluna da etapa em que ele está
+router.get(
+  "/steps/board",
+  requirePermission("organization.read"),
+  asyncHandler(async (req, res) => {
+    await ensureStepsForOpenOrders(req.user!.organizationId);
+    const now = new Date();
+    const orders = await prisma.productionOrder.findMany({
+      where: { organizationId: req.user!.organizationId, stage: { not: "DELIVERED" }, project: projectScope(req.user!) },
+      select: {
+        id: true,
+        stage: true,
+        estimatedDeliveryAt: true,
+        project: { select: { id: true, code: true, name: true, client: { select: { name: true } } } },
+        steps: { select: { id: true, step: true, position: true, status: true, dueAt: true, blockedReason: true, responsible: { select: { id: true, name: true } } }, orderBy: { position: "asc" } },
+      },
+      orderBy: { estimatedDeliveryAt: { sort: "asc", nulls: "last" } },
+      take: 300,
+    });
+    const cards = orders.map((o) => {
+      const cur = currentStep(o.steps);
+      const counted = o.steps.filter((s) => s.status !== "SKIPPED");
+      return {
+        orderId: o.id,
+        project: { id: o.project.id, code: o.project.code, name: o.project.name, clientName: o.project.client?.name ?? null },
+        // tudo concluído e ainda não entregue: aguarda a saída/entrega
+        column: cur ? cur.step : "CONCLUIDO",
+        status: cur?.status ?? "DONE",
+        statusLabel: cur ? STEP_STATUS_LABEL[cur.status] : "Concluída",
+        blockedReason: cur?.blockedReason ?? null,
+        responsible: cur?.responsible ?? null,
+        dueAt: cur?.dueAt ?? null,
+        daysLate: cur ? daysLate(cur.dueAt, cur.status, now) : 0,
+        done: counted.filter((s) => s.status === "DONE").length,
+        total: counted.length,
+        estimatedDeliveryAt: o.estimatedDeliveryAt,
+      };
+    });
+    const columns = [...STEP_ORDER.map((step) => ({ key: step as string, label: STEP_LABEL[step] })), { key: "CONCLUIDO", label: "Pronto para entrega" }];
+    return ok(res, { columns, cards });
+  })
+);
+
+// POST /api/production/steps/board/move { orderId, toStep } — arrastar o cartão para uma etapa à frente
+router.post(
+  "/steps/board/move",
+  canEdit,
+  asyncHandler(async (req, res) => {
+    const input = z.object({ orderId: z.string().min(1), toStep: z.nativeEnum(ProductionStepKey) }).parse(req.body);
+    const order = await prisma.productionOrder.findFirst({
+      where: { id: input.orderId, organizationId: req.user!.organizationId, project: projectScope(req.user!) },
+      select: { id: true, stage: true, project: { select: { code: true } }, steps: { select: { id: true, step: true, position: true, status: true, startedAt: true } } },
+    });
+    if (!order) throw new NotFoundError("Pedido não encontrado");
+    if (order.stage === "DELIVERED") throw new BadRequestError("Pedido já entregue: as etapas estão encerradas");
+    const plan = planBoardMove(order.steps, input.toStep);
+    if (!plan.ok) throw new BadRequestError(plan.motivo);
+    const now = new Date();
+    await prisma.$transaction(
+      plan.actions.map((a) => {
+        const startedAt = order.steps.find((s) => s.id === a.id)?.startedAt ?? now;
+        return prisma.productionStep.update({ where: { id: a.id }, data: a.action === "COMPLETE" ? { status: "DONE", startedAt, completedAt: now } : { status: "IN_PROGRESS", startedAt } });
+      })
+    );
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: "PRODUCTION_BOARD_MOVE", entity: "ProductionOrder", entityId: order.id, details: { project: order.project.code, toStep: input.toStep, actions: plan.actions.map((a) => `${a.step}:${a.action}`) } },
+    });
+    // a esteira macro acompanha, na ordem em que as etapas andaram
+    for (const a of plan.actions) {
+      await syncOrderStage(order.id, impliedStage(a.step, a.action), req.user!.id, `${STEP_LABEL[a.step]} ${a.action === "START" ? "iniciada" : "concluída"}`);
+    }
+    const completed = plan.actions.filter((a) => a.action === "COMPLETE").length;
+    return ok(res, { moved: true }, `${order.project.code}: em ${STEP_LABEL[input.toStep]}${completed ? ` (${completed} ${completed > 1 ? "etapas concluídas" : "etapa concluída"} no caminho)` : ""}`);
   })
 );
 

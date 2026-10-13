@@ -47,3 +47,8 @@ Quem monta o planejamento pode, na mesma janela, **passar para outro dia**: a ta
 
 ### Visão do dia e fechamento da semana
 O botão **Dia** troca a grade pelas metas de um só dia, uma caixa por pessoa, mais fácil de ler no celular ou numa TV da fábrica; os botões acima escolhem o dia. O quadro **Fechamento da semana** aparece quando há tarefa não cumprida ou sem justificativa e mostra quantas foram cumpridas, quantas não, quantas estão sem justificativa e os motivos mais frequentes.
+
+## Kanban da produção
+No menu **Produção**, o botão **Kanban** (ao lado de **Esteira**) mostra um cartão por pedido, na coluna da etapa da fábrica em que ele está: Plano de corte, Corte, Fita de borda, Peças especiais, Limpeza, Embalagem, Pré-montagem, Liberação e Saída. O pedido que já concluiu todas as etapas fica em **Pronto para entrega**. O cartão mostra o código e o nome do projeto, o cliente, a situação da etapa (pendente, em andamento ou bloqueada, com o motivo), quantas etapas já foram concluídas, o prazo da etapa (em vermelho quando atrasada), o responsável e a entrega prevista. Clicar no cartão abre o projeto.
+
+Quem gerencia a organização ou atualiza as etapas da produção pode **arrastar o cartão para uma etapa à frente**: as etapas abertas do caminho são concluídas e a de destino é iniciada. O quadro não volta etapa (para isso, reabra a etapa dentro do pedido) e não passa por cima de etapa bloqueada. Há busca por cliente ou projeto e filtro por responsável.
