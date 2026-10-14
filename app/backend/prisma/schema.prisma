@@ -3132,6 +3132,8 @@ model PlannerItem {
   weekOf         DateTime     @db.Date // segunda-feira da semana
   weekday        Int // 0=segunda ... 6=domingo
   text           String
+  note           String? // observação do item
+  dueAt          DateTime? // data e hora do compromisso, quando tem
   done           Boolean      @default(false)
   position       Int          @default(0)
   createdAt      DateTime     @default(now())

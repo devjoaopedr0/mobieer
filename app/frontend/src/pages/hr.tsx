@@ -17,6 +17,7 @@ import { EmptyState, PageSkeleton } from "@/components/ui/states";
 import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm } from "@/services/api";
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage, localIsoDate } from "@/lib/utils";
+import { TeamHoursCard } from "@/components/team-hours";
 import type { Employee, EmployeeDocument, EmployeeDocumentType, HourBank, HrAlert, TimeMirror, User, VacationRequest } from "@/types";
 
 type PontoPreview = {
@@ -453,6 +454,7 @@ export function HrPage() {
 
         {/* ---- Ponto eletrônico ---- */}
         <TabsContent value="ponto" className="space-y-4">
+          <TeamHoursCard month={pontoMonth} canManage={canTimeclock} onPick={setPontoEmp} />
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-2">
               <Label>Colaborador</Label>

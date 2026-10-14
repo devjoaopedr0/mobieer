@@ -132,6 +132,7 @@ export const router = createBrowserRouter([
           { path: "/atividades/:id", element: <PermissionGate permission="activities.read"><ActivityDetailPage /></PermissionGate> },
           { path: "/atividades/:id/editar", element: <PermissionGate permission="activities.edit"><ActivityFormPage /></PermissionGate> },
           { path: "/agenda", element: <PermissionGate permission="agenda.read"><AgendaPage /></PermissionGate> },
+          { path: "/montagens", element: <PermissionGate permission="agenda.read"><AgendaPage assembly /></PermissionGate> },
           { path: "/organizacao", element: <PermissionGate permission="organization.read"><OrganizationPage /></PermissionGate> },
           { path: "/organizacao/:id", element: <PermissionGate permission="organization.read"><OrganizationPage /></PermissionGate> },
           { path: "/minhas-tarefas", element: <PermissionGate permission="organization.read"><MyTasksPage /></PermissionGate> },

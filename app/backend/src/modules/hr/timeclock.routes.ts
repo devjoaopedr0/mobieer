@@ -7,7 +7,7 @@ import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { buildMirror, clockDisplayName, computeHourBank, fortalezaDay, inferKinds, looksLikeSamePerson, matchClockPeople, monthsBetween, parseTimeClockFile } from "./timeclock.service";
+import { DEFAULT_SCHEDULE, parseSchedule, summarizeTeamMonth, buildMirror, clockDisplayName, computeHourBank, fortalezaDay, inferKinds, looksLikeSamePerson, matchClockPeople, monthsBetween, parseTimeClockFile } from "./timeclock.service";
 import { nextRegistration } from "./hr.service";
 
 const router = Router();
@@ -61,6 +61,51 @@ router.get(
       month,
       ...mirror,
     });
+  })
+);
+
+const SCHEDULE_KEY = "hr.timeclock.schedule";
+
+// GET /api/hr/timeclock/team-summary?month=YYYY-MM -> a equipe inteira no mês: quem deve, quem tem crédito, atrasos
+router.get(
+  "/team-summary",
+  requirePermission("hr.read"),
+  asyncHandler(async (req, res) => {
+    const today = fortalezaDay(new Date());
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month ?? "")) ? String(req.query.month) : today.slice(0, 7);
+    const [y, m] = month.split("-").map(Number);
+    const schedule = parseSchedule((await prisma.setting.findUnique({ where: { key: SCHEDULE_KEY } }))?.value);
+    const employees = await prisma.employee.findMany({
+      where: { organizationId: req.user!.organizationId, admittedAt: { lt: new Date(Date.UTC(y, m, 1)) }, OR: [{ terminatedAt: null }, { terminatedAt: { gte: new Date(Date.UTC(y, m - 1, 1)) } }] },
+      select: { id: true, fullName: true, registration: true, weeklyHours: true, status: true, admittedAt: true, terminatedAt: true },
+      orderBy: { fullName: "asc" },
+    });
+    // margem de um dia de cada lado: a batida é guardada em UTC e o dia é o da loja
+    const entries = await prisma.timeEntry.findMany({
+      where: { organizationId: req.user!.organizationId, timestamp: { gte: new Date(Date.UTC(y, m - 1, 0)), lt: new Date(Date.UTC(y, m, 2)) } },
+      select: { employeeId: true, timestamp: true, kind: true },
+      orderBy: { timestamp: "asc" },
+    });
+    const lastDay = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+    const rows = employees.map((e) => {
+      const mine = entries.filter((x) => x.employeeId === e.id && fortalezaDay(x.timestamp).startsWith(month));
+      const end = e.terminatedAt ? fortalezaDay(e.terminatedAt) : lastDay;
+      const row = summarizeTeamMonth(buildMirror(mine, month, e.weeklyHours).days, { from: fortalezaDay(e.admittedAt), to: [today, lastDay, end].sort()[0], schedule });
+      return { employee: { id: e.id, fullName: e.fullName, registration: e.registration, status: e.status }, ...row };
+    });
+    return ok(res, { month, today, schedule, rows });
+  })
+);
+
+// PUT /api/hr/timeclock/schedule { start: "08:00", tolerance: 10 } -> horário de entrada e tolerância para o atraso
+router.put(
+  "/schedule",
+  requirePermission("hr.timeclock.manage"),
+  asyncHandler(async (req, res) => {
+    const input = z.object({ start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Horário inválido"), tolerance: z.coerce.number().int().min(0).max(120) }).parse(req.body);
+    await prisma.setting.upsert({ where: { key: SCHEDULE_KEY }, create: { key: SCHEDULE_KEY, value: JSON.stringify(input) }, update: { value: JSON.stringify(input) } });
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action: "TIMECLOCK_SCHEDULE_UPDATED", entity: "Setting", entityId: SCHEDULE_KEY, details: input } });
+    return ok(res, input ?? DEFAULT_SCHEDULE, "Horário de entrada salvo");
   })
 );
 

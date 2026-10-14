@@ -6,7 +6,7 @@ Na aba **Campo** do projeto são criadas as requisições de montagem para os mo
 Uma requisição cancelada, ou com novo QR gerado, invalida a folha anterior.
 
 ## Montadores externos
-Menu **Montadores externos** (grupo Entrega e montagem): cadastro dos montadores e seus documentos. O montador com acesso próprio vê a tela **Minha montagem**.
+Menu **Montadores externos** (grupo Montagens): cadastro dos montadores e seus documentos. O montador com acesso próprio vê a tela **Minha montagem**.
 
 ## Cronograma de montagem
 Aba **Cronograma** do projeto. O cronograma segue o modelo da loja:
