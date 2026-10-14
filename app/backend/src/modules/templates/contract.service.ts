@@ -101,6 +101,13 @@ export function moneyToWords(value: number): string {
   return `${negativo ? "menos " : ""}${parts.join(" e ")}`;
 }
 
+/** 45 -> "45 (quarenta e cinco) dias úteis"; vazio sem prazo. */
+export const prazoUteis = (dias: number | null | undefined) =>
+  dias != null && dias > 0 ? `${String(dias).padStart(2, "0")} (${numberToWords(dias)}) ${dias === 1 ? "dia útil" : "dias úteis"}` : "";
+
+/** Contatos do rodapé do contrato: o telefone e o e-mail que constam no contrato da loja. */
+export const CONTRACT_CONTACTS = ["(85) 99969-1441", "contato@mobieer.com.br", "www.mobieer.com.br"];
+
 // ---------------- Campos disponíveis ----------------
 
 export const MERGE_FIELDS: { key: string; label: string; example: string }[] = [
@@ -141,7 +148,7 @@ export const MERGE_FIELDS: { key: string; label: string; example: string }[] = [
   { key: "venda.vendedor", label: "Quem vendeu", example: "Ana" },
   { key: "venda.data", label: "Data da venda (aceite)", example: "13/09/2026" },
   { key: "pagamento.forma", label: "Forma de pagamento", example: "Boleto parcelado" },
-  { key: "pedido.prazoFabricacao", label: "Prazo combinado no orçamento", example: "45 dias úteis" },
+  { key: "pedido.prazoFabricacao", label: "Prazo de fabricação do orçamento, por extenso", example: "45 (quarenta e cinco) dias úteis" },
   { key: "quadro.pedido", label: "Quadro do pedido: ambientes, valores e acabamentos (sozinho na linha)", example: "(tabela)" },
   { key: "quadro.pagamento", label: "Quadro do pagamento: condição, forma e parcelas (sozinho na linha)", example: "(tabela)" },
 ];
@@ -269,7 +276,7 @@ export async function buildContractContext(
     "venda.vendedor": order?.seller ?? "",
     "venda.data": order ? brDate(order.soldAt) : "",
     "pagamento.forma": order?.method ?? "",
-    "pedido.prazoFabricacao": order?.deliveryText ?? (input.prazoEntregaDias != null ? `${input.prazoEntregaDias} dias` : ""),
+    "pedido.prazoFabricacao": prazoUteis(order?.deliveryDays ?? input.prazoEntregaDias),
     // com orçamento, a linha vira tabela no PDF; sem ele, sai o texto que houver
     "quadro.pedido": order ? BLOCK.pedido : tabelaAmbientes,
     "quadro.pagamento": order ? BLOCK.pagamento : (input.condicaoPagamento ?? ""),
@@ -298,8 +305,8 @@ export { renderTemplate } from "../../utils/template";
  * vira título de seção, "Rótulo: valor" sai com o rótulo em negrito, "• " vira
  * item de lista e o resto é parágrafo justificado.
  */
-export function contractPdf(opts: { title: string; body: string; footer?: string; blocks?: Record<string, (doc: ReturnType<typeof brandDocument>["doc"]) => void> }): Promise<Buffer> {
-  const { doc, done, width } = brandDocument();
+export function contractPdf(opts: { title: string; body: string; footer?: string; contacts?: string[]; blocks?: Record<string, (doc: ReturnType<typeof brandDocument>["doc"]) => void> }): Promise<Buffer> {
+  const { doc, done, width } = brandDocument({ contacts: opts.contacts });
   brandTitle(doc, opts.title);
 
   // título de seção só no começo de um bloco: "CONTRATANTE" sob a linha de assinatura é texto
@@ -370,7 +377,7 @@ export const DEFAULT_CONTRACT_BODY = `CONTRATO DE COMPRA E VENDA DE MÓVEIS PLAN
 
 1. QUALIFICAÇÃO DAS PARTES CONTRATANTES
 
-CONTRATADA: MOBIEER MÓVEIS PLANEJADOS LTDA - ME (Razão Social de Faturamento: JD INDÚSTRIA DE MÓVEIS LTDA, CNPJ: 68.032.474/0001-59), com sede em Fortaleza/CE, Fone: (85) 3016-4530, e-mail: contato@mobieer.com.br.
+CONTRATADA: MOBIEER MÓVEIS PLANEJADOS LTDA - ME (Razão Social de Faturamento: JD INDÚSTRIA DE MÓVEIS LTDA, CNPJ: 68.032.474/0001-59), com sede em Fortaleza/CE, Fone: (85) 99969-1441, e-mail: contato@mobieer.com.br.
 
 CONTRATANTE: {{cliente.nome}}
 CNPJ/CPF: {{cliente.documento}}
@@ -389,13 +396,13 @@ Vendedor / Data: {{venda.vendedor}} / {{venda.data}}
 
 CLÁUSULA PRIMEIRA — DO OBJETO DO CONTRATO
 
-O presente contrato tem por objeto a compra e venda de mobiliário planejado sob medida e a prestação dos serviços correlatos de elaboração de projeto executivo, conferência técnica de medidas, pré-montagem, transporte e montagem/ instalação, conforme especificações descritas no resumo do pedido e nos projetos técnicos anexos, devidamente rubricados e aprovados pelo CONTRATANTE, que passam a integrar este instrumento para todos os fins de direito.
+O presente contrato tem por objeto a compra e venda de mobiliário planejado sob medida e a prestação dos serviços correlatos de elaboração de projeto executivo, conferência técnica de medidas, pré-montagem, transporte e montagem/instalação, conforme especificações descritas no resumo do pedido e nos projetos técnicos anexos, devidamente rubricados e aprovados pelo CONTRATANTE, que passam a integrar este instrumento para todos os fins de direito.
 
 Não integram o presente contrato o fornecimento de elementos decorativos presentes nos projetos apenas a título de ilustração, tais como eletrodomésticos, granitos, tapetes, cortinas, espelhos, vidros, etc., ou seja, produtos não fabricados pela empresa. Os montadores não são autorizados a prestar serviços além do acordado em contrato, sendo vedadas instalações de TV, manuseio de eletrodomésticos, alterações de pontos elétricos ou quaisquer outras instalações sem autorização prévia e expressa da CONTRATADA.
 
 CLÁUSULA SEGUNDA — DAS DELIMITAÇÕES DOS SERVIÇOS E RESPONSABILIDADES
 
-A CONTRATADA obriga-se exclusivamente ao fornecimento, fabricação e montagem do mobiliário descrito na Cláusula 2ª.
+A CONTRATADA obriga-se exclusivamente ao fornecimento, fabricação e montagem do mobiliário descrito no item 2 (Resumo do Pedido e Especificações Técnicas).
 
 Exclusões de Escopo: NÃO fazem parte das obrigações da CONTRATADA, correndo por conta, risco e responsabilidade exclusiva do CONTRATANTE:
 a) Serviços de construção civil, alvenaria, gesso, pintura, raspagem, aplicação de papel de parede, vidraçaria, espelhos ou marmoraria;
@@ -413,11 +420,11 @@ Havendo alterações no projeto executivo solicitadas pelo CONTRATANTE após a a
 
 CLÁUSULA QUARTA — DOS PRAZOS DE FABRICAÇÃO, PRÉ-MONTAGEM, ENTREGA E INSTALAÇÃO
 
-Fabricação: O prazo para conclusão da fabricação industrial dos móveis é de até 45 (quarenta e cinco) dias úteis, contados do primeiro dia útil seguinte à aprovação final do Projeto Executivo e Liberação da Medição Definitiva (além da confirmação do pagamento de entrada, se houver).
+Fabricação: O prazo para conclusão da fabricação industrial dos móveis é de até {{pedido.prazoFabricacao}}, conforme o resumo do pedido, contados do primeiro dia útil seguinte à aprovação final do Projeto Executivo e Liberação da Medição Definitiva (além da confirmação do pagamento de entrada, se houver).
 
-Início da Montagem: Os serviços de montagem serão iniciados em até 08 (oito) dias úteis após a entrega efetiva de 100% dos móveis no local da obra, mediante cronograma alinhado com o CONTRATANTE, caso não haja pré montagem no espaço fabril.
+Início da Montagem: Os serviços de montagem serão iniciados em até 08 (oito) dias úteis após a entrega efetiva de 100% dos móveis no local da obra, mediante cronograma alinhado com o CONTRATANTE, caso não haja pré-montagem no espaço fabril.
 
-Pré-Montagem em Fábrica: Concluída a fase de fabricação (após os 45 dias úteis), a CONTRATADA iniciará a pré-montagem do mobiliário nas dependências de sua fábrica. Dentro do prazo pre estabelecido.
+Pré-Montagem em Fábrica: Concluída a fase de fabricação (após o prazo de {{pedido.prazoFabricacao}}), a CONTRATADA iniciará a pré-montagem do mobiliário nas dependências de sua fábrica, a qual será concluída dentro do prazo previamente estabelecido entre as partes.
 
 Cronograma de Entrega e Instalação In Loco: Após a pré-montagem fabril, a CONTRATADA enviará ao CONTRATANTE um cronograma detalhado prevendo as datas de entrega e instalação no local (in loco). O prazo final de entrega e montagem no imóvel será alinhado com o cliente a depender da quantidade de ambientes e da complexidade técnica do projeto.
 
@@ -440,7 +447,7 @@ Exclusões da Garantia: Não estão cobertos pela garantia danos decorrentes de:
 
 CLÁUSULA SÉTIMA — DO PREÇO, PAGAMENTO E MORA
 
-Pelos produtos e serviços contratados, o CONTRATANTE pagará o valor total ajustado conforme discriminado na Cláusula 2ª.
+Pelos produtos e serviços contratados, o CONTRATANTE pagará o valor total ajustado conforme discriminado no item 2 (Resumo do Pedido e Especificações Técnicas).
 
 O atraso no pagamento de qualquer parcela sujeitará o débito à incidência de multa moratória de 2% (dois por cento) sobre o valor em atraso, acréscimo de juros de mora de 1% (um por cento) ao mês pro rata die, e atualização monetária pelo índice IGPM/FGV (ou IPCA/IBGE) até a data da efetiva liquidação, em consonância com o Artigo 52, §1º do CDC.
 
@@ -478,8 +485,8 @@ E, por estarem assim justas e contratadas, as partes firmam o presente instrumen
 
 
 _______________________________________
-MOBIEER MÓVEIS PLANEJADOS LTDA
-CONTRATADA — CNPJ 52.315.891/0001-79
+MOBIEER MÓVEIS PLANEJADOS LTDA - ME
+CONTRATADA — CNPJ 68.032.474/0001-59
 
 
 _______________________________________

@@ -14,6 +14,7 @@ import {
   DEFAULT_CONTRACT_BODY,
   buildContractContext,
   renderTemplate,
+  CONTRACT_CONTACTS,
   contractPdf,
 } from "./contract.service";
 import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder } from "./contract-order";
@@ -333,6 +334,7 @@ router.post(
       title,
       body: text,
       footer,
+      contacts: CONTRACT_CONTACTS,
       blocks: order ? { [BLOCK.pedido]: (doc) => drawOrderBlock(doc, order), [BLOCK.pagamento]: (doc) => drawPaymentBlock(doc, order) } : undefined,
     });
 

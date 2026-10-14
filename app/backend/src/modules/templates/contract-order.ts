@@ -31,6 +31,8 @@ export type ContractOrder = {
   /** entrada e parcelas, com vencimento */
   installments: { label: string; due: Date | null; amount: number }[];
   deliveryText: string;
+  /** prazo de fabricação combinado no orçamento, em dias úteis */
+  deliveryDays: number;
 };
 
 /** Sinal que o PDF troca pelo quadro: a linha precisa ficar sozinha no texto. */
@@ -106,6 +108,7 @@ export async function loadContractOrder(organizationId: string, quoteId: string)
     method: PAYMENT_LABEL[method] ?? q.paymentMethod,
     installments: plan.map((p, i) => ({ label: labels[i], due: p.due, amount: p.amount })),
     deliveryText: q.deliveryText?.trim() || doc.deliveryText,
+    deliveryDays,
   };
 }
 
