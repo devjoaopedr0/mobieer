@@ -16,6 +16,7 @@ import {
   renderTemplate,
   contractPdf,
 } from "./contract.service";
+import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder } from "./contract-order";
 import { pipeToResponse } from "../../utils/stream";
 
 const router = Router();
@@ -263,6 +264,8 @@ const contractInput = z.object({
   clientId: z.string().min(1),
   projectId: z.string().min(1).optional().nullable(),
   promobImportId: z.string().min(1).optional().nullable(),
+  /** orçamento aceito: o pedido, o pagamento e as parcelas saem dele */
+  quoteId: z.string().min(1).optional().nullable(),
   entrada: z.coerce.number().min(0).optional().nullable(),
   parcelas: z.coerce.number().int().min(0).max(240).optional().nullable(),
   valorParcela: z.coerce.number().min(0).optional().nullable(),
@@ -273,6 +276,14 @@ const contractInput = z.object({
   title: z.string().trim().max(200).optional().nullable(),
   visibleToClient: z.boolean().optional(),
 });
+
+/** Orçamento do contrato, conferindo que é do mesmo cliente. */
+async function orderFor(input: z.infer<typeof contractInput>, organizationId: string) {
+  if (!input.quoteId) return null;
+  const order = await loadContractOrder(organizationId, input.quoteId);
+  if (order.clientId !== input.clientId) throw new BadRequestError("O orçamento é de outro cliente");
+  return order;
+}
 
 async function loadContractTemplate(id: string, organizationId: string) {
   const t = await prisma.documentTemplate.findFirst({ where: { id, organizationId } });
@@ -290,9 +301,16 @@ router.post(
   asyncHandler(async (req, res) => {
     const t = await loadContractTemplate(req.params.id, req.user!.organizationId);
     const input = contractInput.parse(req.body);
-    const ctx = await buildContractContext(req.user!.organizationId, input);
-    const { text, missing } = renderTemplate(t.bodyHtml!, ctx.values);
-    return ok(res, { title: input.title || t.name, text, missing, meta: ctx.meta, values: ctx.values });
+    const order = await orderFor(input, req.user!.organizationId);
+    const ctx = await buildContractContext(req.user!.organizationId, input, order);
+    const rendered = renderTemplate(t.bodyHtml!, ctx.values);
+    // na prévia em texto, o quadro vira um resumo
+    const text = order
+      ? rendered.text
+          .replace(BLOCK.pedido, order.items.map((i) => `${i.code} — ${i.room} — ${i.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
+          .replace(BLOCK.pagamento, order.installments.map((p) => `${p.label}: ${p.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
+      : rendered.text;
+    return ok(res, { title: input.title || t.name, text, missing: rendered.missing, meta: ctx.meta, values: ctx.values });
   })
 );
 
@@ -303,14 +321,20 @@ router.post(
   asyncHandler(async (req, res) => {
     const t = await loadContractTemplate(req.params.id, req.user!.organizationId);
     const input = contractInput.parse(req.body);
-    const ctx = await buildContractContext(req.user!.organizationId, input);
+    const order = await orderFor(input, req.user!.organizationId);
+    const ctx = await buildContractContext(req.user!.organizationId, input, order);
     const { text, missing } = renderTemplate(t.bodyHtml!, ctx.values);
 
     const title = input.title || `${t.name} — ${ctx.meta.clientName}`;
     const footer = `Gerado pelo sistema MOBIEER em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })}${
       ctx.meta.promobImportId ? ` • orçamento Promob ${ctx.values["promob.arquivo"]}` : ""
     }`;
-    const pdf = await contractPdf({ title, body: text, footer });
+    const pdf = await contractPdf({
+      title,
+      body: text,
+      footer,
+      blocks: order ? { [BLOCK.pedido]: (doc) => drawOrderBlock(doc, order), [BLOCK.pagamento]: (doc) => drawPaymentBlock(doc, order) } : undefined,
+    });
 
     const fileName = `contrato-${(ctx.meta.projectCode || ctx.meta.clientName).replace(/[^\w-]+/g, "-").toLowerCase()}.pdf`;
     const key = buildStorageKey(`clients/${ctx.meta.clientId}`, fileName);
@@ -343,7 +367,7 @@ router.post(
         action: "CONTRACT_GENERATED",
         entity: "ProjectDocument",
         entityId: doc.id,
-        details: { templateId: t.id, clientId: ctx.meta.clientId, total: ctx.meta.total, totalSource: ctx.meta.totalSource },
+        details: { templateId: t.id, clientId: ctx.meta.clientId, quoteId: order?.quoteId ?? null, total: ctx.meta.total, totalSource: ctx.meta.totalSource },
       },
     });
 

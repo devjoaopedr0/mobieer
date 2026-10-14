@@ -11,6 +11,7 @@ import { errorMessage } from "@/lib/errors";
 
 type Template = { id: string; name: string; type: string; hasBody: boolean; active: boolean; requiresSignature: boolean };
 type QuoteForContract = {
+  id: string;
   number: string;
   total: number;
   paymentTerms: string | null;
@@ -32,7 +33,12 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
     queryKey: ["templates", "contrato"],
     queryFn: () => apiGet<{ data: Template[] }>("/templates"),
     enabled: open,
-    select: (r) => r.data.filter((t) => t.active && t.hasBody),
+    // os modelos do tipo contrato vêm primeiro; sem nenhum, qualquer modelo com texto
+    select: (r) => {
+      const usable = r.data.filter((t) => t.active && t.hasBody);
+      const contracts = usable.filter((t) => t.type === "CONTRATO");
+      return contracts.length ? contracts : usable;
+    },
   });
   const list = templates.data ?? [];
   const chosen = list.find((t) => t.id === templateId) ?? (list.length === 1 ? list[0] : null);
@@ -42,6 +48,7 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
       const rest = Math.max(0, quote.total - quote.payment.downPayment);
       return apiPost<{ data: { id: string; fileName: string; requiresSignature: boolean; missing: string[] }; message?: string }>(`/templates/${chosen!.id}/contract`, {
         clientId: quote.client.id,
+        quoteId: quote.id,
         projectId: quote.project?.id ?? null,
         totalOverride: quote.total,
         entrada: quote.payment.downPayment || null,
@@ -72,7 +79,7 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Gerar contrato — {quote.number}</DialogTitle>
-            <DialogDescription>O contrato sai do modelo escolhido, com o cliente, o valor, a entrada, as parcelas e o prazo deste orçamento.</DialogDescription>
+            <DialogDescription>O contrato sai do modelo escolhido, com o cliente, os ambientes e acabamentos, o valor e as parcelas com vencimento deste orçamento.</DialogDescription>
           </DialogHeader>
           {templates.isLoading ? (
             <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>

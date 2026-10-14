@@ -123,3 +123,52 @@ export function brandField(doc: Doc, label: string, value: string, opts: { size?
 export function ensureSpace(doc: Doc, height: number) {
   if (doc.y + height > doc.page.height - doc.page.margins.bottom) doc.addPage();
 }
+
+type Align = "left" | "center" | "right";
+
+/** Uma linha só, no padrão da marca: o que não couber na largura é cortado. */
+export function brandOneLine(doc: Doc, s: string, x: number, y: number, w: number, o: { size?: number; bold?: boolean; color?: string; align?: Align } = {}) {
+  doc.font(o.bold ? "Helvetica-Bold" : "Helvetica").fontSize(o.size ?? 8.5).fillColor(o.color ?? BRAND.ink);
+  let t = s.replace(/\s+/g, " ").trim();
+  while (t.length > 1 && doc.widthOfString(t) > w) t = t.slice(0, -1);
+  const tw = doc.widthOfString(t);
+  doc.text(t, o.align === "right" ? x + w - tw : o.align === "center" ? x + (w - tw) / 2 : x, y, { lineBreak: false });
+  doc.fillColor(BRAND.ink);
+}
+
+export type BrandCol = { label: string; w: number; align?: Align; size?: number; bold?: boolean };
+
+/**
+ * Tabela da marca: cabeçalho escuro e linhas com fio claro. `w` de cada coluna
+ * é a fração da largura. Com `wrap`, a linha cresce com o texto em vez de cortar.
+ */
+export function brandTable(doc: Doc, cols: BrandCol[], data: string[][], minRowH: number, wrap = false) {
+  const L = PAGE.left;
+  const W = doc.page.width - PAGE.left - PAGE.right;
+  const xs = cols.reduce<number[]>((acc, c, i) => [...acc, i === 0 ? L : acc[i - 1] + cols[i - 1].w * W], []);
+  const header = () => {
+    const y = doc.y;
+    doc.rect(L, y, W, 18).fill(BRAND.band);
+    cols.forEach((c, i) => brandOneLine(doc, c.label, xs[i] + 6, y + 6, c.w * W - 12, { size: 7, bold: true, color: "#FFFFFF", align: c.align }));
+    doc.y = y + 18;
+  };
+  ensureSpace(doc, 18 + minRowH);
+  header();
+  for (const row of data) {
+    const rowH = wrap
+      ? Math.max(minRowH, ...cols.map((c, i) => doc.font(c.bold ? "Helvetica-Bold" : "Helvetica").fontSize(c.size ?? 8.5).heightOfString(row[i] ?? "", { width: c.w * W - 12 }) + 8))
+      : minRowH;
+    if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+      header();
+    }
+    const y = doc.y;
+    cols.forEach((c, i) => {
+      if (!wrap) return brandOneLine(doc, row[i] ?? "", xs[i] + 6, y + (rowH - (c.size ?? 8.5)) / 2, c.w * W - 12, { size: c.size, bold: c.bold, align: c.align });
+      doc.font(c.bold ? "Helvetica-Bold" : "Helvetica").fontSize(c.size ?? 8.5).fillColor(BRAND.ink).text(row[i] ?? "", xs[i] + 6, y + 4.5, { width: c.w * W - 12, align: c.align ?? "left" });
+    });
+    doc.moveTo(L, y + rowH).lineTo(L + W, y + rowH).strokeColor(BRAND.line).lineWidth(0.5).stroke();
+    doc.y = y + rowH;
+  }
+  doc.x = L;
+}

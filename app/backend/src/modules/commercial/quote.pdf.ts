@@ -6,7 +6,7 @@
  * prazo, validade, as observações fixas e a assinatura de quem vendeu.
  * Custo, mark-up, comissões e resultado nunca entram aqui.
  */
-import { BRAND, PAGE, brandDocument, brandSection, brandTitle, ensureSpace } from "../../lib/brand-pdf";
+import { BRAND, PAGE, brandDocument, brandOneLine, brandSection, brandTable, brandTitle, ensureSpace, type BrandCol } from "../../lib/brand-pdf";
 import { ambCode, obsLabel, quoteObservations, type QuoteDocumentConfig } from "./quote.rules";
 
 export type QuotePdfData = {
@@ -36,15 +36,7 @@ export function quoteModelPdf(d: QuotePdfData): Promise<Buffer> {
   const L = PAGE.left;
   const R = L + W;
 
-  /** Uma linha só: o que não couber na coluna é cortado. */
-  const one = (s: string, x: number, y: number, w: number, o: { size?: number; bold?: boolean; color?: string; align?: "left" | "center" | "right" } = {}) => {
-    doc.font(o.bold ? "Helvetica-Bold" : "Helvetica").fontSize(o.size ?? 8.5).fillColor(o.color ?? BRAND.ink);
-    let t = s.replace(/\s+/g, " ").trim();
-    while (t.length > 1 && doc.widthOfString(t) > w) t = t.slice(0, -1);
-    const tw = doc.widthOfString(t);
-    doc.text(t, o.align === "right" ? x + w - tw : o.align === "center" ? x + (w - tw) / 2 : x, y, { lineBreak: false });
-    doc.fillColor(BRAND.ink);
-  };
+  const one = (s: string, x: number, y: number, w: number, o: Parameters<typeof brandOneLine>[5] = {}) => brandOneLine(doc, s, x, y, w, o);
 
   brandTitle(doc, `Orçamento ${d.number}${d.version > 1 ? ` · versão ${d.version}` : ""}`, `Emitido em ${brDate(d.issuedAt)}${d.validUntil ? `   ·   Válido até ${brDate(d.validUntil)}` : ""}`, { size: 16 });
 
@@ -74,37 +66,7 @@ export function quoteModelPdf(d: QuotePdfData): Promise<Buffer> {
   ]);
   doc.moveDown(0.4);
 
-  // ---------------------------------------------------------------- tabela: cabeçalho escuro, linhas com fio claro
-  type Col = { label: string; w: number; align?: "left" | "center" | "right"; size?: number; bold?: boolean };
-  const table = (cols: Col[], data: string[][], minRowH: number, wrap = false) => {
-    const xs = cols.reduce<number[]>((acc, c, i) => [...acc, i === 0 ? L : acc[i - 1] + cols[i - 1].w * W], []);
-    const header = () => {
-      const y = doc.y;
-      doc.rect(L, y, W, 18).fill(BRAND.band);
-      cols.forEach((c, i) => one(c.label, xs[i] + 6, y + 6, c.w * W - 12, { size: 7, bold: true, color: "#FFFFFF", align: c.align }));
-      doc.y = y + 18;
-    };
-    ensureSpace(doc, 18 + minRowH);
-    header();
-    for (const row of data) {
-      // com quebra de linha, nada é cortado: a linha cresce com o texto
-      const rowH = wrap
-        ? Math.max(minRowH, ...cols.map((c, i) => doc.font(c.bold ? "Helvetica-Bold" : "Helvetica").fontSize(c.size ?? 8.5).heightOfString(row[i] ?? "", { width: c.w * W - 12 }) + 8))
-        : minRowH;
-      if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) {
-        doc.addPage();
-        header();
-      }
-      const y = doc.y;
-      cols.forEach((c, i) => {
-        if (!wrap) return one(row[i] ?? "", xs[i] + 6, y + (rowH - (c.size ?? 8.5)) / 2, c.w * W - 12, { size: c.size, bold: c.bold, align: c.align });
-        doc.font(c.bold ? "Helvetica-Bold" : "Helvetica").fontSize(c.size ?? 8.5).fillColor(BRAND.ink).text(row[i] ?? "", xs[i] + 6, y + 4.5, { width: c.w * W - 12, align: c.align ?? "left" });
-      });
-      doc.moveTo(L, y + rowH).lineTo(R, y + rowH).strokeColor(BRAND.line).lineWidth(0.5).stroke();
-      doc.y = y + rowH;
-    }
-    doc.x = L;
-  };
+  const table = (cols: BrandCol[], data: string[][], minRowH: number, wrap = false) => brandTable(doc, cols, data, minRowH, wrap);
 
   // ---------------------------------------------------------------- ambientes
   const codes = d.items.map((_, i) => ambCode(i));
