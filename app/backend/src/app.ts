@@ -46,6 +46,7 @@ import weekPlanRoutes from "./modules/production/week-plan.routes";
 import assistantRoutes from "./modules/ai/assistant.routes";
 import renderRoutes from "./modules/render/render.routes";
 import financeExtrasRoutes from "./modules/finance/finance-extras.routes";
+import financeOpenBalancesRoutes from "./modules/finance/open-balances.routes";
 import contractorAttendanceRoutes from "./modules/contractors/attendance.routes";
 import projectStartAtRoutes from "./modules/timeline/start-at.routes";
 import mfaRoutes from "./modules/auth/mfa.routes";
@@ -173,6 +174,7 @@ export function createApp() {
   app.use("/api/me/contractor", meContractorRoutes);
   app.use("/api/integrations", integrationsRoutes);
   app.use("/api/finance", financeExtrasRoutes);
+  app.use("/api/finance", financeOpenBalancesRoutes);
   app.use("/api/finance", financeRoutes);
   app.use("/api/templates", templatesRoutes);
   app.use("/api/commercial/goals", goalsRoutes);

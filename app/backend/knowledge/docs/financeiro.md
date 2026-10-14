@@ -25,3 +25,11 @@ Aba **Investimentos** do Financeiro. É a lista do que a loja quer implantar e q
 3. Toque no círculo da meta para marcar como implantada.
 
 No topo ficam os totais: planejado em aberto, já reservado e quanto falta. As metas não geram lançamentos: são um quadro de planejamento.
+
+## Comissões e dívidas
+Aba **Comissões e dívidas** do Financeiro. Mostra três totais e três listas, cada uma agrupada e com o valor vencido em destaque. Clique no nome para ver os lançamentos; o botão **Pagar** é o mesmo "Marcar pago" dos lançamentos (aceita pagamento parcial e comprovante).
+- **Comissões em aberto**: comissões de venda e reservas técnicas ainda não pagas, por pessoa. As dos orçamentos aceitos entram sozinhas e vencem junto com a parcela do cliente. Para comissões de vendas antigas, use **Lançar comissão** (quem recebe, venda, valor, parcelas e vencimento).
+- **Dívidas anteriores**: dívidas de antes do sistema (empréstimo, fornecedor antigo, acordo), por credor. Em **Cadastrar dívida**, informe o credor, do que é, o valor que ainda falta pagar, quantas parcelas faltam e o vencimento da próxima; o sistema cria uma parcela por mês na categoria **Dívida anterior**. A data em que a dívida foi feita é o mês em que ela conta na DRE; sem ela, conta no mês do cadastro.
+- **Contas vencidas de meses anteriores**: contas a pagar com vencimento antes do mês atual que continuam em aberto, por fornecedor ou categoria.
+
+Corrigir ou apagar uma parcela é na aba Lançamentos.
