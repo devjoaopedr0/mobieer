@@ -22,6 +22,8 @@ export function TeamHoursCard({ month, canManage, onPick }: { month: string; can
   const q = useQuery({ queryKey: ["hr", "team-summary", month], queryFn: () => apiGet<{ data: Summary }>("/hr/timeclock/team-summary", { month }), enabled: /^\d{4}-\d{2}$/.test(month) });
   const [start, setStart] = useState("08:00");
   const [tolerance, setTolerance] = useState("10");
+  // quem não bateu ponto nenhuma vez no mês (em geral, quem já saiu e segue ativo no cadastro) fica recolhido
+  const [showAbsent, setShowAbsent] = useState(false);
   const d = q.data?.data;
   useEffect(() => { if (d) { setStart(d.schedule.start); setTolerance(String(d.schedule.tolerance)); } }, [d?.schedule.start, d?.schedule.tolerance]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = useMutation({
@@ -31,7 +33,8 @@ export function TeamHoursCard({ month, canManage, onPick }: { month: string; can
   });
 
   if (!d) return null;
-  const rows = d.rows.filter((r) => r.diasTrabalhados > 0 || r.employee.status === "ACTIVE");
+  const absent = d.rows.filter((r) => r.diasTrabalhados === 0).length;
+  const rows = d.rows.filter((r) => r.diasTrabalhados > 0 || showAbsent);
   const owing = rows.filter((r) => r.balanceMinutes < 0).length;
   const changed = start !== d.schedule.start || Number(tolerance) !== d.schedule.tolerance;
 
@@ -80,6 +83,12 @@ export function TeamHoursCard({ month, canManage, onPick }: { month: string; can
             </tbody>
           </table>
         </div>
+        {absent > 0 && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input type="checkbox" className="h-3.5 w-3.5" checked={showAbsent} onChange={(e) => setShowAbsent(e.target.checked)} />
+            Mostrar também {absent} {absent === 1 ? "pessoa que não bateu" : "pessoas que não bateram"} ponto neste mês (se já saíram da loja, desligue no cadastro)
+          </label>
+        )}
         <p className="text-xs text-muted-foreground">Saldo negativo: a pessoa trabalhou menos que a carga do período. Em dia com batida faltando as horas saem a menos — abra o espelho e lance a marcação que faltou. Compensações lançadas à mão aparecem em Banco de horas.</p>
       </CardContent>
     </Card>
