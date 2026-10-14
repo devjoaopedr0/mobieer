@@ -67,8 +67,9 @@ type NavGroup = {
   items: NavItem[];
 };
 
-// O menu segue a ordem do processo da loja: comercial → projeto → produção →
-// entrega e montagem → pós-venda → financeiro; depois o apoio (estoque, equipe, administração).
+// O menu segue como a loja se organiza: primeiro a agenda de cada um (igual para todos),
+// depois o caminho do cliente — comercial, projetos, produção, montagens, pós-venda,
+// financeiro — e por fim o apoio (almoxarifado, equipe, administração).
 const NAV_GROUPS: NavGroup[] = [
   {
     items: [
@@ -81,16 +82,26 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Comercial",
+    label: "Minha agenda",
     items: [
-      { label: "Comercial", to: "/comercial", icon: Target, permission: "commercial.read" },
-      { label: "Clientes e projetos", to: "/clientes-projetos", icon: Building2, permission: "organization.read" },
+      { label: "Meu planner e notas", to: "/meu-espaco", icon: NotebookPen },
+      { label: "Minhas tarefas", to: "/minhas-tarefas", icon: ListTodo, permission: "organization.read" },
+      { label: "Agenda", to: "/agenda", icon: CalendarDays, permission: "agenda.read" },
+      { label: "Quadros da equipe", to: "/organizacao", icon: SquareKanban, permission: "organization.read" },
+      { label: "Semana da Mobieer", to: "/semana", icon: CalendarDays, permission: "organization.read" },
     ],
   },
   {
-    label: "Projeto",
+    label: "Comercial",
     items: [
+      { label: "Comercial", to: "/comercial", icon: Target, permission: "commercial.read" },
       { label: "Medições", to: "/medicoes", icon: Ruler, permission: "organization.read" },
+    ],
+  },
+  {
+    label: "Projetos dos clientes",
+    items: [
+      { label: "Clientes e projetos", to: "/clientes-projetos", icon: Building2, permission: "organization.read" },
       { label: "Modelos de documentos", to: "/modelos", icon: FileSignature, permission: "documents.read" },
     ],
   },
@@ -107,9 +118,9 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Entrega e montagem",
+    label: "Montagens",
     items: [
-      { label: "Agenda", to: "/agenda", icon: CalendarDays, permission: "agenda.read" },
+      { label: "Montagens", to: "/montagens", icon: Truck, permission: "agenda.read" },
       { label: "Montadores externos", to: "/montadores", icon: HardHat, permission: "hr.read" },
     ],
   },
@@ -129,7 +140,7 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Estoque",
+    label: "Almoxarifado",
     items: [
       { label: "Entrada de Materiais", to: "/entrada", icon: ArrowDownToLine, permission: "stock.entry" },
       { label: "Saída de Materiais", to: "/saida", icon: ArrowUpFromLine, permission: "stock.exit" },
@@ -143,12 +154,8 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Equipe e organização",
+    label: "Equipe",
     items: [
-      { label: "Organização interna", to: "/organizacao", icon: SquareKanban, permission: "organization.read" },
-      { label: "Semana da Mobieer", to: "/semana", icon: CalendarDays, permission: "organization.read" },
-      { label: "Minhas tarefas", to: "/minhas-tarefas", icon: ListTodo, permission: "organization.read" },
-      { label: "Meu espaço", to: "/meu-espaco", icon: NotebookPen },
       { label: "Atividades", to: "/atividades", icon: FileClock, permission: "activities.read" },
       { label: "RH — Férias", to: "/rh", icon: CalendarClock, permission: "hr.read" },
       { label: "Produtividade", to: "/produtividade", icon: Gauge, hideForRoles: ["MONTADOR"] },

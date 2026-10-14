@@ -41,7 +41,10 @@ export function ProductionWeekPlanPage() {
   const [pasteText, setPasteText] = useState("");
   const [preview, setPreview] = useState<Parsed | null>(null);
   // "semana" é a grade; "dia" mostra só as metas de um dia, para o celular ou a TV da fábrica
-  const [view, setView] = useState<"semana" | "dia">("semana");
+  // "planner": colunas por dia, como o planner pessoal (o jeito que a loja acha mais fácil de marcar)
+  const [view, setView] = useState<"planner" | "semana" | "dia">("planner");
+  const [quick, setQuick] = useState<Record<string, string>>({});
+  const [dragDay, setDragDay] = useState<string | null>(null);
   const [dayPick, setDayPick] = useState<string | null>(null);
   const [missing, setMissing] = useState<Missing | null>(null);
 
@@ -60,6 +63,20 @@ export function ProductionWeekPlanPage() {
       apiPatch<{ message?: string }>(`/production/week-plan/tasks/${v.id}/missed`, { reason: v.reason, note: v.note?.trim() || null, moveTo: v.moveTo || null }),
     onSuccess: (r) => { toast.success(r.message ?? "Motivo registrado"); setMissing(null); refresh(); },
     onError: fail("Não foi possível registrar o motivo"),
+  });
+  // "+ item" da coluna: "VIVIANE: finalizar a cozinha"; sem nome, fica para a equipe
+  const quickAdd = useMutation({
+    mutationFn: (v: { date: string; text: string }) => {
+      const m = /^\s*([^:]{2,30}):\s*(.+)$/.exec(v.text);
+      return apiPost("/production/week-plan/tasks", { date: v.date, person: (m ? m[1] : "EQUIPE").trim(), title: (m ? m[2] : v.text).trim(), reference: null, items: [] });
+    },
+    onSuccess: refresh,
+    onError: fail("Não foi possível adicionar a tarefa"),
+  });
+  const moveDay = useMutation({
+    mutationFn: (v: { id: string; date: string }) => apiPatch(`/production/week-plan/tasks/${v.id}`, { date: v.date }),
+    onSuccess: refresh,
+    onError: fail("Não foi possível mover a tarefa"),
   });
   const save = useMutation({
     mutationFn: (e: Editing) => {
@@ -107,11 +124,12 @@ export function ProductionWeekPlanPage() {
   const moveOptions = (from: string) => [...d.days.slice(0, 5), ...d.days.slice(0, 5).map((x) => shift(x, 7))].filter((x) => x > from && x >= d.today);
   const weekdayOf = (iso: string) => WEEKDAY[(new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7] ?? "";
 
-  const taskCard = (t: Task, big = false) => {
+  const taskCard = (t: Task, big = false, showPerson = false) => {
     const late = !t.done && !t.missedReason && t.date < d.today;
     const tone = t.done ? "border-success/40 bg-success/5" : t.missedReason ? "border-destructive/40 bg-destructive/5" : late ? "border-warning bg-warning/10" : "bg-background";
     return (
-      <div key={t.id} className={`group rounded-md border p-2 ${tone}`}>
+      <div key={t.id} className={`group rounded-md border p-2 ${tone}`} draggable={showPerson && canManage} onDragStart={(e) => { e.dataTransfer.setData("text/plan-id", t.id); e.dataTransfer.effectAllowed = "move"; }}>
+        {showPerson && <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-primary">{t.person}</p>}
         <div className="flex items-start gap-2">
           <input type="checkbox" className={`mt-0.5 shrink-0 ${big ? "h-5 w-5" : "h-4 w-4"}`} checked={t.done} disabled={check.isPending} title={t.done ? "Desmarcar" : "Marcar como feito"} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked })} />
           <div className="min-w-0 flex-1">
@@ -176,8 +194,8 @@ export function ProductionWeekPlanPage() {
           <p className="text-sm font-medium">Semana de {br(d.weekStart)} a {br(days[days.length - 1])}</p>
           <Badge variant={total && done === total ? "success" : "secondary"}>{done} de {total} feitas</Badge>
           <div className="flex overflow-hidden rounded-md border text-sm">
-            {(["semana", "dia"] as const).map((v) => (
-              <button key={v} type="button" className={`px-3 py-1.5 ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setView(v)}>{v === "semana" ? "Semana" : "Dia"}</button>
+            {(["planner", "semana", "dia"] as const).map((v) => (
+              <button key={v} type="button" className={`px-3 py-1.5 ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setView(v)}>{v === "planner" ? "Planner" : v === "semana" ? "Por pessoa" : "Dia"}</button>
             ))}
           </div>
           {mine && d.people.some((p) => plain(p) === mine) && (
@@ -201,7 +219,34 @@ export function ProductionWeekPlanPage() {
         </Card>
       )}
 
-      {!d.people.length ? (
+      {view === "planner" ? (
+        <div className="space-y-2">
+          {canManage && <p className="text-xs text-muted-foreground">Escreva em "+ item" e aperte Enter. Para dizer de quem é, comece com o nome e dois-pontos: <span className="font-medium">VIVIANE: finalizar a cozinha</span>. Arraste a tarefa para outro dia para reagendar.</p>}
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {days.map((x) => {
+              const list = d.tasks.filter((t) => t.date === x && people.includes(t.person));
+              return (
+                <div key={x} className={`rounded-lg border bg-card p-2.5 ${x === d.today ? "border-primary/60 bg-primary/[0.04]" : ""} ${dragDay === x ? "ring-2 ring-primary" : ""}`}
+                  onDragOver={(e) => { if (canManage) { e.preventDefault(); setDragDay(x); } }}
+                  onDragLeave={() => setDragDay((s) => (s === x ? null : s))}
+                  onDrop={(e) => { e.preventDefault(); setDragDay(null); const id = e.dataTransfer.getData("text/plan-id"); const t = d.tasks.find((k) => k.id === id); if (canManage && t && t.date !== x) moveDay.mutate({ id, date: x }); }}>
+                  <p className="mb-2 flex items-baseline justify-between text-sm font-semibold">
+                    <span>{WEEKDAY[d.days.indexOf(x)]} <span className="font-normal text-muted-foreground">{br(x)}</span>{x === d.today && <span className="ml-1 text-primary">· hoje</span>}</span>
+                    <span className="text-xs font-normal text-muted-foreground">{list.filter((t) => t.done).length}/{list.length}</span>
+                  </p>
+                  <div className="space-y-1.5">{list.map((t) => taskCard(t, false, true))}</div>
+                  {canManage && (
+                    <Input className="mt-2 h-8 text-xs" placeholder="+ item" aria-label={`Nova tarefa em ${WEEKDAY[d.days.indexOf(x)]}`} value={quick[x] ?? ""} disabled={quickAdd.isPending}
+                      onChange={(e) => setQuick((s) => ({ ...s, [x]: e.target.value }))}
+                      onKeyDown={(e) => { const v = (quick[x] ?? "").trim(); if (e.key === "Enter" && v) { quickAdd.mutate({ date: x, text: v }); setQuick((s) => ({ ...s, [x]: "" })); } }} />
+                  )}
+                  {!list.length && !canManage && <p className="py-3 text-center text-xs text-muted-foreground">—</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : !d.people.length ? (
         <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">
           Nenhuma tarefa nesta semana.{canManage ? " Clique em Colar do WhatsApp para trazer o planejamento que você já escreve, ou em Nova tarefa." : ""}
         </CardContent></Card>

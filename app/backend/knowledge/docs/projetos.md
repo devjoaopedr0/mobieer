@@ -1,7 +1,7 @@
 # Clientes e projetos
 
 ## Onde fica
-Menu **Clientes e projetos** (grupo Comercial). A tela lista os clientes e os projetos de cada um. Cada projeto tem um código (por exemplo 402-1), um nome, o cliente e uma situação.
+Menu **Clientes e projetos** (grupo Projetos dos clientes). A tela lista os clientes e os projetos de cada um. Cada projeto tem um código (por exemplo 402-1), um nome, o cliente e uma situação.
 
 ## Quem vê cada projeto
 Quem tem permissão para ver todos os clientes enxerga todos os projetos. Os demais veem a própria carteira: projetos de clientes em que são o vendedor ou o atendente, e projetos em que são o responsável.

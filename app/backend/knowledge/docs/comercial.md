@@ -50,3 +50,6 @@ Se o modelo pede assinatura, a loja assina na aba **Documentos** do projeto (bot
 
 ## Quem pode cadastrar cliente e projeto
 O botão **Adicionar** em **Clientes e projetos** aparece para a administração e para quem trabalha no comercial (quem gerencia o comercial, os leads ou os orçamentos).
+
+## Caminho do cliente no comercial
+No topo da tela **Comercial** há cinco passos, na ordem em que o atendimento acontece; clicar em um passo leva à tela onde ele é feito: **1. Lead e briefing** (aba Leads), **2. Cliente e projeto** (Clientes e projetos), **3. Medição inicial** (Medições, com fotos), **4. Orçamento** (aba Orçamentos) e **5. Contrato** (no orçamento aceito, botão Gerar contrato).

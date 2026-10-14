@@ -8,16 +8,17 @@ O sistema tem duas partes:
 - **Portal do cliente**, em mobieerprojetos.com.br/portal, onde o cliente acompanha o projeto, confirma a medição, aprova o projeto técnico, vê documentos e pagamentos.
 
 ## Menus do sistema interno
-O menu lateral segue a ordem do processo da loja (comercial, projeto, produção, entrega e montagem, pós-venda, financeiro) e depois traz o apoio (estoque, equipe, administração):
+O menu lateral começa pela agenda de cada um, igual para todos, depois segue o caminho do cliente (comercial, projetos, produção, montagens, pós-venda, financeiro) e termina no apoio (almoxarifado, equipe, administração):
 - **Início**: Dashboard, Painel da loja, Central de operações, Pipeline da loja, Chat.
-- **Comercial**: Comercial, Clientes e projetos.
-- **Projeto**: Medições, Modelos de documentos.
+- **Minha agenda**: Meu planner e notas, Minhas tarefas, Agenda, Quadros da equipe, Semana da Mobieer.
+- **Comercial**: Comercial, Medições.
+- **Projetos dos clientes**: Clientes e projetos, Modelos de documentos.
 - **Produção**: Produção, Planejamento da semana, Fábrica, Leitor de etiquetas, Requisições de Peças, Compras de materiais, Solicitação de peças.
-- **Entrega e montagem**: Agenda, Montadores externos.
+- **Montagens**: Montagens, Montadores externos.
 - **Pós-venda e assistência**: Pós-venda, Assistências.
 - **Financeiro**: Financeiro, Notas fiscais, Solicitar ao financeiro.
-- **Estoque**: Entrada de Materiais, Saída de Materiais, Movimentações, Produtos, Categorias, Fornecedores, Compras, Inventário, Alertas de Estoque.
-- **Equipe e organização**: Organização interna, Semana da Mobieer, Minhas tarefas, Meu espaço, Atividades, RH — Férias, Produtividade.
+- **Almoxarifado**: Entrada de Materiais, Saída de Materiais, Movimentações, Produtos, Categorias, Fornecedores, Compras, Inventário, Alertas de Estoque.
+- **Equipe**: Atividades, RH — Férias, Produtividade.
 - **Administração**: Relatórios, Usuários, Auditoria, Configurações.
 
 Um menu só aparece para quem tem a permissão correspondente. Se um menu citado aqui não aparece para você, o seu perfil não tem acesso; peça a um administrador.

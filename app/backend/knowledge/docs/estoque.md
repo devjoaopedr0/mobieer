@@ -15,4 +15,4 @@
 Na entrada e na saída de materiais o produto pode ser localizado pelo código de barras, com leitor ou com a câmera.
 
 ## Compras e Compras de materiais
-São telas diferentes. **Compras** (grupo Estoque) são os pedidos de compra do almoxarifado. **Compras de materiais** (grupo Produção) é a lista de chapas e fitas de cada projeto, vinda do Promob.
+São telas diferentes. **Compras** (grupo Almoxarifado) são os pedidos de compra do almoxarifado. **Compras de materiais** (grupo Produção) é a lista de chapas e fitas de cada projeto, vinda do Promob.

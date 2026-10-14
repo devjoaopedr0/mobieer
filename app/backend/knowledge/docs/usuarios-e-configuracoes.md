@@ -51,3 +51,8 @@ O **número do relógio não é a matrícula do sistema**: o "1" do aparelho pod
 Quem está no relógio e não está no sistema pode ser cadastrado na hora: marque **Cadastrar os que estão no relógio e não estão no sistema**. O sistema cria a ficha do colaborador com o nome e o número do relógio, admitido na data da primeira batida. Não cria usuário de acesso ao sistema; complete depois o nome completo, o CPF e o cargo. Desmarcando, as batidas dessas pessoas são ignoradas.
 
 O botão **Importações** lista os arquivos já importados. **Desfazer** tira as marcações que vieram daquele arquivo (as lançadas à mão e os colaboradores cadastrados continuam) — use quando um arquivo foi importado com as pessoas trocadas e importe de novo. Importar o mesmo arquivo duas vezes não duplica as batidas. Importar e desfazer é de quem tem a permissão de gerenciar o ponto.
+
+## Ponto: horas da equipe no mês
+Na aba **Ponto** do RH, o quadro **Horas da equipe no mês** mostra todos de uma vez: horas trabalhadas, horas esperadas, **saldo** (vermelho para quem está devendo, verde para quem tem crédito), faltas, atrasos e dias com batida faltando. Clicar na linha abre o espelho de ponto da pessoa. Conta só até hoje e a partir da admissão: dia que ainda não chegou não vira falta.
+
+**Atraso** é a primeira batida do dia depois do horário de entrada mais a tolerância. O horário de entrada e a tolerância ficam no próprio quadro (padrão 08:00 e 10 minutos) e valem para todos; só quem gerencia o ponto altera. **Batida faltando** é o dia com número ímpar de batidas: faltou bater entrada ou saída, e as horas daquele dia saem a menos até a marcação ser lançada à mão.

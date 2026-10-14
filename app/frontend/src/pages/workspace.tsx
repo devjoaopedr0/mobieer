@@ -243,7 +243,7 @@ export function WorkspacePage() {
   const [tab, setTab] = useState<"notas" | "planner">("planner");
   return (
     <div className="space-y-6">
-      <PageHeader title="Meu espaço" description="Bloco de notas e planner semanal — só você vê." />
+      <PageHeader title="Meu planner e notas" description="Seu planner da semana e seu bloco de notas — só você vê." />
       <div className="flex gap-2">
         <Button size="sm" variant={tab === "planner" ? "default" : "outline"} onClick={() => setTab("planner")}>Planner semanal</Button>
         <Button size="sm" variant={tab === "notas" ? "default" : "outline"} onClick={() => setTab("notas")}>Notas</Button>

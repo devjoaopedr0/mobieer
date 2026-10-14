@@ -395,3 +395,51 @@ export function monthsBetween(from: Date, to: Date): string[] {
   }
   return out;
 }
+
+// ---------------- resumo de horas da equipe ----------------
+
+/** Horário de entrada da loja e a tolerância para contar atraso. */
+export type ClockSchedule = { start: string; tolerance: number };
+export const DEFAULT_SCHEDULE: ClockSchedule = { start: "08:00", tolerance: 10 };
+
+export function parseSchedule(raw: string | null | undefined): ClockSchedule {
+  try {
+    const v = JSON.parse(raw ?? "") as Partial<ClockSchedule>;
+    const start = typeof v.start === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v.start) ? v.start : DEFAULT_SCHEDULE.start;
+    const tolerance = Number.isFinite(v.tolerance) && v.tolerance! >= 0 && v.tolerance! <= 120 ? Math.round(v.tolerance!) : DEFAULT_SCHEDULE.tolerance;
+    return { start, tolerance };
+  } catch {
+    return DEFAULT_SCHEDULE;
+  }
+}
+
+const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+export type TeamRow = { workedMinutes: number; expectedMinutes: number; balanceMinutes: number; faltas: number; incompletos: number; atrasos: number; atrasoMinutos: number; diasTrabalhados: number };
+
+/**
+ * O mês de uma pessoa em uma linha. Só contam os dias entre a admissão (e o
+ * desligamento) e hoje: dia que ainda não chegou não é falta nem hora devida.
+ * Atraso: primeira batida do dia útil depois do horário de entrada mais a tolerância.
+ */
+export function summarizeTeamMonth(days: DayMirror[], o: { from?: string | null; to: string; schedule: ClockSchedule }): TeamRow {
+  const row: TeamRow = { workedMinutes: 0, expectedMinutes: 0, balanceMinutes: 0, faltas: 0, incompletos: 0, atrasos: 0, atrasoMinutos: 0, diasTrabalhados: 0 };
+  const limit = minutesOf(o.schedule.start) + o.schedule.tolerance;
+  for (const d of days) {
+    if (d.date > o.to || (o.from && d.date < o.from)) continue;
+    row.workedMinutes += d.workedMinutes;
+    row.expectedMinutes += d.expectedMinutes;
+    if (d.status === "FALTA") row.faltas += 1;
+    if (d.status === "INCOMPLETO") row.incompletos += 1;
+    if (d.punches.length) {
+      row.diasTrabalhados += 1;
+      const first = minutesOf(d.punches[0].time);
+      if (d.expectedMinutes > 0 && first > limit) {
+        row.atrasos += 1;
+        row.atrasoMinutos += first - minutesOf(o.schedule.start);
+      }
+    }
+  }
+  row.balanceMinutes = row.workedMinutes - row.expectedMinutes;
+  return row;
+}

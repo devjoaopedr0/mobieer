@@ -141,6 +141,27 @@ export function CommercialPage() {
         )}
       </PageHeader>
 
+      {/* o caminho do cliente no comercial, na ordem: cada passo leva à tela onde ele é feito */}
+      <div className="rounded-xl border bg-card p-3">
+        <p className="mb-2 text-xs font-medium text-muted-foreground">Caminho do cliente no comercial — clique no passo para ir à tela dele</p>
+        <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            { n: 1, title: "Lead e briefing", hint: "Cadastre o contato e preencha o briefing", go: () => setParams({ aba: "leads" }, { replace: true }) },
+            { n: 2, title: "Cliente e projeto", hint: "Converta o lead ou cadastre o cliente e o projeto", go: () => navigate("/clientes-projetos") },
+            { n: 3, title: "Medição inicial", hint: "Agende e registre a medição, com fotos", go: () => navigate("/medicoes") },
+            { n: 4, title: "Orçamento", hint: "Monte o orçamento e envie ao cliente", go: () => setParams({ aba: "orcamentos" }, { replace: true }) },
+            { n: 5, title: "Contrato", hint: "No orçamento aceito, use Gerar contrato", go: () => setParams({ aba: "orcamentos" }, { replace: true }) },
+          ].map((s) => (
+            <li key={s.n}>
+              <button type="button" onClick={s.go} className="flex h-full w-full items-start gap-2 rounded-lg border p-2.5 text-left transition hover:border-primary/50 hover:bg-muted/50">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">{s.n}</span>
+                <span><span className="block text-sm font-medium">{s.title}</span><span className="block text-xs text-muted-foreground">{s.hint}</span></span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </div>
+
       {p && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <KpiCard title="Oportunidades abertas" value={p.openCount} icon={Target} />
