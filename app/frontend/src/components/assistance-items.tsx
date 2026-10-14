@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Loader2, Plus, Trash2, Wallet } from "lucide-react";
+import { FileText, Loader2, Package, Plus, Trash2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiDelete, apiGet, apiOpen, apiPatch, apiPost } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
+import { useAuth } from "@/hooks/use-auth";
 import { formatCurrency, localIsoDate } from "@/lib/utils";
 
-type Item = { id: string; kind: string; kindLabel: string; description: string; quantity: number; unitPrice: number; charged: boolean; total: number };
+type Item = { id: string; kind: string; kindLabel: string; description: string; quantity: number; unitPrice: number; charged: boolean; total: number; product: { id: string; code: string; name: string; stock: number } | null; stockMovedAt: string | null };
+type Product = { id: string; code: string; name: string; stock: number; unitValue: string | number | null };
 type Data = {
   internal: boolean;
   items: Item[];
@@ -30,7 +32,11 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   const qc = useQueryClient();
   const key = ["assistance-items", ticketId];
   const q = useQuery({ queryKey: key, queryFn: () => apiGet<{ data: Data }>(`/business/assistances/${ticketId}/items`) });
-  const [draft, setDraft] = useState({ kind: "FERRAGEM", description: "", quantity: "1", unitPrice: "", charged: false });
+  const { can } = useAuth();
+  const [draft, setDraft] = useState({ kind: "FERRAGEM", description: "", quantity: "1", unitPrice: "", charged: false, product: null as Product | null });
+  // produto do almoxarifado (opcional): com ele dá para dar baixa no estoque
+  const [search, setSearch] = useState("");
+  const found = useQuery({ queryKey: ["assist-products", search], queryFn: () => apiGet<{ data: Product[] }>("/products", { search, perPage: 8 }), enabled: search.trim().length >= 2 && can("products.read") });
   const [due, setDue] = useState(localIsoDate(new Date()));
   const apply = (r: { data: Data; message?: string }) => {
     qc.setQueryData(key, { data: r.data });
@@ -39,19 +45,21 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   };
   const fail = (msg: string) => (e: unknown) => toast.error(errorMessage(e, msg));
   const add = useMutation({
-    mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/items`, { kind: draft.kind, description: draft.description.trim(), quantity: money(draft.quantity) || 1, unitPrice: money(draft.unitPrice) || 0, charged: draft.charged }),
-    onSuccess: (r) => { apply(r); setDraft((d) => ({ ...d, description: "", quantity: "1", unitPrice: "", charged: false })); },
+    mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/items`, { kind: draft.kind, description: draft.description.trim(), quantity: money(draft.quantity) || 1, unitPrice: money(draft.unitPrice) || 0, charged: draft.charged, productId: draft.product?.id ?? null }),
+    onSuccess: (r) => { apply(r); setDraft((d) => ({ ...d, description: "", quantity: "1", unitPrice: "", charged: false, product: null })); setSearch(""); },
     onError: fail("Não foi possível acrescentar o item"),
   });
   const patch = useMutation({ mutationFn: (v: { id: string; body: Partial<Item> }) => apiPatch<{ data: Data }>(`/business/assistance-items/${v.id}`, v.body), onSuccess: apply, onError: fail("Não foi possível alterar o item") });
   const remove = useMutation({ mutationFn: (id: string) => apiDelete<{ data: Data }>(`/business/assistance-items/${id}`), onSuccess: apply, onError: fail("Não foi possível remover o item") });
   const charge = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/charge`, { dueDate: due }), onSuccess: apply, onError: fail("Não foi possível lançar no financeiro") });
+  const stockExit = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/stock-exit`, {}), onSuccess: (r) => { apply(r); qc.invalidateQueries({ queryKey: ["assist-products"] }); }, onError: fail("Não foi possível dar baixa no estoque") });
   const order = useMutation({ mutationFn: () => apiOpen(`/business/assistances/${ticketId}/service-order.pdf`), onError: fail("Não foi possível gerar a ordem de serviço") });
 
   const d = q.data?.data;
   if (!d) return <p className="text-xs text-muted-foreground">Carregando itens…</p>;
   const internal = d.internal;
   // a cobrança lançada não bate com o que está marcado agora: avisa para atualizar
+  const pendingStock = d.items.filter((i) => i.product && !i.stockMovedAt).length;
   const outdated = d.finance && d.finance.status !== "PAGO" && Math.abs(d.finance.amount - d.totals.cobrado) > 0.004;
 
   return (
@@ -74,7 +82,10 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
             <tbody>
               {d.items.map((i) => (
                 <tr key={i.id} className="border-t">
-                  <td className="py-1.5">{i.description} <span className="text-muted-foreground">({i.kindLabel})</span></td>
+                  <td className="py-1.5">
+                    {i.description} <span className="text-muted-foreground">({i.kindLabel})</span>
+                    {i.product && <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground"><Package className="h-3 w-3" />{i.product.code}{i.stockMovedAt ? ` · baixado do estoque em ${new Date(i.stockMovedAt).toLocaleDateString("pt-BR")}` : ` · no estoque: ${i.product.stock}`}</span>}
+                  </td>
                   <td className="py-1.5 text-right tabular-nums">{String(i.quantity).replace(".", ",")}</td>
                   <td className="py-1.5 text-right tabular-nums">{formatCurrency(i.unitPrice)}</td>
                   <td className="py-1.5 text-right tabular-nums">{formatCurrency(i.total)}</td>
@@ -99,6 +110,24 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
             {d.kinds.map((k) => <option key={k.code} value={k.code}>{k.label}</option>)}
           </select>
           <Input className="h-8 min-w-40 flex-1 text-xs" placeholder="Descrição (ex.: dobradiça com amortecedor)" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+          {can("products.read") && (
+            <div className="relative">
+              {draft.product ? (
+                <button type="button" className="flex h-8 items-center gap-1 rounded-md border px-2 text-xs" title="Tirar o produto" onClick={() => setDraft({ ...draft, product: null })}><Package className="h-3.5 w-3.5" />{draft.product.code} ✕</button>
+              ) : (
+                <Input className="h-8 w-44 text-xs" placeholder="Produto do almoxarifado" aria-label="Buscar produto do almoxarifado" value={search} onChange={(e) => setSearch(e.target.value)} />
+              )}
+              {!draft.product && search.trim().length >= 2 && (found.data?.data ?? []).length > 0 && (
+                <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-y-auto rounded-md border bg-popover p-1 shadow">
+                  {(found.data?.data ?? []).map((p) => (
+                    <button key={p.id} type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => { setDraft({ ...draft, product: p, description: draft.description.trim() || p.name, unitPrice: draft.unitPrice || (p.unitValue != null ? String(p.unitValue).replace(".", ",") : "") }); setSearch(""); }}>
+                      <span className="font-medium">{p.code}</span> {p.name} <span className="text-muted-foreground">· estoque {p.stock}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <Input className="h-8 w-16 text-right text-xs" inputMode="decimal" aria-label="Quantidade" value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: e.target.value })} />
           <Input className="h-8 w-24 text-right text-xs" inputMode="decimal" placeholder="Valor R$" aria-label="Valor unitário" value={draft.unitPrice} onChange={(e) => setDraft({ ...draft, unitPrice: e.target.value })} />
           {!internal && <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4" checked={draft.charged} onChange={(e) => setDraft({ ...draft, charged: e.target.checked })} /> Cobrar</label>}
@@ -106,6 +135,12 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
         </div>
       )}
 
+      {pendingStock > 0 && can("stock.exit") && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/50 p-2 text-xs">
+          <span>{pendingStock} {pendingStock > 1 ? "itens ligados" : "item ligado"} ao almoxarifado ainda no estoque.</span>
+          <Button size="sm" variant="outline" className="h-7" disabled={stockExit.isPending} onClick={() => stockExit.mutate()}><Package className="mr-1 h-3.5 w-3.5" />Dar baixa no estoque</Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 border-t pt-2 text-sm">
         {internal ? (
           <span>Custo do retrabalho: <strong>{formatCurrency(d.totals.total)}</strong></span>

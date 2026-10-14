@@ -62,7 +62,7 @@ export function AssistancesPage() {
   const { can } = useAuth();
   const qc = useQueryClient();
   const canManage = can("organization.tasks.edit.all");
-  const [view, setView] = useState<"lista" | "quadro" | "agenda">("lista");
+  const [view, setView] = useState<"lista" | "quadro" | "agenda" | "regiao">("lista");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
   const [status, setStatus] = useState("");
@@ -110,6 +110,16 @@ export function AssistancesPage() {
     return [...map.entries()];
   }, [rows]);
 
+  // por região: os chamados em aberto agrupados por bairro, para marcar visitas próximas no mesmo dia
+  const regions = useMemo(() => {
+    const map = new Map<string, Ticket[]>();
+    for (const t of rows.filter((x) => !x.internal && !["RESOLVED", "CANCELLED"].includes(x.status))) {
+      const k = t.place ?? "Sem bairro no cadastro do cliente";
+      map.set(k, [...(map.get(k) ?? []), t]);
+    }
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  }, [rows]);
+
   if (list.isLoading || options.isLoading) return <PageSkeleton />;
   const detail = all.find((t) => t.id === detailId) ?? null;
   const openCount = all.filter((t) => !["RESOLVED", "CANCELLED"].includes(t.status)).length;
@@ -141,8 +151,8 @@ export function AssistancesPage() {
       <Card>
         <CardContent className="flex flex-wrap items-center gap-2 pt-6">
           <div className="flex overflow-hidden rounded-md border text-sm">
-            {(["lista", "quadro", "agenda"] as const).map((v) => (
-              <button key={v} type="button" className={cn("px-3 py-1.5 capitalize", view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")} onClick={() => setView(v)}>{v === "quadro" ? "Kanban" : v}</button>
+            {(["lista", "quadro", "agenda", "regiao"] as const).map((v) => (
+              <button key={v} type="button" className={cn("px-3 py-1.5 capitalize", view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")} onClick={() => setView(v)}>{v === "quadro" ? "Kanban" : v === "regiao" ? "Por região" : v}</button>
             ))}
           </div>
           <div className="relative min-w-48 flex-1">
@@ -199,6 +209,28 @@ export function AssistancesPage() {
             </table>
           </CardContent>
         </Card>
+      ) : view === "regiao" ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Chamados em aberto agrupados pelo bairro do cliente: dá para marcar as visitas do mesmo bairro no mesmo dia. O bairro vem do cadastro do cliente (Clientes e projetos → Editar).</p>
+          {!regions.length && <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Nenhum chamado em aberto.</CardContent></Card>}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {regions.map(([place, list]) => (
+              <Card key={place}>
+                <CardContent className="space-y-2 pt-5">
+                  <p className="flex items-center justify-between text-sm font-semibold"><span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-primary" />{place}</span><Badge variant="secondary">{list.length}</Badge></p>
+                  <ul className="divide-y text-sm">
+                    {list.map((t) => (
+                      <li key={t.id} className="flex cursor-pointer items-center justify-between gap-2 py-1.5 hover:bg-muted/40" onClick={() => setDetailId(t.id)}>
+                        <span className="min-w-0"><span className="font-medium">{t.client.name}</span><span className="block truncate text-xs text-muted-foreground">{t.number} · {t.title}</span></span>
+                        <span className="shrink-0 text-right text-xs">{t.scheduledAt ? dayTime(t.scheduledAt) : <span className="italic text-muted-foreground">a combinar</span>}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
       ) : view === "quadro" ? (
         <div className="flex min-h-[55vh] gap-3 overflow-x-auto pb-3">
           {columns.map((c) => {

@@ -7,6 +7,7 @@
  *   DELETE /assistance-items/:itemId           remove
  *   POST   /assistances/:id/charge             lança (ou atualiza) a conta a receber do que é cobrado
  *   GET    /assistances/:id/service-order.pdf  ordem de serviço
+ *   POST   /assistances/:id/stock-exit         dá baixa no estoque dos itens ligados a produto
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -16,6 +17,7 @@ import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
+import { createExitWithClient } from "../stock/stock.service";
 import { BRAND, PAGE, brandDocument, brandField, brandSection, brandTitle, ensureSpace } from "../../lib/brand-pdf";
 import { ITEM_KINDS, ITEM_KIND_CODES, chargePlan, itemKindLabel, itemTotals, lineTotal } from "./assistance-items.rules";
 import { kindLabel } from "./assistance.rules";
@@ -26,10 +28,15 @@ const canEdit = requirePermission("organization.tasks.edit.all");
 export const CATEGORY_ASSISTANCE = "Assistência técnica";
 
 const num = (v: unknown) => Number(v ?? 0);
-const serializeItem = (i: { id: string; kind: string; description: string; quantity: unknown; unitPrice: unknown; charged: boolean; position: number }) => {
+type ItemRow = { id: string; kind: string; description: string; quantity: unknown; unitPrice: unknown; charged: boolean; position: number; productId?: string | null; stockMovedAt?: Date | null; product?: { id: string; code: string; name: string; stock: number } | null };
+const serializeItem = (i: ItemRow) => {
   const quantity = num(i.quantity);
   const unitPrice = num(i.unitPrice);
-  return { id: i.id, kind: i.kind, kindLabel: itemKindLabel(i.kind), description: i.description, quantity, unitPrice, charged: i.charged, total: lineTotal({ quantity, unitPrice }), position: i.position };
+  return {
+    id: i.id, kind: i.kind, kindLabel: itemKindLabel(i.kind), description: i.description, quantity, unitPrice, charged: i.charged, total: lineTotal({ quantity, unitPrice }), position: i.position,
+    product: i.product ? { id: i.product.id, code: i.product.code, name: i.product.name, stock: i.product.stock } : null,
+    stockMovedAt: i.stockMovedAt ?? null,
+  };
 };
 
 async function ticketFor(id: string, organizationId: string) {
@@ -39,7 +46,7 @@ async function ticketFor(id: string, organizationId: string) {
       client: { select: { id: true, name: true, phone: true, document: true, street: true, addressNumber: true, complement: true, district: true, city: true, state: true, address: true, condominium: true } },
       project: { select: { id: true, code: true, name: true } },
       assignee: { select: { name: true } },
-      items: { orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
+      items: { orderBy: [{ position: "asc" }, { createdAt: "asc" }], include: { product: { select: { id: true, code: true, name: true, stock: true } } } },
     },
   });
   if (!t) throw new NotFoundError("Assistência não encontrada");
@@ -65,7 +72,16 @@ const itemInput = z.object({
   quantity: z.coerce.number().positive("Quantidade inválida").max(100_000).default(1),
   unitPrice: z.coerce.number().min(0, "Valor inválido").max(10_000_000).default(0),
   charged: z.boolean().default(false),
+  productId: z.string().min(1).nullable().optional(),
 });
+
+/** Item ligado a produto sai do estoque em unidades inteiras. */
+async function checkProduct(productId: string | null | undefined, quantity: number | undefined) {
+  if (!productId) return;
+  const p = await prisma.product.findUnique({ where: { id: productId }, select: { id: true } });
+  if (!p) throw new BadRequestError("Produto não encontrado no almoxarifado");
+  if (quantity !== undefined && !Number.isInteger(quantity)) throw new BadRequestError("Para dar baixa no estoque, a quantidade precisa ser um número inteiro");
+}
 
 router.get("/assistances/:id/items", requirePermission("organization.read"), asyncHandler(async (req, res) => ok(res, await view(req.params.id, req.user!.organizationId))));
 
@@ -75,6 +91,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const t = await ticketFor(req.params.id, req.user!.organizationId);
     const input = itemInput.parse(req.body);
+    await checkProduct(input.productId, input.quantity);
     // registro interno é custo da loja: nunca é cobrado
     await prisma.assistanceItem.create({ data: { ticketId: t.id, ...input, charged: t.internal ? false : input.charged, position: t.items.length } });
     return ok(res, await view(t.id, req.user!.organizationId), "Item acrescentado");
@@ -93,6 +110,8 @@ router.patch(
   asyncHandler(async (req, res) => {
     const item = await itemFor(req.params.itemId, req.user!.organizationId);
     const input = itemInput.partial().parse(req.body);
+    if (item.stockMovedAt && (input.quantity !== undefined || input.productId !== undefined)) throw new BadRequestError("Este item já saiu do estoque: para mudar produto ou quantidade, faça a devolução no almoxarifado e lance de novo");
+    await checkProduct(input.productId ?? item.productId, input.quantity ?? (input.productId ? Number(item.quantity) : undefined));
     await prisma.assistanceItem.update({ where: { id: item.id }, data: { ...input, charged: item.ticket.internal ? false : input.charged } });
     return ok(res, await view(item.ticket.id, req.user!.organizationId), "Item atualizado");
   })
@@ -103,6 +122,7 @@ router.delete(
   canEdit,
   asyncHandler(async (req, res) => {
     const item = await itemFor(req.params.itemId, req.user!.organizationId);
+    if (item.stockMovedAt) throw new BadRequestError("Este item já saiu do estoque: faça a devolução no almoxarifado antes de remover");
     await prisma.assistanceItem.delete({ where: { id: item.id } });
     return ok(res, await view(item.ticket.id, req.user!.organizationId), "Item removido");
   })
@@ -138,6 +158,39 @@ router.post(
     }
     await prisma.auditLog.create({ data: { userId: req.user!.id, action: `ASSISTANCE_CHARGE_${plan.action}`, entity: "AssistanceTicket", entityId: t.id, details: { cobrado, dueDate: input.dueDate } } });
     return ok(res, await view(t.id, orgId), message);
+  })
+);
+
+// Baixa no estoque: os itens ligados a produto que ainda não saíram, numa saída só.
+router.post(
+  "/assistances/:id/stock-exit",
+  requirePermission("stock.exit"),
+  asyncHandler(async (req, res) => {
+    const orgId = req.user!.organizationId;
+    const t = await ticketFor(req.params.id, orgId);
+    const pending = t.items.filter((i) => i.productId && !i.stockMovedAt);
+    if (!pending.length) throw new BadRequestError("Nenhum item ligado a produto do almoxarifado esperando baixa");
+    const bad = pending.find((i) => !Number.isInteger(Number(i.quantity)));
+    if (bad) throw new BadRequestError(`"${bad.description}": para dar baixa, a quantidade precisa ser inteira`);
+    const allowNegative = req.user!.permissions.includes("stock.negative");
+    await prisma.$transaction(async (tx) => {
+      await createExitWithClient(
+        tx,
+        {
+          requesterName: req.user!.name,
+          sector: "Assistência técnica",
+          destination: `${t.number} — ${t.client.name}`.slice(0, 190),
+          reason: t.internal ? "Retrabalho / erro interno" : "Assistência técnica",
+          note: t.title.slice(0, 250),
+          items: pending.map((i) => ({ productId: i.productId!, quantity: Number(i.quantity) })),
+        },
+        req.user!.id,
+        req.user!.name,
+        allowNegative
+      );
+      await tx.assistanceItem.updateMany({ where: { id: { in: pending.map((i) => i.id) } }, data: { stockMovedAt: new Date() } });
+    });
+    return ok(res, await view(t.id, orgId), `${pending.length} ${pending.length > 1 ? "itens baixados" : "item baixado"} do estoque`);
   })
 );
 

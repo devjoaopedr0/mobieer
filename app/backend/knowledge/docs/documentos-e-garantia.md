@@ -47,3 +47,9 @@ Com algo a cobrar, quem lança no financeiro escolhe o vencimento e clica em **L
 ## Ordem de serviço
 O botão **Ordem de serviço (PDF)** gera o documento com o padrão da Mobieer: cliente, endereço, projeto, o atendimento, a visita, os itens (garantia ou cobrado), os totais e as linhas de assinatura do técnico e do cliente. No erro interno ou retrabalho sai a **ordem interna de retrabalho**, com o custo e as assinaturas do responsável e da gestão.
 
+## Baixa no estoque pelo chamado
+Ao acrescentar um item na assistência, dá para escolher o **produto do almoxarifado** (busca pelo nome ou código); a descrição e o valor vêm do cadastro do produto. Com itens ligados a produto, o quadro mostra quantos ainda estão no estoque e o botão **Dar baixa no estoque**, para quem pode registrar saída de materiais: sai uma saída do almoxarifado com o número do chamado e o nome do cliente como destino. A quantidade precisa ser inteira. Depois da baixa o item mostra a data e não pode mais ter o produto ou a quantidade alterados, nem ser removido — para corrigir, faça a devolução no almoxarifado.
+
+## Assistências por região
+Na tela **Assistências**, a visão **Por região** junta os chamados em aberto pelo bairro do cliente, com a visita marcada de cada um, para combinar no mesmo dia as visitas próximas. Cliente sem bairro no cadastro aparece em "Sem bairro no cadastro do cliente"; o bairro se corrige em Clientes e projetos → Editar.
+

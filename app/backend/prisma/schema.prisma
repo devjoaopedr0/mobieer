@@ -412,6 +412,8 @@ model Product {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
+  assistanceItems AssistanceItem[] @relation("AssistanceItemProduct")
+
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
@@ -1227,6 +1229,10 @@ model AssistanceItem {
   unitPrice   Decimal          @default(0) @db.Decimal(12, 2)
   charged     Boolean          @default(false)
   position    Int              @default(0)
+  /// produto do almoxarifado: com ele dá para dar baixa no estoque
+  productId    String?
+  product      Product?         @relation("AssistanceItemProduct", fields: [productId], references: [id], onDelete: SetNull)
+  stockMovedAt DateTime? // quando saiu do estoque
   createdAt   DateTime         @default(now())
 
   @@index([ticketId])
