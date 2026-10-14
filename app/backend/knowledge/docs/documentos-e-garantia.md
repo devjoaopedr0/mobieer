@@ -32,3 +32,18 @@ Menu **Assistências**. Reúne todos os chamados de assistência em três visõe
 - **Agenda**: as visitas marcadas, agrupadas por dia, com o horário e se o cliente já confirmou.
 
 Clicar em um chamado abre o detalhe, com a descrição e as fotos enviadas pelo cliente. Ali a equipe define o **tipo** (Assistência, Ajuste pós-montagem, Manutenção, Erro interno ou Retrabalho), a prioridade, o responsável e usa **Agendar visita** para enviar as datas ao cliente. Alterar situação, tipo, prioridade e responsável é de quem pode atualizar todas as tarefas; os demais só consultam. O chamado continua sendo aberto pelo cliente, no portal.
+
+## Nova assistência pela equipe
+Na tela **Assistências**, o botão **Nova assistência** abre um chamado pela equipe — para o pedido que chegou por telefone ou na visita. Escolha o cliente, o projeto (opcional), o tipo, a prioridade, o assunto e o que aconteceu. O chamado aberto pelo cliente no portal continua igual.
+
+## Erro interno e retrabalho
+Os tipos **Erro interno** e **Retrabalho**, abertos pela equipe, são registros só da loja: **não aparecem no portal do cliente** e não têm visita agendada com ele. Servem para acompanhar os erros de produção, projeto ou montagem. Nos itens, lance o material e as horas gastos: o total é o **custo do retrabalho**. O topo da tela mostra quantos registros de erro e retrabalho houve no mês e quanto custaram. Um chamado aberto pelo cliente não pode ser reclassificado como erro interno ou retrabalho, para não sumir do portal dele.
+
+## Itens da assistência, garantia e cobrança
+No detalhe de cada chamado, o quadro **Itens da assistência** registra o que foi usado ou feito: peça, ferragem ou acessório, material, mão de obra, deslocamento, serviço de terceiro. **A assistência é na garantia**: todo item entra como garantia. Marque **Cobrar** só no que o cliente vai pagar (por exemplo, um acessório novo). O quadro mostra o total em garantia e o total a cobrar.
+
+Com algo a cobrar, quem lança no financeiro escolhe o vencimento e clica em **Lançar no financeiro**: vira uma conta a receber na categoria Assistência técnica, ligada ao cliente e ao projeto. Mudando os itens depois, o botão **Atualizar a cobrança** acerta o valor; se nada mais for cobrado, **Retirar a cobrança** tira a conta. Cobrança já recebida não é alterada por aqui.
+
+## Ordem de serviço
+O botão **Ordem de serviço (PDF)** gera o documento com o padrão da Mobieer: cliente, endereço, projeto, o atendimento, a visita, os itens (garantia ou cobrado), os totais e as linhas de assinatura do técnico e do cliente. No erro interno ou retrabalho sai a **ordem interna de retrabalho**, com o custo e as assinaturas do responsável e da gestão.
+

@@ -462,7 +462,7 @@ router.get(
   "/assistances",
   asyncHandler(async (req, res) => {
     const items = await prisma.assistanceTicket.findMany({
-      where: { clientId: req.portal!.clientId },
+      where: { clientId: req.portal!.clientId, internal: false },
       select: {
         ...scheduleSelect,
         description: true,
@@ -505,7 +505,7 @@ router.post(
   uploadPhoto.single("photo"),
   asyncHandler(async (req, res) => {
     const ticket = await prisma.assistanceTicket.findFirst({
-      where: { id: req.params.id, clientId: req.portal!.clientId },
+      where: { id: req.params.id, clientId: req.portal!.clientId, internal: false },
       select: { id: true, _count: { select: { attachments: true } } },
     });
     if (!ticket) throw new NotFoundError("Chamado não encontrado");
@@ -1160,7 +1160,7 @@ router.post(
 );
 
 async function ownTicket(id: string, clientId: string) {
-  const t = await prisma.assistanceTicket.findFirst({ where: { id, clientId }, select: { id: true } });
+  const t = await prisma.assistanceTicket.findFirst({ where: { id, clientId, internal: false }, select: { id: true } });
   if (!t) throw new NotFoundError("Chamado não encontrado");
   return t;
 }

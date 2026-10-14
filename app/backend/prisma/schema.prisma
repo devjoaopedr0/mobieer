@@ -1176,6 +1176,8 @@ model AssistanceTicket {
   description             String                  @db.Text
   problemType             String? // tipo do problema escolhido pelo cliente
   kind                    String                  @default("ASSISTENCIA") // classificação da equipe (ver assistance.rules)
+  internal                Boolean                 @default(false) // erro/retrabalho registrado pela equipe: fora do portal
+  items                   AssistanceItem[]
   roomLabel               String? // ambiente/cômodo afetado
   status                  AssistanceStatus        @default(OPEN)
   priority                KanbanTaskPriority      @default(NORMAL)
@@ -1212,6 +1214,22 @@ model AssistanceTicket {
   @@index([clientId])
   @@index([projectId])
   @@index([assigneeId])
+}
+
+/// Item da assistência: o que foi usado ou feito. Em garantia por padrão; `charged` = cobrado do cliente.
+model AssistanceItem {
+  id          String           @id @default(cuid())
+  ticketId    String
+  ticket      AssistanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  kind        String // ver ITEM_KINDS em assistance-items.rules
+  description String
+  quantity    Decimal          @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal          @default(0) @db.Decimal(12, 2)
+  charged     Boolean          @default(false)
+  position    Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  @@index([ticketId])
 }
 
 model KanbanBoard {
@@ -2559,6 +2577,7 @@ model FinanceTransaction {
   originOpportunity   CommercialOpportunity? @relation(fields: [originOpportunityId], references: [id], onDelete: SetNull)
   // gerado pelo aceite de um orçamento (parcelas, taxas e comissões)
   originQuoteId       String?
+  originAssistanceId  String? // conta a receber gerada pela assistência cobrada
   originQuote         CommercialQuote?       @relation(fields: [originQuoteId], references: [id], onDelete: SetNull)
   // reserva técnica a pagar ao indicador
   referrerId          String?

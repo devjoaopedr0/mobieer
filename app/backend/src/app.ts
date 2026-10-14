@@ -63,6 +63,7 @@ import aftersalesRoutes from "./modules/aftersales/aftersales.routes";
 import productivityRoutes from "./modules/productivity/productivity.routes";
 import assistanceRoutes from "./modules/assistance/assistance.routes";
 import publicConfirmRoutes from "./modules/assistance/public-confirm.routes";
+import assistanceItemsRoutes from "./modules/assistance/assistance-items.routes";
 import { publicWorkOrderRoutes, workOrderRoutes } from "./modules/contractors/workorder.routes";
 import cronRoutes from "./modules/cron/cron.routes";
 import storeRoutes from "./modules/store/store.routes";
@@ -148,6 +149,7 @@ export function createApp() {
   app.use("/api/settings", settingsRoutes);
   app.use("/api/organization", organizationRoutes);
   app.use("/api/business", businessRoutes);
+  app.use("/api/business", assistanceItemsRoutes);
   app.use("/api/documents", documentsRoutes);
   app.use("/api/portal/finance", portalFinanceRoutes);
   app.use("/api/portal", portalRoutes);
