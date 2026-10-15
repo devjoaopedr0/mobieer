@@ -49,6 +49,7 @@ import financeExtrasRoutes from "./modules/finance/finance-extras.routes";
 import financeOpenBalancesRoutes from "./modules/finance/open-balances.routes";
 import cepRoutes from "./modules/cep/cep.routes";
 import productionFilesRoutes from "./modules/production/production-files.routes";
+import descriptiveRoutes from "./modules/descriptive/descriptive.routes";
 import contractorAttendanceRoutes from "./modules/contractors/attendance.routes";
 import projectStartAtRoutes from "./modules/timeline/start-at.routes";
 import mfaRoutes from "./modules/auth/mfa.routes";
@@ -206,6 +207,7 @@ export function createApp() {
   app.use("/api/production", productionStepsRoutes);
   app.use("/api/production", productionFrontsRoutes);
   app.use("/api/production", productionFilesRoutes);
+  app.use("/api/production", descriptiveRoutes);
   app.use("/api/fiscal/import", fiscalImportRoutes);
   app.use("/api/fiscal", fiscalRoutes);
   app.use("/api/promob", promobRoutes);
