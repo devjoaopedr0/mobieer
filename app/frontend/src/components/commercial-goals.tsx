@@ -160,13 +160,13 @@ export function CommercialGoals() {
           {d.bySeller.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Por consultor</CardTitle>
+                <CardTitle className="text-base">Por projetista</CardTitle>
               </CardHeader>
               <CardContent className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Consultor</TableHead>
+                      <TableHead>Projetista</TableHead>
                       <TableHead className="text-right">Meta</TableHead>
                       <TableHead className="text-right">Vendido</TableHead>
                       <TableHead className="text-right">%</TableHead>
@@ -214,7 +214,7 @@ function GoalSuggestion({ month }: { month: string }) {
       for (const s of v.sellers ?? []) await apiPut("/commercial/goals", { month, amount: s.suggested, userId: s.id });
     },
     onSuccess: (_r, v) => {
-      toast.success(v.sellers?.length ? "Meta da loja e dos consultores salvas" : "Meta da loja salva");
+      toast.success(v.sellers?.length ? "Meta da loja e dos projetistas salvas" : "Meta da loja salva");
       qc.invalidateQueries({ queryKey: ["goals", month] });
     },
     onError: (e) => toast.error(errorMessage(e, "Não foi possível salvar a meta")),
@@ -255,7 +255,7 @@ function GoalSuggestion({ month }: { month: string }) {
                 : ` (mark-up ${d.margin.markup.toLocaleString("pt-BR")} e ${d.margin.commissionPercent.toLocaleString("pt-BR")}% de comissão da precificação; passa a usar os contratos reais quando houver 3 aceitos)`}
               {s.avgTicket ? `. Ticket médio de ${brl(s.avgTicket)}.` : ". Ainda sem vendas para calcular o ticket médio."}{" "}
               <button type="button" className="text-primary hover:underline" onClick={() => setOpen((v) => !v)}>
-                {open ? "Ocultar detalhes" : "Ver despesas e divisão por consultor"}
+                {open ? "Ocultar detalhes" : "Ver despesas e divisão por projetista"}
               </button>
             </p>
             {open && (
@@ -277,7 +277,7 @@ function GoalSuggestion({ month }: { month: string }) {
                 </div>
                 {s.bySeller.length > 0 && (
                   <div className="overflow-x-auto">
-                    <p className="mb-1 text-sm font-medium">Divisão da meta recomendada por consultor</p>
+                    <p className="mb-1 text-sm font-medium">Divisão da meta recomendada por projetista</p>
                     <table className="w-full text-xs">
                       <tbody>
                         {s.bySeller.map((x) => (
@@ -291,7 +291,7 @@ function GoalSuggestion({ month }: { month: string }) {
                     </table>
                     <p className="mt-1 text-[11px] text-muted-foreground">{s.sellersBasis === "HISTORY" ? "Proporcional ao que cada um vendeu nos últimos 6 meses." : "Sem vendas recentes: dividida em partes iguais."}</p>
                     <Button size="sm" variant="outline" className="mt-2" disabled={aplicar.isPending} onClick={() => aplicar.mutate({ amount: s.recommended, sellers: s.bySeller })}>
-                      Aplicar recomendada à loja e aos consultores
+                      Aplicar recomendada à loja e aos projetistas
                     </Button>
                   </div>
                 )}

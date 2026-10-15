@@ -2929,6 +2929,7 @@ model ProductionOrder {
   dispatchChecklist   DispatchChecklist?
   steps               ProductionStep[]
   fronts              ProductionFront[]
+  files               ProductionFile[]
 
   @@index([organizationId, stage])
 }
@@ -4962,4 +4963,21 @@ model UserExtraRole {
 
   @@id([userId, roleId])
   @@index([roleId])
+}
+
+/// Arquivo do pedido de produção enviado direto (plano de corte, etiquetas…),
+/// para pedido que não veio do Promob ou que já estava em produção.
+model ProductionFile {
+  id           String          @id @default(cuid())
+  orderId      String
+  order        ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kind         String          @default("PLANO_CORTE") // PLANO_CORTE | ETIQUETA | OUTRO
+  fileName     String
+  storageKey   String
+  mimeType     String?
+  size         Int?
+  uploadedById String?
+  createdAt    DateTime        @default(now())
+
+  @@index([orderId])
 }

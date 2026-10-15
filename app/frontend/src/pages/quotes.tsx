@@ -386,7 +386,25 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
   );
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
 
-  const clients = useQuery({ queryKey: ["business-clients", "picklist"], queryFn: () => apiGet<{ data: { id: string; name: string }[] }>("/business/clients") });
+  const clients = useQuery({ queryKey: ["business-clients", "picklist"], queryFn: () => apiGet<{ data: { id: string; name: string; seller?: { id: string; name: string } | null }[] }>("/business/clients") });
+  // projetista do cadastro do cliente entra na linha de comissão "Projetista" (dá para trocar)
+  const autoDesigner = useRef<string | null>(null);
+  const withDesigner = (commissions: Form["commissions"], clientId: string) => {
+    const seller = (clients.data?.data ?? []).find((c) => c.id === clientId)?.seller ?? null;
+    return commissions.map((c) => {
+      if (c.role !== "PROJETISTA" || (c.userId && c.userId !== autoDesigner.current)) return c;
+      autoDesigner.current = seller?.id ?? null;
+      return seller ? { ...c, userId: seller.id, name: seller.name } : { ...c, userId: "", name: "" };
+    });
+  };
+  // orçamento novo vindo do funil (?clientId=): preenche quando a lista de clientes chega
+  const designerFilled = useRef(false);
+  useEffect(() => {
+    if (quote || designerFilled.current || !form.clientId || !clients.data) return;
+    designerFilled.current = true;
+    setForm((f) => ({ ...f, commissions: withDesigner(f.commissions, f.clientId) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clients.data, form.clientId, quote]);
   const people = useQuery({ queryKey: ["kanban-people"], queryFn: () => apiGet<{ data: { id: string; name: string }[] }>("/organization/people") });
   const referrers = useQuery({ queryKey: ["referrers"], queryFn: () => apiGet<{ data: Referrer[] }>("/referrers") });
   /** Escolher o indicador cria/atualiza a linha de reserva técnica nas comissões. */
@@ -494,7 +512,7 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
             <CardHeader className="py-3"><CardTitle className="text-base">Cliente</CardTitle></CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-4">
               <Field label="Cliente">
-                <Select disabled={!canEdit} value={form.clientId || "NONE"} onValueChange={(v) => setForm((f) => ({ ...f, clientId: v === "NONE" ? "" : v, opportunityId: "", projectId: "" }))}>
+                <Select disabled={!canEdit} value={form.clientId || "NONE"} onValueChange={(v) => setForm((f) => ({ ...f, clientId: v === "NONE" ? "" : v, opportunityId: "", projectId: "", commissions: quote ? f.commissions : withDesigner(f.commissions, v === "NONE" ? "" : v) }))}>
                   <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="NONE">Selecione</SelectItem>

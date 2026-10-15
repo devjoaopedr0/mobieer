@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarRange, CheckCircle2, Download, Factory, Loader2, PackageCheck, Scissors, Sparkles, Truck } from "lucide-react";
+import { ArrowRight, CalendarRange, CheckCircle2, Download, Factory, Loader2, PackageCheck, Plus, Scissors, Sparkles, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import { LeadTimesCard } from "@/components/lead-times";
 import { FactoryStepsOverview, ProductionStepsCard } from "@/components/production-steps";
 import { ProductionBoard } from "@/components/production-board";
 import { ProductionFrontsCard } from "@/components/production-fronts";
+import { LegacyProductionDialog, ProductionFilesCard } from "@/components/production-files";
 
 export const PRODUCTION_STAGES = ["RELEASED", "IN_PRODUCTION", "PRE_ASSEMBLY", "OUT_FOR_DELIVERY", "DELIVERED"] as const;
 export type ProductionStage = (typeof PRODUCTION_STAGES)[number];
@@ -382,6 +383,7 @@ export function ProductionProjectPanel({ projectId, canManage }: { projectId: st
       <ProductionFrontsCard projectId={projectId} canEdit={canManage || can("production.steps")} />
 
       <CutPlanCard projectId={projectId} canManage={canManage} cutPlan={o.cutPlan} onChange={(id) => patch.mutate({ cutPlanImportId: id })} saving={patch.isPending} />
+      <ProductionFilesCard projectId={projectId} canManage={canManage} />
 
       <ProductionItemsPanel projectId={projectId} canManage={canManage} />
 
@@ -489,6 +491,7 @@ export function ProductionPage() {
   const key = ["production", "all"];
   // "esteira" é a lista por fase; "kanban" mostra um cartão por pedido na etapa da fábrica
   const [view, setView] = useState<"esteira" | "kanban">("esteira");
+  const [legacy, setLegacy] = useState(false);
   const q = useQuery({ queryKey: key, queryFn: () => apiGet<{ data: ProductionOrder[] }>("/production?all=1") });
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
 
@@ -506,12 +509,14 @@ export function ProductionPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Produção" description="Esteira dos pedidos: liberado → produção → pré-montagem → entrega.">
+        {canManage && <Button variant="outline" onClick={() => setLegacy(true)}><Plus className="mr-1 h-4 w-4" />Incluir projeto em andamento</Button>}
         <div className="flex overflow-hidden rounded-md border text-sm">
           {(["esteira", "kanban"] as const).map((v) => (
             <button key={v} type="button" className={`px-3 py-1.5 ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setView(v)}>{v === "esteira" ? "Esteira" : "Kanban"}</button>
           ))}
         </div>
       </PageHeader>
+      <LegacyProductionDialog open={legacy} onClose={() => setLegacy(false)} onDone={() => qc.invalidateQueries({ queryKey: ["production"] })} />
       {view === "kanban" ? (
         <ProductionBoard />
       ) : (
@@ -519,7 +524,7 @@ export function ProductionPage() {
       <FactoryStepsOverview />
       <LeadTimesCard />
       {total === 0 ? (
-        <EmptyState title="Nenhum pedido em produção" description="Quando o cliente aprovar o projeto técnico, o pedido entra aqui." />
+        <EmptyState title="Nenhum pedido em produção" description="Quando o cliente aprovar o projeto técnico, o pedido entra aqui. Projeto antigo que já está na fábrica: use Incluir projeto em andamento." />
       ) : (
         <div className="space-y-4">
           {groups.map((g) => (

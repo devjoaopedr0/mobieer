@@ -60,3 +60,8 @@ O botão **Adicionar** em **Clientes e projetos** aparece para a administração
 
 ## Caminho do cliente no comercial
 No topo da tela **Comercial** há cinco passos, na ordem em que o atendimento acontece; clicar em um passo leva à tela onde ele é feito: **1. Lead e briefing** (aba Leads), **2. Cliente e projeto** (Clientes e projetos), **3. Medição inicial** (Medições, com fotos), **4. Orçamento** (aba Orçamentos) e **5. Contrato** (no orçamento aceito, botão Gerar contrato).
+
+## Projetista e CEP no cadastro do cliente
+No cadastro do cliente, o campo que se chamava "Consultor de vendas" agora é **Projetista**. Ao criar um orçamento para o cliente, a linha de comissão **Projetista** já vem com essa pessoa (dá para trocar antes de salvar), e a comissão entra no aceite junto com a do vendedor.
+
+Ao digitar o **CEP** completo, o sistema busca o endereço (ViaCEP, com a BrasilAPI de reserva) e preenche rua, bairro, cidade e UF. Número e complemento continuam à mão. Se o CEP não for encontrado, o sistema avisa e o endereço é preenchido à mão.
