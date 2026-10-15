@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardPaste, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -111,6 +111,14 @@ export function ProductionWeekPlanPage() {
   const people = useMemo(() => (d ? d.people.filter((p) => !onlyMine || plain(p) === mine) : []), [d, onlyMine, mine]);
   // sábado só aparece quando tem tarefa
   const days = useMemo(() => (d ? d.days.filter((day, i) => i < 5 || d.tasks.some((t) => t.date === day)) : []), [d]);
+  // quem executa (e não monta o planejamento) abre vendo só as próprias tarefas; dá para desmarcar
+  const [autoMine, setAutoMine] = useState(false);
+  useEffect(() => {
+    if (!autoMine && d && !canManage && mine && d.people.some((p) => plain(p) === mine)) {
+      setOnlyMine(true);
+      setAutoMine(true);
+    }
+  }, [d, canManage, mine, autoMine]);
 
   if (q.isLoading) return <PageSkeleton />;
   if (!d) return <p className="p-6 text-sm text-muted-foreground">Não foi possível carregar o planejamento.</p>;
@@ -131,7 +139,7 @@ export function ProductionWeekPlanPage() {
       <div key={t.id} className={`group rounded-md border p-2 ${tone}`} draggable={showPerson && canManage} onDragStart={(e) => { e.dataTransfer.setData("text/plan-id", t.id); e.dataTransfer.effectAllowed = "move"; }}>
         {showPerson && <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-primary">{t.person}</p>}
         <div className="flex items-start gap-2">
-          <input type="checkbox" className={`mt-0.5 shrink-0 ${big ? "h-5 w-5" : "h-4 w-4"}`} checked={t.done} disabled={check.isPending} title={t.done ? "Desmarcar" : "Marcar como feito"} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked })} />
+          <input type="checkbox" className={`mt-0.5 shrink-0 ${big ? "h-5 w-5" : "h-5 w-5 sm:h-4 sm:w-4"}`} checked={t.done} disabled={check.isPending} title={t.done ? "Desmarcar" : "Marcar como feito"} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked })} />
           <div className="min-w-0 flex-1">
             <p className={`break-words leading-snug ${big ? "text-base" : ""} ${t.done ? "text-muted-foreground line-through" : "font-medium"}`}>{t.title}</p>
             {t.reference && <p className="text-xs text-muted-foreground">{t.reference}</p>}
@@ -148,7 +156,7 @@ export function ProductionWeekPlanPage() {
             {t.items.map((it, k) => (
               <li key={k}>
                 <label className={`flex items-start gap-1.5 ${big ? "text-sm" : "text-xs"}`}>
-                  <input type="checkbox" className="mt-0.5 h-3.5 w-3.5 shrink-0" checked={it.done} disabled={check.isPending} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked, item: k })} />
+                  <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 sm:h-3.5 sm:w-3.5" checked={it.done} disabled={check.isPending} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked, item: k })} />
                   <span className={it.done ? "text-muted-foreground line-through" : ""}>{it.text}</span>
                 </label>
               </li>

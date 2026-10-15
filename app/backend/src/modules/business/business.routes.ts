@@ -9,6 +9,7 @@ import { requireAnyPermission, requirePermission } from "../../middlewares/rbac"
 const CAN_REGISTER = ["organization.manage", "commercial.manage", "commercial.leads.manage", "commercial.quotes.manage"];
 import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
+import { Prisma } from "@prisma/client";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { env } from "../../config/env";
@@ -19,6 +20,7 @@ import { pipeToResponse } from "../../utils/stream";
 import { enumQuery } from "../../utils/query";
 import { AssistanceStatus } from "@prisma/client";
 import { ASSISTANCE_KIND_CODES, ASSISTANCE_KINDS, BOARD_COLUMNS, placeOf } from "../assistance/assistance.rules";
+import { ITEM_KINDS, isInternalKind, itemTotals } from "../assistance/assistance-items.rules";
 import { sendAutomation } from "../../lib/automations";
 import { assertClientAccess, assertProjectAccess, clientScope, projectScope } from "../../lib/scope";
 
@@ -85,10 +87,10 @@ router.post("/clients/:id/accounts", requirePermission("organization.manage"), a
 router.post("/clients/:id/accounts/:accountId/resend", requirePermission("organization.manage"), asyncHandler(async (req, res) => { await ensureClient(req.params.id, req.user!.organizationId); const account = await prisma.clientAccount.findFirst({ where: { id: req.params.accountId, clientId: req.params.id } }); if (!account) throw new NotFoundError("Conta não encontrada"); if (account.status === "ACTIVE") throw new BadRequestError("Esta conta já está ativa"); const inviteToken = crypto.randomBytes(32).toString("hex"); await prisma.clientAccount.update({ where: { id: account.id }, data: { status: "INVITED", inviteToken, inviteExpiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } }); await sendInvite(account.id, account.name, account.email, req.params.id, inviteToken); await audit(req.user!.id, "CLIENT_ACCOUNT_INVITE_RESENT", "ClientAccount", account.id); return ok(res, { id: account.id }, "Convite reenviado"); }));
 router.patch("/clients/:id/accounts/:accountId", requirePermission("organization.manage"), asyncHandler(async (req, res) => { await ensureClient(req.params.id, req.user!.organizationId); const account = await prisma.clientAccount.findFirst({ where: { id: req.params.accountId, clientId: req.params.id } }); if (!account) throw new NotFoundError("Conta não encontrada"); const input = z.object({ status: z.enum(["ACTIVE", "DISABLED"]) }).parse(req.body); if (input.status === "ACTIVE" && !account.passwordHash) throw new BadRequestError("A conta ainda não definiu senha pelo convite"); const value = await prisma.clientAccount.update({ where: { id: account.id }, data: { status: input.status }, select: { id: true, status: true } }); await audit(req.user!.id, "CLIENT_ACCOUNT_UPDATED", "ClientAccount", account.id, { status: input.status }); return ok(res, value, "Conta atualizada"); }));
 
-router.get("/assistances", requirePermission("organization.read"), asyncHandler(async (req, res) => { const values = await prisma.assistanceTicket.findMany({ where: { organizationId: req.user!.organizationId, ...(req.query.status ? { status: enumQuery(req.query.status, AssistanceStatus, "status") } : {}), ...(req.query.assigneeId ? { assigneeId: String(req.query.assigneeId) } : {}) }, include: { client: { select: { id: true, name: true, phone: true, district: true, city: true } }, project: { select: { id: true, code: true, name: true } }, assignee: { select: { id: true, name: true } }, attachments: { select: { id: true, fileName: true, mimeType: true, uploadedByLabel: true, createdAt: true }, orderBy: { createdAt: "asc" } }, _count: { select: { kanbanTasks: true } } }, orderBy: { updatedAt: "desc" } }); return ok(res, values.map((a) => ({ ...a, place: placeOf(a.client), attachments: a.attachments.map((att) => ({ ...att, downloadUrl: `/api/business/assistances/${a.id}/attachments/${att.id}/download` })) }))); }));
+router.get("/assistances", requirePermission("organization.read"), asyncHandler(async (req, res) => { const values = await prisma.assistanceTicket.findMany({ where: { organizationId: req.user!.organizationId, ...(req.query.status ? { status: enumQuery(req.query.status, AssistanceStatus, "status") } : {}), ...(req.query.assigneeId ? { assigneeId: String(req.query.assigneeId) } : {}) }, include: { client: { select: { id: true, name: true, phone: true, district: true, city: true } }, project: { select: { id: true, code: true, name: true } }, assignee: { select: { id: true, name: true } }, attachments: { select: { id: true, fileName: true, mimeType: true, uploadedByLabel: true, createdAt: true }, orderBy: { createdAt: "asc" } }, items: { select: { quantity: true, unitPrice: true, charged: true } }, _count: { select: { kanbanTasks: true } } }, orderBy: { updatedAt: "desc" } }); return ok(res, values.map((a) => ({ ...a, items: undefined, costs: itemTotals(a.items.map((i) => ({ quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), charged: i.charged }))), place: placeOf(a.client), attachments: a.attachments.map((att) => ({ ...att, downloadUrl: `/api/business/assistances/${a.id}/attachments/${att.id}/download` })) }))); }));
 
 // Anexos de assistência (fotos) — visualização e upload pela equipe.
-router.get("/assistances/options", requirePermission("organization.read"), (_req, res) => ok(res, { kinds: ASSISTANCE_KINDS, columns: BOARD_COLUMNS }));
+router.get("/assistances/options", requirePermission("organization.read"), (_req, res) => ok(res, { kinds: ASSISTANCE_KINDS, columns: BOARD_COLUMNS, itemKinds: ITEM_KINDS }));
 router.get("/assistances/:id/attachments/:attId/download", requirePermission("organization.read"), asyncHandler(async (req, res) => {
   const att = await prisma.assistanceAttachment.findFirst({ where: { id: req.params.attId, ticketId: req.params.id, ticket: { organizationId: req.user!.organizationId } } });
   if (!att) throw new NotFoundError("Anexo não encontrado");
@@ -118,7 +120,28 @@ router.delete("/assistances/:id/attachments/:attId", requirePermission("organiza
 }));
 // Assistência é pedida só pelo cliente, no portal (com fotos e descrição).
 // A equipe recebe, propõe datas e dá andamento, mas não abre o pedido.
-router.post("/assistances", requirePermission("organization.tasks.create"), (_req, _res, next) => next(new ForbiddenError("A assistência é aberta pelo cliente, no portal, com fotos e a descrição do problema. A equipe recebe e dá andamento por aqui.")));
-router.patch("/assistances/:id", requirePermission("organization.tasks.edit.all"), asyncHandler(async (req, res) => { const current = await prisma.assistanceTicket.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } }); if (!current) throw new NotFoundError("Assistência não encontrada"); const input = assistanceSchema.partial().parse(req.body); if (input.clientId) await ensureClient(input.clientId, req.user!.organizationId); if (input.projectId) await ensureProject(input.projectId, req.user!.organizationId); if (input.assigneeId) await ensureUser(input.assigneeId, req.user!.organizationId); const value = await prisma.assistanceTicket.update({ where: { id: current.id }, data: { ...input, resolvedAt: input.status === "RESOLVED" ? new Date() : input.status ? null : undefined } }); await audit(req.user!.id, "ASSISTANCE_UPDATED", "AssistanceTicket", value.id, { from: current.status, to: value.status }); return ok(res, value, "Assistência atualizada"); }));
+// A equipe também abre assistência (pedido por telefone, visita, ou o registro interno de
+// erro e retrabalho). Erro interno e retrabalho ficam fora do portal do cliente.
+router.post("/assistances", requirePermission("organization.tasks.edit.all"), asyncHandler(async (req, res) => {
+  const input = z.object({ clientId: z.string().min(1, "Escolha o cliente"), projectId: z.string().optional().nullable(), title: z.string().trim().min(2, "Escreva o assunto").max(255), description: z.string().trim().min(2, "Descreva o problema").max(10000), kind: z.enum(ASSISTANCE_KIND_CODES).default("ASSISTENCIA"), priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]).default("NORMAL"), assigneeId: z.string().optional().nullable() }).parse(req.body);
+  const orgId = req.user!.organizationId;
+  await ensureClient(input.clientId, orgId);
+  if (input.projectId) await ensureProject(input.projectId, orgId);
+  if (input.assigneeId) await ensureUser(input.assigneeId, orgId);
+  let ticket: { id: string; number: string } | null = null;
+  // número sequencial, igual ao do portal; em corrida rara (mesmo número), tenta o seguinte
+  for (let attempt = 0; attempt < 3 && !ticket; attempt++) {
+    const count = await prisma.assistanceTicket.count({ where: { organizationId: orgId } });
+    try {
+      ticket = await prisma.assistanceTicket.create({ data: { number: `AST-${String(count + 1 + attempt).padStart(5, "0")}`, organizationId: orgId, clientId: input.clientId, projectId: input.projectId || null, title: input.title, description: input.description, kind: input.kind, internal: isInternalKind(input.kind), priority: input.priority, assigneeId: input.assigneeId || null, origin: "INTERNAL", createdById: req.user!.id }, select: { id: true, number: true } });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
+    }
+  }
+  if (!ticket) throw new BadRequestError("Não foi possível numerar a assistência. Tente de novo.");
+  await audit(req.user!.id, "ASSISTANCE_CREATED", "AssistanceTicket", ticket.id, { kind: input.kind, internal: isInternalKind(input.kind) });
+  return ok(res, ticket, isInternalKind(input.kind) ? `${ticket.number} registrada (interna: não aparece para o cliente)` : `Assistência ${ticket.number} aberta`);
+}));
+router.patch("/assistances/:id", requirePermission("organization.tasks.edit.all"), asyncHandler(async (req, res) => { const current = await prisma.assistanceTicket.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } }); if (!current) throw new NotFoundError("Assistência não encontrada"); const input = assistanceSchema.partial().parse(req.body); if (input.clientId) await ensureClient(input.clientId, req.user!.organizationId); if (input.projectId) await ensureProject(input.projectId, req.user!.organizationId); if (input.assigneeId) await ensureUser(input.assigneeId, req.user!.organizationId); const value = await prisma.assistanceTicket.update({ where: { id: current.id }, data: { ...input, ...(input.kind && current.origin === "INTERNAL" ? { internal: isInternalKind(input.kind) } : {}), resolvedAt: input.status === "RESOLVED" ? new Date() : input.status ? null : undefined } }); await audit(req.user!.id, "ASSISTANCE_UPDATED", "AssistanceTicket", value.id, { from: current.status, to: value.status }); return ok(res, value, "Assistência atualizada"); }));
 
 export default router;

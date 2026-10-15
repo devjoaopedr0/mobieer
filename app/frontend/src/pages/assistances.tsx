@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { CalendarClock, CircleUserRound, Headphones, MapPin, Search } from "lucide-react";
+import { CalendarClock, CircleUserRound, Headphones, MapPin, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { AssistanceScheduleDialog } from "@/components/assistance-schedule";
+import { AssistanceItemsPanel } from "@/components/assistance-items";
+import { DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,16 +16,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EmptyState, PageSkeleton } from "@/components/ui/states";
 import { useAuth } from "@/hooks/use-auth";
-import { apiGet, apiObjectUrl, apiPatch } from "@/services/api";
+import { apiGet, apiObjectUrl, apiPatch, apiPost } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 type Attachment = { id: string; fileName: string; downloadUrl: string };
 type Ticket = {
   id: string; number: string; title: string; description: string; status: string; priority: "LOW" | "NORMAL" | "HIGH" | "URGENT"; kind: string;
   problemType: string | null; roomLabel: string | null; createdAt: string; scheduledAt: string | null; clientConfirmedAt: string | null; place: string | null;
   client: { id: string; name: string; phone: string | null }; project: { id: string; code: string; name: string } | null; assignee: { id: string; name: string } | null; attachments: Attachment[];
+  /** registro da equipe (erro, retrabalho): não aparece para o cliente */
+  internal: boolean; origin: "INTERNAL" | "CLIENT_PORTAL";
+  costs: { garantia: number; cobrado: number; total: number };
 };
+type NewTicket = { clientId: string; projectId: string; kind: string; title: string; description: string; priority: Ticket["priority"]; assigneeId: string };
+const INTERNAL = ["ERRO_INTERNO", "RETRABALHO"];
 type Options = { kinds: { code: string; label: string }[]; columns: { status: string; label: string }[] };
 type Person = { id: string; name: string };
 type Patch = { status?: string; kind?: string; priority?: string; assigneeId?: string | null };
@@ -54,7 +62,7 @@ export function AssistancesPage() {
   const { can } = useAuth();
   const qc = useQueryClient();
   const canManage = can("organization.tasks.edit.all");
-  const [view, setView] = useState<"lista" | "quadro" | "agenda">("lista");
+  const [view, setView] = useState<"lista" | "quadro" | "agenda" | "regiao">("lista");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
   const [status, setStatus] = useState("");
@@ -63,10 +71,18 @@ export function AssistancesPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState<{ id: string; number: string; title: string; clientName: string } | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [creating, setCreating] = useState<NewTicket | null>(null);
 
   const list = useQuery({ queryKey: ["business-assistances"], queryFn: () => apiGet<{ data: Ticket[] }>("/business/assistances") });
   const options = useQuery({ queryKey: ["assistance-options"], queryFn: () => apiGet<{ data: Options }>("/business/assistances/options"), staleTime: Infinity });
   const people = useQuery({ queryKey: ["kanban-people"], queryFn: () => apiGet<{ data: Person[] }>("/organization/people"), enabled: canManage });
+  const clients = useQuery({ queryKey: ["business-clients"], queryFn: () => apiGet<{ data: { id: string; name: string }[] }>("/business/clients"), enabled: creating !== null });
+  const projects = useQuery({ queryKey: ["business-projects"], queryFn: () => apiGet<{ data: { id: string; code: string; name: string; clientId?: string; client?: { id: string } }[] }>("/business/projects"), enabled: creating !== null });
+  const create = useMutation({
+    mutationFn: (v: NewTicket) => apiPost<{ data: { id: string }; message?: string }>("/business/assistances", { ...v, projectId: v.projectId || null, assigneeId: v.assigneeId || null }),
+    onSuccess: (r) => { toast.success(r.message ?? "Assistência aberta"); setCreating(null); qc.invalidateQueries({ queryKey: ["business-assistances"] }); setDetailId(r.data.id); },
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível abrir a assistência")),
+  });
   const update = useMutation({
     mutationFn: (v: { id: string; patch: Patch }) => apiPatch(`/business/assistances/${v.id}`, v.patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["business-assistances"] }),
@@ -94,12 +110,26 @@ export function AssistancesPage() {
     return [...map.entries()];
   }, [rows]);
 
+  // por região: os chamados em aberto agrupados por bairro, para marcar visitas próximas no mesmo dia
+  const regions = useMemo(() => {
+    const map = new Map<string, Ticket[]>();
+    for (const t of rows.filter((x) => !x.internal && !["RESOLVED", "CANCELLED"].includes(x.status))) {
+      const k = t.place ?? "Sem bairro no cadastro do cliente";
+      map.set(k, [...(map.get(k) ?? []), t]);
+    }
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  }, [rows]);
+
   if (list.isLoading || options.isLoading) return <PageSkeleton />;
   const detail = all.find((t) => t.id === detailId) ?? null;
   const openCount = all.filter((t) => !["RESOLVED", "CANCELLED"].includes(t.status)).length;
   const assignees = [...new Map(all.filter((t) => t.assignee).map((t) => [t.assignee!.id, t.assignee!])).values()];
 
-  const kindBadge = (t: Ticket) => <span className={cn("rounded-full border px-2 py-0.5 text-[11px]", KIND_CLS[t.kind] ?? "border-sky-300 text-sky-700")}>{kindLabel(t.kind)}</span>;
+  const kindBadge = (t: Ticket) => <span className={cn("rounded-full border px-2 py-0.5 text-[11px]", KIND_CLS[t.kind] ?? "border-sky-300 text-sky-700")}>{kindLabel(t.kind)}{t.internal ? " · interno" : ""}</span>;
+  // erro e retrabalho do mês: quantos e quanto custaram
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const rework = all.filter((t) => t.internal && t.createdAt.slice(0, 7) === monthKey);
+  const reworkCost = rework.reduce((s, t) => s + (t.costs?.total ?? 0), 0);
   const statusPill = (t: Ticket) =>
     canManage ? (
       <select aria-label={`Situação de ${t.number}`} className={cn("h-7 rounded-md border-0 px-2 text-xs font-medium", STATUS_CLS[t.status])} value={t.status} disabled={update.isPending} onClick={(e) => e.stopPropagation()} onChange={(e) => update.mutate({ id: t.id, patch: { status: e.target.value } })}>
@@ -112,15 +142,17 @@ export function AssistancesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Assistências" description="O cliente abre o pedido no portal, com fotos. Aqui a equipe classifica, agenda a visita e acompanha até resolver.">
+      <PageHeader title="Assistências" description="O cliente abre o pedido no portal, com fotos, ou a equipe abre aqui. Classifique, agende a visita, lance os itens (na garantia) e acompanhe até resolver.">
         <Badge variant="secondary">{openCount} em atendimento</Badge>
+        {rework.length > 0 && <Badge variant="warning">Erro e retrabalho no mês: {rework.length} · {formatCurrency(reworkCost)}</Badge>}
+        {canManage && <Button onClick={() => setCreating({ clientId: "", projectId: "", kind: "ASSISTENCIA", title: "", description: "", priority: "NORMAL", assigneeId: "" })}><Plus className="mr-1 h-4 w-4" />Nova assistência</Button>}
       </PageHeader>
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-2 pt-6">
           <div className="flex overflow-hidden rounded-md border text-sm">
-            {(["lista", "quadro", "agenda"] as const).map((v) => (
-              <button key={v} type="button" className={cn("px-3 py-1.5 capitalize", view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")} onClick={() => setView(v)}>{v === "quadro" ? "Kanban" : v}</button>
+            {(["lista", "quadro", "agenda", "regiao"] as const).map((v) => (
+              <button key={v} type="button" className={cn("px-3 py-1.5 capitalize", view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")} onClick={() => setView(v)}>{v === "quadro" ? "Kanban" : v === "regiao" ? "Por região" : v}</button>
             ))}
           </div>
           <div className="relative min-w-48 flex-1">
@@ -177,6 +209,28 @@ export function AssistancesPage() {
             </table>
           </CardContent>
         </Card>
+      ) : view === "regiao" ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Chamados em aberto agrupados pelo bairro do cliente: dá para marcar as visitas do mesmo bairro no mesmo dia. O bairro vem do cadastro do cliente (Clientes e projetos → Editar).</p>
+          {!regions.length && <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Nenhum chamado em aberto.</CardContent></Card>}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {regions.map(([place, list]) => (
+              <Card key={place}>
+                <CardContent className="space-y-2 pt-5">
+                  <p className="flex items-center justify-between text-sm font-semibold"><span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-primary" />{place}</span><Badge variant="secondary">{list.length}</Badge></p>
+                  <ul className="divide-y text-sm">
+                    {list.map((t) => (
+                      <li key={t.id} className="flex cursor-pointer items-center justify-between gap-2 py-1.5 hover:bg-muted/40" onClick={() => setDetailId(t.id)}>
+                        <span className="min-w-0"><span className="font-medium">{t.client.name}</span><span className="block truncate text-xs text-muted-foreground">{t.number} · {t.title}</span></span>
+                        <span className="shrink-0 text-right text-xs">{t.scheduledAt ? dayTime(t.scheduledAt) : <span className="italic text-muted-foreground">a combinar</span>}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
       ) : view === "quadro" ? (
         <div className="flex min-h-[55vh] gap-3 overflow-x-auto pb-3">
           {columns.map((c) => {
@@ -255,7 +309,7 @@ export function AssistancesPage() {
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1"><Label className="text-xs">Tipo</Label>
                     <select className={cn(selectCls, "w-full")} value={detail.kind} disabled={!canManage || update.isPending} onChange={(e) => update.mutate({ id: detail.id, patch: { kind: e.target.value } })}>
-                      {kinds.map((k) => <option key={k.code} value={k.code}>{k.label}</option>)}
+                      {kinds.filter((k) => detail.origin === "INTERNAL" || !INTERNAL.includes(k.code)).map((k) => <option key={k.code} value={k.code}>{k.label}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1"><Label className="text-xs">Prioridade</Label>
@@ -270,13 +324,61 @@ export function AssistancesPage() {
                     </select>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3">
-                  <span>{detail.scheduledAt ? <>Visita marcada para <strong>{dayTime(detail.scheduledAt)}</strong>{detail.clientConfirmedAt ? " · confirmada pelo cliente" : ""}</> : "Visita ainda não marcada."}</span>
-                  <Button size="sm" variant="outline" onClick={() => setScheduling({ id: detail.id, number: detail.number, title: detail.title, clientName: detail.client.name })}><CalendarClock className="mr-2 h-4 w-4" />Agendar visita</Button>
-                </div>
+                {detail.internal ? (
+                  <p className="rounded-md bg-warning/10 p-2 text-xs">Registro interno de {kindLabel(detail.kind).toLowerCase()}: não aparece no portal do cliente e não tem visita agendada com ele.</p>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3">
+                    <span>{detail.scheduledAt ? <>Visita marcada para <strong>{dayTime(detail.scheduledAt)}</strong>{detail.clientConfirmedAt ? " · confirmada pelo cliente" : ""}</> : "Visita ainda não marcada."}</span>
+                    <Button size="sm" variant="outline" onClick={() => setScheduling({ id: detail.id, number: detail.number, title: detail.title, clientName: detail.client.name })}><CalendarClock className="mr-2 h-4 w-4" />Agendar visita</Button>
+                  </div>
+                )}
+                <AssistanceItemsPanel ticketId={detail.id} canEdit={canManage} canCharge={can("finance.manage") || can("organization.manage")} />
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={creating !== null} onOpenChange={(o) => !o && setCreating(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Nova assistência</DialogTitle>
+            <DialogDescription>Para o pedido que chegou por telefone ou na visita, ou para registrar um erro interno ou retrabalho.</DialogDescription>
+          </DialogHeader>
+          {creating && (
+            <div className="space-y-3 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1"><Label className="text-xs">Cliente *</Label>
+                  <select className={cn(selectCls, "w-full")} value={creating.clientId} onChange={(e) => setCreating({ ...creating, clientId: e.target.value, projectId: "" })}>
+                    <option value="">Escolha o cliente</option>
+                    {(clients.data?.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1"><Label className="text-xs">Projeto (opcional)</Label>
+                  <select className={cn(selectCls, "w-full")} value={creating.projectId} disabled={!creating.clientId} onChange={(e) => setCreating({ ...creating, projectId: e.target.value })}>
+                    <option value="">Sem projeto</option>
+                    {(projects.data?.data ?? []).filter((pr) => (pr.clientId ?? pr.client?.id) === creating.clientId).map((pr) => <option key={pr.id} value={pr.id}>{pr.code} — {pr.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1"><Label className="text-xs">Tipo</Label>
+                  <select className={cn(selectCls, "w-full")} value={creating.kind} onChange={(e) => setCreating({ ...creating, kind: e.target.value })}>
+                    {kinds.map((k) => <option key={k.code} value={k.code}>{k.label}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1"><Label className="text-xs">Prioridade</Label>
+                  <select className={cn(selectCls, "w-full")} value={creating.priority} onChange={(e) => setCreating({ ...creating, priority: e.target.value as Ticket["priority"] })}>
+                    {Object.entries(PRIORITY).map(([v, pr]) => <option key={v} value={v}>{pr.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1"><Label className="text-xs">Assunto *</Label><Input value={creating.title} placeholder="Ex.: Gaveta da cozinha travando" onChange={(e) => setCreating({ ...creating, title: e.target.value })} /></div>
+              <div className="space-y-1"><Label className="text-xs">O que aconteceu *</Label><Textarea rows={3} value={creating.description} onChange={(e) => setCreating({ ...creating, description: e.target.value })} /></div>
+              {INTERNAL.includes(creating.kind) && <p className="rounded-md bg-warning/10 p-2 text-xs">Erro interno e retrabalho ficam só para a equipe: não aparecem no portal do cliente. Lance depois o material e as horas gastos para saber o custo.</p>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreating(null)}>Cancelar</Button>
+            <Button disabled={!creating || !creating.clientId || creating.title.trim().length < 2 || creating.description.trim().length < 2 || create.isPending} onClick={() => creating && create.mutate(creating)}>Abrir assistência</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <AssistanceScheduleDialog ticket={scheduling} canManage={canManage} onClose={() => { setScheduling(null); qc.invalidateQueries({ queryKey: ["business-assistances"] }); }} />

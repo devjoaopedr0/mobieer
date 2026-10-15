@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { FinanceDocuments } from "@/components/finance-documents";
 import { PayDialog } from "@/components/pay-dialog";
+import { FinanceOpenBalances } from "@/components/finance-open-balances";
 import { FinanceRequestsPanel, RecurringTab } from "@/components/finance-recurring";
 import { KpiCard } from "@/components/kpi-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -33,7 +34,7 @@ const REGIME_LABEL: Record<RegimeTributario, string> = {
 
 const CATEGORIES: Record<"RECEITA" | "DESPESA", string[]> = {
   RECEITA: ["Contrato — sinal", "Contrato — parcela", "Assistência técnica", "Venda avulsa", "Outros"],
-  DESPESA: ["Matéria-prima", "Ferragens", "Acabamento", "Folha de pagamento", "Frete", "Impostos", "Aluguel", "Serviços de terceiros", "Outros"],
+  DESPESA: ["Matéria-prima", "Ferragens", "Acabamento", "Folha de pagamento", "Frete", "Impostos", "Aluguel", "Serviços de terceiros", "Dívida anterior", "Outros"],
 };
 
 const CARD_EXPENSE_CATEGORIES = ["Matéria-prima", "Ferragens", "Acabamento", "Combustível", "Alimentação", "Ferramentas", "Software / assinaturas", "Marketing", "Viagem", "Manutenção", "Outros"];
@@ -300,6 +301,7 @@ export function FinancePage() {
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
           <TabsTrigger value="lancamentos">Lançamentos ({rows.length})</TabsTrigger>
+          <TabsTrigger value="abertos">Comissões e dívidas</TabsTrigger>
           <TabsTrigger value="fixos">Fixos</TabsTrigger>
           <TabsTrigger value="solicitacoes">Solicitações</TabsTrigger>
           <TabsTrigger value="cartoes">Cartões ({cards.data?.data.length ?? 0})</TabsTrigger>
@@ -308,6 +310,11 @@ export function FinancePage() {
           <TabsTrigger value="impostos">Impostos</TabsTrigger>
           <TabsTrigger value="investimentos">Investimentos</TabsTrigger>
         </TabsList>
+
+        {/* ---- Comissões em aberto e dívidas anteriores ---- */}
+        <TabsContent value="abertos">
+          <FinanceOpenBalances canManage={canManage} canPay={canManage || can("finance.documents.pay")} />
+        </TabsContent>
 
         {/* ---- Metas de investimento ---- */}
         <TabsContent value="investimentos" className="space-y-4">

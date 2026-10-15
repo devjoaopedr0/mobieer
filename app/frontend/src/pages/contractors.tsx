@@ -31,7 +31,8 @@ const isoDay = (d: Date) => localIsoDate(d);
 
 type ProjectRow = { id: string; name: string; code?: string };
 
-const EMPTY_FORM = { name: "", document: "", phone: "", address: "", specialty: "", dailyRate: "", notes: "" };
+const EMPTY_FORM = { name: "", document: "", phone: "", address: "", specialty: "", dailyRate: "", notes: "", engagement: "AUTONOMO" as "AUTONOMO" | "CONTRATADO", monthlySalary: "" };
+const money = (s: string) => (s.trim() === "" ? 0 : Number(s.replace(/\./g, "").replace(",", ".")) || 0);
 
 /**
  * Montadores externos: cadastro, check-in/check-out na obra e o
@@ -78,7 +79,9 @@ export function ContractorsPage() {
         phone: form.phone || null,
         address: form.address || null,
         specialty: form.specialty || null,
-        dailyRate: form.dailyRate.trim() === "" ? 0 : Number(form.dailyRate.replace(",", ".")),
+        dailyRate: form.engagement === "CONTRATADO" ? 0 : money(form.dailyRate),
+        engagement: form.engagement,
+        monthlySalary: form.engagement === "CONTRATADO" && form.monthlySalary.trim() ? money(form.monthlySalary) : null,
         notes: form.notes || null,
       };
       return editing ? apiPatch(`/contractors/${editing.id}`, body) : apiPost("/contractors", body);
@@ -143,8 +146,10 @@ export function ContractorsPage() {
       phone: c.phone ?? "",
       address: c.address ?? "",
       specialty: c.specialty ?? "",
-      dailyRate: String(c.dailyRate),
+      dailyRate: String(c.dailyRate).replace(".", ","),
       notes: c.notes ?? "",
+      engagement: c.engagement ?? "AUTONOMO",
+      monthlySalary: c.monthlySalary ? String(c.monthlySalary).replace(".", ",") : "",
     });
     setDialog("edit");
   };
@@ -221,7 +226,9 @@ export function ContractorsPage() {
                       {[c.specialty, c.phone, c.document].filter(Boolean).join(" · ") || "—"}
                     </p>
                     {c.address && <p className="text-xs text-muted-foreground">{c.address}</p>}
-                    <p className="font-medium">Diária: {brl(c.dailyRate)}</p>
+                    <p className="font-medium">
+                      {c.engagement === "CONTRATADO" ? <>Contratado · salário {c.monthlySalary ? brl(c.monthlySalary) : "não informado"}</> : <>Autônomo · diária {brl(c.dailyRate)}</>}
+                    </p>
                     {c.notes && <p className="text-xs text-muted-foreground">{c.notes}</p>}
                     <div className="flex flex-wrap gap-2 pt-1">
                       {c.active && !c.onSite && (
@@ -376,7 +383,14 @@ export function ContractorsPage() {
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{i.hours.toFixed(1)}h</TableCell>
                           <TableCell className="text-right tabular-nums">{i.days}</TableCell>
-                          <TableCell className="text-right tabular-nums">{brl(i.total)}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {i.engagement === "CONTRATADO" ? <span className="text-xs text-muted-foreground">salário (folha)</span> : brl(i.total)}
+                            {(i.suggestedDeduction ?? 0) > 0 && (
+                              <span className="block text-xs text-warning" title="Diária ÷ horas combinadas × horas faltantes, como diz o contrato do autônomo. Não sai do total: confira se o atraso não foi da loja ou do cliente.">
+                                faltaram {Math.round(((i.missingMinutes ?? 0) / 60) * 10) / 10}h · abater até {brl(i.suggestedDeduction ?? 0)}
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right tabular-nums">{i.bonus > 0 ? brl(i.bonus) : "—"}</TableCell>
                           <TableCell className="text-right font-medium tabular-nums">{brl(i.totalWithBonus)}</TableCell>
                         </TableRow>
@@ -422,9 +436,28 @@ export function ContractorsPage() {
               <Input value={form.specialty} onChange={(e) => setForm({ ...form, specialty: e.target.value })} placeholder="Montagem, elétrica…" />
             </div>
             <div className="space-y-2">
-              <Label>Valor da diária (R$)</Label>
-              <Input inputMode="decimal" value={form.dailyRate} onChange={(e) => setForm({ ...form, dailyRate: e.target.value })} placeholder="180" />
+              <Label>Vínculo</Label>
+              <select className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={form.engagement} onChange={(e) => setForm({ ...form, engagement: e.target.value as "AUTONOMO" | "CONTRATADO" })}>
+                <option value="AUTONOMO">Autônomo (diária ou serviço)</option>
+                <option value="CONTRATADO">Contratado (salário mensal)</option>
+              </select>
             </div>
+            {form.engagement === "CONTRATADO" ? (
+              <div className="space-y-2">
+                <Label>Salário mensal (R$)</Label>
+                <Input inputMode="decimal" value={form.monthlySalary} onChange={(e) => setForm({ ...form, monthlySalary: e.target.value })} placeholder="2.500,00" />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Valor da diária (R$)</Label>
+                <Input inputMode="decimal" value={form.dailyRate} onChange={(e) => setForm({ ...form, dailyRate: e.target.value })} placeholder="180" />
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              {form.engagement === "CONTRATADO"
+                ? "Contratado recebe salário pela folha: os dias dele não entram no fechamento de diárias. O contrato é o de empregado."
+                : "Autônomo recebe por diária ou serviço e assina o contrato de prestação de serviços."}
+            </p>
             <div className="space-y-2 sm:col-span-2">
               <Label>Observações</Label>
               <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />

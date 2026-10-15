@@ -366,7 +366,7 @@ export async function runAssistanceReminders(now = new Date()) {
   const from = new Date(now.getTime() - DAY_MS);
   const to = new Date(now.getTime() + 2 * DAY_MS);
   const tickets = await prisma.assistanceTicket.findMany({
-    where: { status: "SCHEDULED", scheduledAt: { gte: from, lte: to } },
+    where: { status: "SCHEDULED", internal: false, scheduledAt: { gte: from, lte: to } },
     select: { ...scheduleSelect, confirmToken: true, client: { select: { name: true } } },
   });
 

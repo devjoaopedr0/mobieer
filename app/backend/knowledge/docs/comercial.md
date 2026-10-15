@@ -46,6 +46,13 @@ Ao clicar em **Cliente aceitou**, a janela mostra o que vai para o financeiro. C
 ## Gerar o contrato pelo orçamento
 Com o orçamento **aceito pelo cliente**, o quadro **Ações** ganha o botão **Gerar contrato**. Escolha o modelo de contrato e clique em **Gerar e enviar ao cliente**: o sistema preenche o modelo com o cliente, o valor total, a entrada, as parcelas, a condição de pagamento e o prazo do orçamento, baixa o PDF e coloca o contrato nos documentos do projeto, visível no portal do cliente.
 
+O modelo cadastrado é o **contrato da loja** ("Contrato de compra e venda (modelo da loja)"). O sistema preenche:
+- **qualificação do contratante**: nome, CPF/CNPJ, endereço atual, endereço de entrega (se vazio, usa o do cliente), telefone, e-mail, vendedor e data do aceite;
+- **resumo do pedido**: tabela com cada ambiente (AA, AB…), linha, prazo de fabricação e valor, o desconto e o valor total, e a tabela de acabamentos (caixaria, porta, puxador e observação);
+- **pagamento**: condição, forma e as parcelas (entrada, parcela 1, 2…) com valor e vencimento. As parcelas são as lançadas no financeiro no aceite; se o aceite não lançou, saem do plano do orçamento.
+
+As cláusulas e assinaturas são o texto da loja e podem ser editadas em **Modelos de documentos**. No texto, as linhas `{{quadro.pedido}}` e `{{quadro.pagamento}}` viram as tabelas e precisam ficar sozinhas na linha. Campo sem informação no cadastro sai com uma linha em branco para preencher à mão.
+
 Se o modelo pede assinatura, a loja assina na aba **Documentos** do projeto (botão **Assinar**) e o cliente assina no portal. O botão só aparece para quem pode gerenciar documentos, e é preciso ter um modelo de contrato com texto cadastrado em **Modelos de documentos**.
 
 ## Quem pode cadastrar cliente e projeto

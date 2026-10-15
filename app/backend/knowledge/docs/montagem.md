@@ -27,3 +27,16 @@ Menu **Montadores externos**, aba **Presença**. O escritório marca, dia a dia,
 
 ## Solicitação de peças na produção
 Quando uma solicitação de peças passa para **Em produção**, cada peça pedida entra na fábrica como um item do pedido de produção do projeto, com etiqueta, e aparece no quadro **Fábrica** identificada como "Reposição" e o número da solicitação. Quando todas as peças têm baixa, a solicitação passa sozinha para **Pronta**. A solicitação precisa estar ligada a um projeto.
+
+## Vínculo do montador: autônomo ou contratado
+No cadastro do montador (Montadores externos), o campo **Vínculo** muda o contrato e a forma de pagamento:
+- **Autônomo**: prestação de serviços, pago por diária ou serviço. Entra no fechamento de diárias. O fechamento mostra as **horas faltantes** de cada dia (abaixo das horas combinadas da diária) e o **abatimento sugerido** pela regra do contrato: diária ÷ horas combinadas × horas faltantes. O abatimento não sai do total sozinho, porque não se abate atraso causado pela loja ou pelo cliente.
+- **Contratado**: empregado com salário mensal (informado no cadastro). Os dias dele não viram diária no fechamento; o pagamento é pela folha.
+
+## Contrato e código de conduta do montador
+O montador assina os documentos na área dele, aba **Documentos** (assinatura desenhada na tela). Em Montadores externos, aba Documentos, escolha o montador e clique em **Gerar de modelo**. O sistema já sugere o contrato do vínculo dele ("Contrato do montador autônomo" ou "Contrato do montador contratado"). No contrato, escolha o início e o fim da vigência e se ele autoriza o uso de imagem e voz. O sistema preenche nome, CPF, endereço, telefone, salário e data, gera o PDF e envia para assinar. O "Código de conduta e ética" também está em Modelos de documentos.
+
+## Termo de ferramentas do montador
+Na área do montador, aba **Ferramentas**, ele clica em **Marcar ferramenta**, escolhe da lista (ou "Outra"), informa a quantidade e tira a foto. Depois clica em **Gerar e assinar o termo**: o termo sai com a lista e as fotos e vai para Documentos para ele assinar.
+
+Para passar uma ferramenta a outra pessoa, ele usa **Retirar**, escolhe para quem vai (outro montador, devolver à empresa ou outra pessoa) e tira a foto. Se for para outro montador, a ferramenta entra na lista dele com a foto. Depois de qualquer mudança o termo precisa ser assinado de novo, e o sistema avisa. A gestão vê, na aba Documentos de cada montador, o cartão **Ferramentas com o montador**: fotos, situação do termo e retiradas com foto.

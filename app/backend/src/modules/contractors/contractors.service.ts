@@ -43,6 +43,8 @@ export type ShiftForSummary = {
   checkOutAt: Date | null;
   minutes: number | null;
   dailyRate: number;
+  /** horas combinadas da diária (minutos); vazio = não calcula horas faltantes */
+  expectedMinutes?: number | null;
 };
 
 export type ContractorSummaryItem = {
@@ -53,6 +55,14 @@ export type ContractorSummaryItem = {
   days: number;
   openShifts: number;
   total: number;
+  /** dias fechados com menos horas que as combinadas na diária */
+  missingMinutes: number;
+  /**
+   * Abatimento que o contrato do autônomo permite: diária ÷ horas combinadas ×
+   * horas faltantes. É sugestão: não entra no total, porque não se abate
+   * atraso causado pela loja ou pelo cliente.
+   */
+  suggestedDeduction: number;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -65,27 +75,45 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * - turno em aberto conta o dia, mas ainda não soma horas.
  */
 export function summarizeShifts(shifts: ShiftForSummary[]) {
-  const by = new Map<string, { name: string; minutes: number; days: Map<string, number>; open: number }>();
+  const by = new Map<string, { name: string; minutes: number; days: Map<string, number>; open: number; dayMinutes: Map<string, number>; openDays: Set<string>; expected: number | null }>();
 
   for (const s of shifts) {
-    const row = by.get(s.contractorId) ?? { name: s.contractorName, minutes: 0, days: new Map<string, number>(), open: 0 };
+    const row = by.get(s.contractorId) ?? { name: s.contractorName, minutes: 0, days: new Map<string, number>(), open: 0, dayMinutes: new Map<string, number>(), openDays: new Set<string>(), expected: s.expectedMinutes ?? null };
     row.minutes += s.minutes ?? 0;
-    if (s.checkOutAt === null) row.open++;
     const day = localDay(s.checkInAt);
+    if (s.checkOutAt === null) {
+      row.open++;
+      row.openDays.add(day);
+    }
+    row.dayMinutes.set(day, (row.dayMinutes.get(day) ?? 0) + (s.minutes ?? 0));
     row.days.set(day, Math.max(row.days.get(day) ?? 0, Number.isFinite(s.dailyRate) ? s.dailyRate : 0));
     by.set(s.contractorId, row);
   }
 
   const items: ContractorSummaryItem[] = [...by.entries()]
-    .map(([contractorId, r]) => ({
-      contractorId,
-      name: r.name,
-      minutes: r.minutes,
-      hours: round2(r.minutes / 60),
-      days: r.days.size,
-      openShifts: r.open,
-      total: round2([...r.days.values()].reduce((a, b) => a + b, 0)),
-    }))
+    .map(([contractorId, r]) => {
+      let missingMinutes = 0;
+      let suggestedDeduction = 0;
+      if (r.expected && r.expected > 0) {
+        for (const [day, rate] of r.days) {
+          if (r.openDays.has(day) || rate <= 0) continue; // dia em aberto ainda não fechou as horas
+          const missing = Math.max(0, r.expected - (r.dayMinutes.get(day) ?? 0));
+          missingMinutes += missing;
+          suggestedDeduction += (rate / r.expected) * missing;
+        }
+      }
+      return {
+        contractorId,
+        name: r.name,
+        minutes: r.minutes,
+        hours: round2(r.minutes / 60),
+        days: r.days.size,
+        openShifts: r.open,
+        total: round2([...r.days.values()].reduce((a, b) => a + b, 0)),
+        missingMinutes,
+        suggestedDeduction: round2(suggestedDeduction),
+      };
+    })
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
 
   return {

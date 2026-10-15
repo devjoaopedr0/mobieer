@@ -6,6 +6,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, FileSignature, Loader2, Send, Trash2, Upload, X } from "lucide-react";
+import { ContractorToolsCard, GenerateContractorDocument } from "@/components/contractor-tools";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ export function ContractorDocumentsTab({ contractors, canManage }: { contractors
   const qc = useQueryClient();
   const [contractorId, setContractorId] = useState<string>(contractors[0]?.id ?? "");
   const [novo, setNovo] = useState(false);
+  const [gerar, setGerar] = useState(false);
   const [assinatura, setAssinatura] = useState<{ doc: ContractorDocument; dataUrl: string; signerName: string; signedAt: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<{ kind: ContractorDocumentType; title: string; requiresSignature: boolean; file: File | null }>({
@@ -148,12 +150,20 @@ export function ContractorDocumentsTab({ contractors, canManage }: { contractors
           </Select>
         </div>
         {canManage && contractorId && (
-          <Button onClick={() => setNovo(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Anexar documento
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setGerar(true)}>
+              <FileSignature className="mr-2 h-4 w-4" />
+              Gerar de modelo
+            </Button>
+            <Button onClick={() => setNovo(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Anexar documento
+            </Button>
+          </div>
         )}
       </div>
+      {contractorId && <GenerateContractorDocument contractorId={contractorId} engagement={contractors.find((c) => c.id === contractorId)?.engagement ?? "AUTONOMO"} open={gerar} onClose={() => setGerar(false)} onDone={invalidar} />}
+      {contractorId && <ContractorToolsCard contractorId={contractorId} />}
 
       {!contractorId ? (
         <EmptyState title="Nenhum montador" description="Cadastre um montador para enviar documentos." />

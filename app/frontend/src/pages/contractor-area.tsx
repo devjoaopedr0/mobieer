@@ -16,6 +16,7 @@ import { EmptyState, PageSkeleton } from "@/components/ui/states";
 import { apiGet, apiPost } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 import { MyContractorDocuments } from "@/components/contractor-documents";
+import { MyTools } from "@/components/contractor-tools";
 
 export type InstallationTask = {
   id: string;
@@ -81,6 +82,7 @@ export function ContractorAreaPage() {
   };
 
   const [checkinProject, setCheckinProject] = useState("");
+  const [tab, setTab] = useState("hoje");
   const [addOpen, setAddOpen] = useState(false);
   const [room, setRoom] = useState({ projectId: "", roomType: "", roomLabel: "" });
 
@@ -141,11 +143,12 @@ export function ContractorAreaPage() {
         </Button>
       </PageHeader>
 
-      <Tabs defaultValue="hoje">
-        <TabsList className="w-full">
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="flex h-auto w-full flex-wrap">
           <TabsTrigger value="hoje" className="flex-1">Hoje</TabsTrigger>
           <TabsTrigger value="produtividade" className="flex-1">Produtividade</TabsTrigger>
           <TabsTrigger value="horas" className="flex-1">Horas</TabsTrigger>
+          <TabsTrigger value="ferramentas" className="flex-1">Ferramentas</TabsTrigger>
           <TabsTrigger value="documentos" className="flex-1">Documentos</TabsTrigger>
         </TabsList>
 
@@ -220,6 +223,10 @@ export function ContractorAreaPage() {
         <TabsContent value="horas" className="space-y-4 pt-4">
           <BancoDeHoras />
           <MeuDesempenho />
+        </TabsContent>
+
+        <TabsContent value="ferramentas" className="space-y-4 pt-4">
+          <MyTools onOpenDocuments={() => setTab("documentos")} />
         </TabsContent>
 
         <TabsContent value="documentos" className="space-y-4 pt-4">
