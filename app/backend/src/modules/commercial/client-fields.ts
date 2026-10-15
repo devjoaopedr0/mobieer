@@ -13,7 +13,7 @@ export const CLIENT_FIELD_LABEL: Record<string, string> = {
   phone: "Telefone",
   secondaryPhone: "Telefone 2",
   leadSource: "Origem do cliente",
-  sellerId: "Consultor",
+  sellerId: "Projetista",
   zipCode: "CEP",
   street: "Rua",
   addressNumber: "Número",

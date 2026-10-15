@@ -22,6 +22,7 @@ import { ok } from "../../utils/response";
 import { AiProviderError } from "../ai/provider";
 import { imageProvider } from "../ai/provider/image";
 import { quoteRooms } from "../commercial/quote.rules";
+import { withAddenda } from "../commercial/addenda";
 import { LIGHTING_LABEL, MAX_FINISHES_CHARS, MAX_RENDERS_PER_PROJECT, finishesFromQuote, orphanKeys, renderPrompt, sortRenders, type RenderItem } from "./render.rules";
 
 const router = Router();
@@ -42,11 +43,13 @@ async function projectFor(id: string, organizationId: string) {
         where: { kind: "PADRAO" },
         orderBy: [{ approvedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
         take: 1,
-        select: { items: { orderBy: { position: "asc" }, select: { room: true, description: true, corpo: true, porta: true, puxador: true, complemento: true, modelo: true } } },
+        select: { number: true, items: { orderBy: { position: "asc" }, select: { room: true, description: true, corpo: true, porta: true, puxador: true, complemento: true, modelo: true } } },
       },
     },
   });
   if (!p) throw new NotFoundError("Projeto não encontrado");
+  // ambientes dos adendos aceitos entram depois dos do contrato
+  await withAddenda(organizationId, p.quotes[0]);
   return p;
 }
 

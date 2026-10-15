@@ -40,3 +40,8 @@ O montador assina os documentos na área dele, aba **Documentos** (assinatura de
 Na área do montador, aba **Ferramentas**, ele clica em **Marcar ferramenta**, escolhe da lista (ou "Outra"), informa a quantidade e tira a foto. Depois clica em **Gerar e assinar o termo**: o termo sai com a lista e as fotos e vai para Documentos para ele assinar.
 
 Para passar uma ferramenta a outra pessoa, ele usa **Retirar**, escolhe para quem vai (outro montador, devolver à empresa ou outra pessoa) e tira a foto. Se for para outro montador, a ferramenta entra na lista dele com a foto. Depois de qualquer mudança o termo precisa ser assinado de novo, e o sistema avisa. A gestão vê, na aba Documentos de cada montador, o cartão **Ferramentas com o montador**: fotos, situação do termo e retiradas com foto.
+
+## Linha do tempo das montagens
+Na tela **Montagens**, botão **Linha do tempo**: cada montagem, entrega, vistoria ou assistência aparece como uma barra nos dias que dura, ao longo de 1, 2, 3 ou 6 meses. Arraste a barra para mudar a data (a duração continua a mesma) e arraste a ponta direita para mudar quanto tempo dura. Clicar na barra abre o compromisso.
+
+Em cima, a linha **Montagens no dia / equipes** mostra quantas montagens acontecem em cada dia. O dia fica vermelho quando passa do número de equipes (começa pelos montadores ativos e pode ser ajustado), e o aviso diz a partir de quando falta gente: é o momento de contratar ou mudar datas. Pedidos na produção com previsão de entrega e sem montagem marcada aparecem tracejados como **previstas**, contando 3 dias a partir da entrega prevista.

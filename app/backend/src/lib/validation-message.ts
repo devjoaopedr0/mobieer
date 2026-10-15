@@ -33,7 +33,7 @@ const LABELS: Record<string, string> = {
   condominium: "Condomínio",
   deliveryAddress: "Endereço de entrega",
   leadSource: "Origem do lead",
-  sellerId: "Consultor de vendas",
+  sellerId: "Projetista",
   attendantId: "Responsável pelo atendimento",
   clientId: "Cliente",
   projectId: "Projeto",

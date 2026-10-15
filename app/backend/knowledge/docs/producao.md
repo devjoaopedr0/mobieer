@@ -55,3 +55,9 @@ Quem gerencia a organização ou atualiza as etapas da produção pode **arrasta
 
 ## Frentes de produção
 Além da marcenaria (que segue as etapas da fábrica), o mesmo pedido pode ter outras frentes andando ao mesmo tempo, cada uma no seu ritmo: **Metalon**, **Peças especiais** e **Portas de vidro**. Na aba Produção do projeto, o quadro **Frentes de produção** permite acrescentar a frente ao pedido e definir a situação (Pendente, Em andamento, Concluída), o responsável, o prazo e uma observação; a frente com prazo vencido aparece com os dias de atraso. No **Kanban** da produção, cada cartão mostra as frentes do pedido com a situação, e o filtro **Frente** mostra só os pedidos que têm aquela frente. Por enquanto as frentes não têm etapas próprias, só a situação. Acrescentar e alterar frentes é de quem gerencia a organização ou atualiza as etapas da produção.
+
+## Projeto antigo que já está na fábrica
+Na tela **Produção**, botão **Incluir projeto em andamento**: escolha o cliente (ou cadastre um novo só com o nome), dê o nome do projeto, diga onde ele está (em produção, pré-montagem ou saindo para entrega), a previsão de entrega e, se quiser, já anexe os planos de corte e as etiquetas. O projeto entra direto na produção, sem passar por orçamento, contrato e projeto técnico; essas etapas ficam concluídas.
+
+## Planos de corte e etiquetas
+No pedido de produção, o cartão **Planos de corte e etiquetas** recebe os arquivos direto (PDF, imagem ou planilha), vários de uma vez, separados em Plano de corte, Etiquetas e Outro arquivo. Não depende do arquivo do Promob. Qualquer pessoa da produção baixa; remover é para quem gerencia.

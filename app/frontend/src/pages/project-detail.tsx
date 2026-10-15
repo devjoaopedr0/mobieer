@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DeliveryTermPanel } from "@/components/delivery-term";
+import { DescriptivePanel } from "@/components/descriptive";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AftersalesPanel } from "@/components/aftersales-panel";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -255,6 +256,7 @@ export function ProjectDetailPage() {
         </TabsContent>
 
         <TabsContent value="documents" className="space-y-4">
+          <DescriptivePanel projectId={projectId} canManage={canManage} onPublished={() => docs.refetch()} />
           <DeliveryTermPanel projectId={projectId} canManage={canManage} onPublished={() => docs.refetch()} />
           {canManage && (
             <Card>

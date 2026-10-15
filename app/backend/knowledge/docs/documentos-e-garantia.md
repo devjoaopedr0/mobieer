@@ -53,3 +53,7 @@ Ao acrescentar um item na assistência, dá para escolher o **produto do almoxar
 ## Assistências por região
 Na tela **Assistências**, a visão **Por região** junta os chamados em aberto pelo bairro do cliente, com a visita marcada de cada um, para combinar no mesmo dia as visitas próximas. Cliente sem bairro no cadastro aparece em "Sem bairro no cadastro do cliente"; o bairro se corrige em Clientes e projetos → Editar.
 
+## Descritiva do projeto
+Na aba **Documentos** do projeto, cartão **Descritiva**: a apresentação por ambiente no modelo da loja. O PDF tem a capa (cliente e projetista), um **moodboard** por ambiente com os acabamentos (chapas de MDF, metalurgia e usinagens, cada um com a cor), as **imagens 3D** do ambiente com a descrição dos móveis e a página de **processos** com os prazos (a fabricação usa o prazo do orçamento).
+
+Os ambientes, os acabamentos e o texto vêm do orçamento do projeto; as imagens são os renders 3D feitos com a IA. **Escrever com IA** escreve a descrição de cada ambiente no estilo da loja (uma peça por linha, em maiúsculas) e sugere a cor dos acabamentos que a loja ainda não tem cadastrados, usando só o que está no orçamento. Tudo pode ser editado: texto, acabamentos, cores, imagens e quais ambientes entram. **Conferir PDF** abre o arquivo; **Publicar nos documentos** guarda nos documentos do projeto, visível ao cliente, e cada nova publicação vira uma nova versão.
