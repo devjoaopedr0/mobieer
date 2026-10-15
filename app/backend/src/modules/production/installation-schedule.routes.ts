@@ -11,6 +11,7 @@ import { z } from "zod";
 import { authenticate } from "../../middlewares/auth";
 import { requirePermission } from "../../middlewares/rbac";
 import { prisma } from "../../prisma";
+import { withAddenda } from "../commercial/addenda";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
@@ -43,10 +44,12 @@ async function projectFor(id: string, organizationId: string) {
     select: {
       id: true, code: true, name: true, organizationId: true,
       client: { select: { id: true, name: true, address: true, street: true, addressNumber: true, district: true, city: true, state: true } },
-      quotes: { where: { status: "APPROVED", kind: "PADRAO" }, orderBy: { approvedAt: "desc" }, take: 1, select: { items: { select: { room: true }, orderBy: { position: "asc" } } } },
+      quotes: { where: { status: "APPROVED", kind: "PADRAO" }, orderBy: { approvedAt: "desc" }, take: 1, select: { number: true, items: { select: { room: true }, orderBy: { position: "asc" } } } },
     },
   });
   if (!p) throw new NotFoundError("Projeto não encontrado");
+  // ambientes dos adendos aceitos entram depois dos do contrato
+  await withAddenda(organizationId, p.quotes[0]);
   return p;
 }
 

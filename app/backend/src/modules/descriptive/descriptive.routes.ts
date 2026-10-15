@@ -20,6 +20,7 @@ import { hitLimit, type RateStore } from "../../utils/rate-limit";
 import { ok } from "../../utils/response";
 import { storeGeneratedPdf } from "../docgen/docgen.service";
 import type { RenderItem } from "../render/render.rules";
+import { withAddenda } from "../commercial/addenda";
 import { descriptivePdf } from "./descriptive.pdf";
 import { FINISH_KINDS, aiPrompt, mergeAiAnswer, suggestFromQuote, type DescriptiveData } from "./descriptive.rules";
 
@@ -58,6 +59,7 @@ async function projectFor(id: string, organizationId: string) {
         orderBy: [{ approvedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
         take: 1,
         select: {
+          number: true,
           deliveryDays: true,
           commissions: { select: { role: true, name: true } },
           items: { orderBy: { position: "asc" }, select: { room: true, description: true, corpo: true, porta: true, puxador: true, complemento: true, modelo: true } },
@@ -66,6 +68,8 @@ async function projectFor(id: string, organizationId: string) {
     },
   });
   if (!p) throw new NotFoundError("Projeto não encontrado");
+  // ambientes dos adendos aceitos entram depois dos do contrato
+  await withAddenda(organizationId, p.quotes[0]);
   return p;
 }
 type P = Awaited<ReturnType<typeof projectFor>>;

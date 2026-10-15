@@ -5,6 +5,7 @@
  */
 import type { Prisma, SiteInspectionResult } from "@prisma/client";
 import { prisma } from "../../prisma";
+import { withAddenda } from "../commercial/addenda";
 import { sendAutomation } from "../../lib/automations";
 import { notifyUsersWithPermission } from "../../lib/notify";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
@@ -55,7 +56,7 @@ async function projectContext(projectId: string) {
         where: { status: "APPROVED", kind: "PADRAO" },
         orderBy: { approvedAt: "desc" },
         take: 1,
-        select: { approvedAt: true, seller: { select: { name: true } }, commissions: { select: { name: true, role: true } }, items: { select: { room: true }, orderBy: { position: "asc" } } },
+        select: { number: true, approvedAt: true, seller: { select: { name: true } }, commissions: { select: { name: true, role: true } }, items: { select: { room: true }, orderBy: { position: "asc" } } },
       },
       workOrders: { where: { status: "DONE" }, orderBy: { completedAt: "desc" }, select: { completedAt: true, contractor: { select: { name: true } } } },
       productionOrder: { select: { deliveredAt: true } },
@@ -69,6 +70,8 @@ async function projectContext(projectId: string) {
   const address = [c.street && `${c.street}${c.addressNumber ? `, ${c.addressNumber}` : ""}`, c.district].filter(Boolean).join(" — ") || legacy.street;
   const city = c.city ? `${c.city}${c.state ? ` / ${c.state}` : ""}` : legacy.city;
   const quote = p.quotes[0];
+  // ambientes dos adendos aceitos também vão para o certificado
+  await withAddenda(p.organizationId, quote);
   const installers =
     [...new Set(p.installationTasks.map((t) => t.contractor.name))].join(", ") || [...new Set(p.workOrders.map((o) => o.contractor.name))].join(", ") || null;
   const rooms =

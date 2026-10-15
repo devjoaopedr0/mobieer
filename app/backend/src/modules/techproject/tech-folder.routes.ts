@@ -24,6 +24,7 @@ import { authenticate } from "../../middlewares/auth";
 import { requirePermission } from "../../middlewares/rbac";
 import { uploadDocument } from "../../middlewares/upload";
 import { prisma } from "../../prisma";
+import { withAddenda } from "../commercial/addenda";
 import { buildStorageKey, storage } from "../../lib/storage";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
@@ -64,6 +65,8 @@ async function projectFor(id: string, organizationId: string) {
     },
   });
   if (!p) throw new NotFoundError("Projeto não encontrado");
+  // ambientes dos adendos aceitos entram depois dos do contrato
+  await withAddenda(organizationId, p.quotes[0]);
   return p;
 }
 

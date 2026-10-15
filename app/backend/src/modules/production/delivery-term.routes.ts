@@ -18,6 +18,7 @@ import { ok } from "../../utils/response";
 import { storeGeneratedPdf } from "../docgen/docgen.service";
 import { deliveryTermPdf } from "./delivery-term.pdf";
 import { roomsFromQuote, type DeliveryTermData } from "./delivery-term.rules";
+import { withAddenda } from "../commercial/addenda";
 
 const router = Router();
 router.use(authenticate);
@@ -50,6 +51,8 @@ async function projectFor(id: string, organizationId: string) {
     },
   });
   if (!p) throw new NotFoundError("Projeto não encontrado");
+  // ambientes dos adendos aceitos entram depois dos do contrato
+  await withAddenda(organizationId, p.quotes[0]);
   return p;
 }
 type P = Awaited<ReturnType<typeof projectFor>>;
