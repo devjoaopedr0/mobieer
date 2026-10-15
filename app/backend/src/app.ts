@@ -81,6 +81,7 @@ import fieldworkRoutes from "./modules/fieldwork/fieldwork.routes";
 import chatRoutes from "./modules/chat/chat.routes";
 import installationRoutes from "./modules/contractors/installation.routes";
 import meContractorRoutes from "./modules/contractors/me-contractor.routes";
+import { toolsManageRouter, toolsSelfRouter } from "./modules/contractors/contractor-tools.routes";
 import automationsRoutes from "./modules/automations/automations.routes";
 import integrationsRoutes from "./modules/integrations/integrations.routes";
 import { errorHandler, notFound, setErrorReporter } from "./middlewares/errorHandler";
@@ -156,6 +157,7 @@ export function createApp() {
   app.use("/api/portal", portalRoutes);
   app.use("/api/hr", hrRoutes);
   // antes das rotas do montador: "/attendance" não pode cair em "/:id"
+  app.use("/api/contractors", toolsManageRouter);
   app.use("/api/contractors", contractorAttendanceRoutes);
   app.use("/api/contractors", contractorsRoutes);
   app.use("/api/assistance", assistanceRoutes);
@@ -171,6 +173,7 @@ export function createApp() {
   app.use("/api/projects/:projectId", projectStartAtRoutes);
   app.use("/api/projects/:projectId", timelineRoutes);
   app.use("/api/installations", installationRoutes);
+  app.use("/api/me/contractor", toolsSelfRouter);
   app.use("/api/me/contractor", meContractorRoutes);
   app.use("/api/integrations", integrationsRoutes);
   app.use("/api/finance", financeExtrasRoutes);

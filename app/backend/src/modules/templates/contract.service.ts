@@ -150,6 +150,12 @@ export const MERGE_FIELDS: { key: string; label: string; example: string }[] = [
   { key: "pagamento.forma", label: "Forma de pagamento", example: "Boleto parcelado" },
   { key: "pedido.prazoFabricacao", label: "Prazo de fabricação do orçamento, por extenso", example: "45 (quarenta e cinco) dias úteis" },
   { key: "quadro.pedido", label: "Quadro do pedido: ambientes, valores e acabamentos (sozinho na linha)", example: "(tabela)" },
+  { key: "montador.nome", label: "Nome do montador (documentos do montador)", example: "João Souza" },
+  { key: "montador.documento", label: "CPF/CNPJ do montador", example: "987.654.321-00" },
+  { key: "montador.telefone", label: "Telefone do montador", example: "(85) 98888-0000" },
+  { key: "montador.endereco", label: "Endereço do montador", example: "Rua Z, 50 — Fortaleza/CE" },
+  { key: "montador.funcao", label: "Função do montador", example: "Montador" },
+  { key: "montador.diaria", label: "Diária do montador", example: "R$ 250,00" },
   { key: "quadro.pagamento", label: "Quadro do pagamento: condição, forma e parcelas (sozinho na linha)", example: "(tabela)" },
 ];
 

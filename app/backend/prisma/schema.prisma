@@ -3432,8 +3432,35 @@ model Contractor {
   expectedDailyMinutes Int                      @default(480)
   diaryEntries         InstallationDiaryEntry[]
   ratings              ContractorRating[]
+  tools                ContractorTool[]
 
   @@index([organizationId, active])
+}
+
+/// Ferramenta sob a guarda do montador. Sai com foto e, ao passar para outra
+/// pessoa, a retirada também tem foto; se for para outro montador, nasce um
+/// registro novo para ele (fromToolId aponta para o anterior).
+model ContractorTool {
+  id                     String     @id @default(cuid())
+  organizationId         String
+  contractorId           String
+  contractor             Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  name                   String
+  quantity               Int        @default(1)
+  notes                  String?
+  status                 String     @default("COM_ELE") // COM_ELE | RETIRADA
+  photoKey               String
+  receivedAt             DateTime   @default(now())
+  fromToolId             String?
+  releasedAt             DateTime?
+  releasedPhotoKey       String?
+  releasedTo             String? // para quem foi (nome)
+  releasedToContractorId String?
+  createdById            String?
+  createdAt              DateTime   @default(now())
+
+  @@index([contractorId, status])
+  @@index([organizationId])
 }
 
 model ContractorShift {
