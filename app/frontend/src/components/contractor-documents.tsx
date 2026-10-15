@@ -162,7 +162,7 @@ export function ContractorDocumentsTab({ contractors, canManage }: { contractors
           </div>
         )}
       </div>
-      {contractorId && <GenerateContractorDocument contractorId={contractorId} open={gerar} onClose={() => setGerar(false)} onDone={invalidar} />}
+      {contractorId && <GenerateContractorDocument contractorId={contractorId} engagement={contractors.find((c) => c.id === contractorId)?.engagement ?? "AUTONOMO"} open={gerar} onClose={() => setGerar(false)} onDone={invalidar} />}
       {contractorId && <ContractorToolsCard contractorId={contractorId} />}
 
       {!contractorId ? (

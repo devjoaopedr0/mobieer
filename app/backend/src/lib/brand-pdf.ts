@@ -29,6 +29,10 @@ function decorate(doc: Doc, pageNumber: number, contacts: string[]) {
   const { width, height } = doc.page;
   const x = doc.x;
   const y = doc.y;
+  // texto que quebra de página continua com a fonte dele, não com a do rodapé
+  const state = doc as unknown as { _font: unknown; _fontSize: number };
+  const font = state._font;
+  const fontSize = state._fontSize;
   // o rodapé fica abaixo da margem: sem zerar, o pdfkit abriria outra página
   const bottom = doc.page.margins.bottom;
   doc.page.margins.bottom = 0;
@@ -62,6 +66,8 @@ function decorate(doc: Doc, pageNumber: number, contacts: string[]) {
   doc.page.margins.bottom = bottom;
   doc.x = x;
   doc.y = y;
+  state._font = font;
+  doc.fontSize(fontSize);
   doc.fillColor(BRAND.ink).strokeColor(BRAND.ink);
 }
 

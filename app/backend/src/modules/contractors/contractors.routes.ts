@@ -40,6 +40,7 @@ async function ensureContractor(id: string, organizationId: string) {
 const serializeContractor = (c: {
   id: string; name: string; document: string | null; phone: string | null; address: string | null;
   specialty: string | null; dailyRate: Prisma.Decimal; active: boolean; notes: string | null; createdAt: Date;
+  engagement?: string; monthlySalary?: Prisma.Decimal | null;
   userId?: string | null;
   shifts?: { checkOutAt: Date | null }[];
 }) => ({
@@ -50,6 +51,8 @@ const serializeContractor = (c: {
   address: c.address,
   specialty: c.specialty,
   dailyRate: num(c.dailyRate),
+  engagement: c.engagement ?? "AUTONOMO",
+  monthlySalary: c.monthlySalary == null ? null : num(c.monthlySalary),
   active: c.active,
   notes: c.notes,
   createdAt: c.createdAt,
@@ -115,6 +118,9 @@ const contractorSchema = z.object({
   address: z.string().trim().max(255).optional().nullable().or(z.literal("")),
   specialty: z.string().trim().max(120).optional().nullable().or(z.literal("")),
   dailyRate: z.coerce.number().min(0).max(99999999).default(0),
+  /** AUTONOMO (diária/serviço) ou CONTRATADO (salário mensal) */
+  engagement: z.enum(["AUTONOMO", "CONTRATADO"]).default("AUTONOMO"),
+  monthlySalary: z.coerce.number().min(0).max(99999999).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable().or(z.literal("")),
 });
 
@@ -133,6 +139,8 @@ router.post(
         address: nn(input.address),
         specialty: nn(input.specialty),
         dailyRate: new Prisma.Decimal(input.dailyRate),
+        engagement: input.engagement,
+        monthlySalary: input.monthlySalary == null ? null : new Prisma.Decimal(input.monthlySalary),
         notes: nn(input.notes),
       },
     });
@@ -146,7 +154,8 @@ router.patch(
   requirePermission("hr.employees.manage"),
   asyncHandler(async (req, res) => {
     const cur = await ensureContractor(req.params.id, req.user!.organizationId);
-    const input = contractorSchema.partial().extend({ active: z.boolean().optional() }).parse(req.body);
+    // no PATCH, o vínculo só muda quando vier (sem o default do cadastro)
+    const input = contractorSchema.partial().extend({ active: z.boolean().optional(), engagement: z.enum(["AUTONOMO", "CONTRATADO"]).optional() }).parse(req.body);
     const c = await prisma.contractor.update({
       where: { id: cur.id },
       data: {
@@ -156,6 +165,8 @@ router.patch(
         address: input.address === undefined ? undefined : nn(input.address),
         specialty: input.specialty === undefined ? undefined : nn(input.specialty),
         dailyRate: input.dailyRate === undefined ? undefined : new Prisma.Decimal(input.dailyRate),
+        engagement: input.engagement,
+        monthlySalary: input.monthlySalary === undefined ? undefined : input.monthlySalary === null ? null : new Prisma.Decimal(input.monthlySalary),
         notes: input.notes === undefined ? undefined : nn(input.notes),
       },
     });
@@ -365,10 +376,11 @@ router.get(
         ...(req.query.contractorId ? { contractorId: String(req.query.contractorId) } : {}),
         checkInAt: { gte: from, lte: to },
       },
-      include: { contractor: { select: { id: true, name: true } } },
+      include: { contractor: { select: { id: true, name: true, engagement: true, expectedDailyMinutes: true } } },
       orderBy: { checkInAt: "asc" },
     });
 
+    // contratado recebe salário pela folha: os dias dele não viram diária
     const summary = summarizeShifts(
       shifts.map((s) => ({
         contractorId: s.contractorId,
@@ -376,9 +388,11 @@ router.get(
         checkInAt: s.checkInAt,
         checkOutAt: s.checkOutAt,
         minutes: s.minutes,
-        dailyRate: num(s.dailyRate),
+        dailyRate: s.contractor.engagement === "CONTRATADO" ? 0 : num(s.dailyRate),
+        expectedMinutes: s.contractor.engagement === "CONTRATADO" ? null : s.contractor.expectedDailyMinutes,
       }))
     );
+    const engagementBy = new Map(shifts.map((s) => [s.contractorId, s.contractor.engagement]));
 
     // Bônus de produtividade aprovados/pagos no período entram no fechamento.
     const bonuses = await prisma.contractorBonus.groupBy({
@@ -395,13 +409,13 @@ router.get(
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const items = summary.items.map((i) => {
       const bonus = round2(bonusBy.get(i.contractorId) ?? 0);
-      return { ...i, bonus, totalWithBonus: round2(i.total + bonus) };
+      return { ...i, engagement: engagementBy.get(i.contractorId) ?? "AUTONOMO", bonus, totalWithBonus: round2(i.total + bonus) };
     });
     // montador só com bônus no período (sem turno) também aparece
     for (const [contractorId, amount] of bonusBy) {
       if (items.some((i) => i.contractorId === contractorId)) continue;
-      const c = await prisma.contractor.findUnique({ where: { id: contractorId }, select: { name: true } });
-      items.push({ contractorId, name: c?.name ?? "—", minutes: 0, hours: 0, days: 0, openShifts: 0, total: 0, bonus: round2(amount), totalWithBonus: round2(amount) });
+      const c = await prisma.contractor.findUnique({ where: { id: contractorId }, select: { name: true, engagement: true } });
+      items.push({ contractorId, name: c?.name ?? "—", engagement: c?.engagement ?? "AUTONOMO", minutes: 0, hours: 0, days: 0, openShifts: 0, total: 0, missingMinutes: 0, suggestedDeduction: 0, bonus: round2(amount), totalWithBonus: round2(amount) });
     }
     const bonusTotal = round2(items.reduce((a, i) => a + i.bonus, 0));
 

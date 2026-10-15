@@ -2,6 +2,7 @@
  * Ferramentas do montador e documentos padrão (contrato, código de conduta):
  * regras puras, sem banco.
  */
+import { ENGAGEMENT_LABEL } from "./contractor-contracts";
 
 /** Lista inicial do que o montador marca; a gestão edita em Montadores externos. */
 export const DEFAULT_TOOL_CATALOG = [
@@ -51,14 +52,18 @@ export function termIsCurrent(changes: (Date | null)[], lastSignedAt: Date | nul
 }
 
 /** Valores dos marcadores {{montador.*}} usados nos modelos de documento do montador. */
-export function contractorValues(c: { name: string; document: string | null; phone: string | null; address: string | null; city: string | null; state: string | null; crewRole: string; specialty: string | null; dailyRate: number }) {
+export function contractorValues(c: { name: string; document: string | null; phone: string | null; address: string | null; city: string | null; state: string | null; crewRole: string; specialty: string | null; dailyRate: number; engagement?: string; monthlySalary?: number | null; expectedDailyMinutes?: number }) {
+  const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   return {
     "montador.nome": c.name,
     "montador.documento": c.document ?? "",
     "montador.telefone": c.phone ?? "",
     "montador.endereco": [c.address, [c.city, c.state].filter(Boolean).join("/")].filter(Boolean).join(" — "),
     "montador.funcao": c.crewRole === "AJUDANTE" ? "Ajudante de montagem" : c.specialty?.trim() || "Montador",
-    "montador.diaria": c.dailyRate > 0 ? c.dailyRate.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "",
+    "montador.diaria": c.dailyRate > 0 ? brl(c.dailyRate) : "",
+    "montador.salario": c.monthlySalary && c.monthlySalary > 0 ? brl(c.monthlySalary) : "",
+    "montador.vinculo": ENGAGEMENT_LABEL[c.engagement ?? "AUTONOMO"] ?? "",
+    "montador.horasDiaria": c.expectedDailyMinutes ? String(Math.round((c.expectedDailyMinutes / 60) * 10) / 10).replace(".", ",") : "",
   };
 }
 

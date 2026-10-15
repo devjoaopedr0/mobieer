@@ -156,6 +156,12 @@ export const MERGE_FIELDS: { key: string; label: string; example: string }[] = [
   { key: "montador.endereco", label: "Endereço do montador", example: "Rua Z, 50 — Fortaleza/CE" },
   { key: "montador.funcao", label: "Função do montador", example: "Montador" },
   { key: "montador.diaria", label: "Diária do montador", example: "R$ 250,00" },
+  { key: "montador.salario", label: "Salário mensal do montador contratado", example: "R$ 2.500,00" },
+  { key: "montador.vinculo", label: "Vínculo do montador", example: "Autônomo (prestação de serviços, por diária ou serviço)" },
+  { key: "montador.horasDiaria", label: "Horas combinadas da diária", example: "8" },
+  { key: "montador.usoImagem", label: "Marcação do uso de imagem e voz (escolhida ao gerar)", example: "[ X ] AUTORIZO o uso de imagem e voz." },
+  { key: "contrato.inicio", label: "Início da vigência (escolhido ao gerar)", example: "15/10/2026" },
+  { key: "contrato.fim", label: "Fim da vigência (escolhido ao gerar)", example: "15/10/2027" },
   { key: "quadro.pagamento", label: "Quadro do pagamento: condição, forma e parcelas (sozinho na linha)", example: "(tabela)" },
 ];
 

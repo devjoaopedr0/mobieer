@@ -250,7 +250,7 @@ export function ContractorToolsCard({ contractorId }: { contractorId: string }) 
 }
 
 /** Gestão: gerar contrato, código de conduta etc. a partir de um modelo, já com os dados do montador. */
-export function GenerateContractorDocument({ contractorId, open, onClose, onDone }: { contractorId: string; open: boolean; onClose: () => void; onDone: () => void }) {
+export function GenerateContractorDocument({ contractorId, engagement, open, onClose, onDone }: { contractorId: string; engagement: "AUTONOMO" | "CONTRATADO"; open: boolean; onClose: () => void; onDone: () => void }) {
   const templates = useQuery({
     queryKey: ["templates", "com-texto"],
     queryFn: () => apiGet<{ data: { id: string; name: string; hasBody: boolean; active: boolean }[] }>("/templates"),
@@ -259,15 +259,31 @@ export function GenerateContractorDocument({ contractorId, open, onClose, onDone
   });
   const [templateId, setTemplateId] = useState("");
   const [kind, setKind] = useState("REGRAS_EMPRESA");
+  const [startDate, setStartDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" }));
+  const [endDate, setEndDate] = useState("");
+  const [imageConsent, setImageConsent] = useState<"" | "SIM" | "NAO">("");
   const list = templates.data ?? [];
   const chosen = list.find((t) => t.id === templateId) ?? null;
+  const isContract = kind === "CONTRATO";
+  // ao abrir, sugere o contrato do vínculo do montador
+  const wanted = engagement === "CONTRATADO" ? "contratado" : "autônomo";
+  useEffect(() => {
+    if (!open || templateId || !list.length) return;
+    const match = list.find((t) => t.name.toLowerCase().includes("contrato") && t.name.toLowerCase().includes(wanted));
+    if (match) setTemplateId(match.id);
+  }, [open, list, templateId, wanted]);
+  const mismatch = chosen && chosen.name.toLowerCase().includes("contrato do montador") && !chosen.name.toLowerCase().includes(wanted);
   useEffect(() => {
     if (!chosen) return;
     const n = chosen.name.toLowerCase();
     setKind(n.includes("contrato") ? "CONTRATO" : n.includes("ferrament") ? "TERMO_RESPONSABILIDADE" : n.includes("regulamento") ? "REGULAMENTO_INTERNO" : "REGRAS_EMPRESA");
   }, [chosen]);
   const gen = useMutation({
-    mutationFn: () => apiPost<{ message?: string }>(`/contractors/${contractorId}/documents/from-template`, { templateId, kind, send: true }),
+    mutationFn: () =>
+      apiPost<{ message?: string }>(`/contractors/${contractorId}/documents/from-template`, {
+        templateId, kind, send: true,
+        ...(isContract ? { startDate: startDate || null, endDate: endDate || null, imageConsent: imageConsent || null } : {}),
+      }),
     onSuccess: (r) => { toast.success(r.message ?? "Documento gerado", { duration: 9000 }); onDone(); onClose(); },
     onError: (e) => toast.error(errorMessage(e, "Não foi possível gerar")),
   });
@@ -294,7 +310,21 @@ export function GenerateContractorDocument({ contractorId, open, onClose, onDone
               <option value="OUTRO">Outro</option>
             </select>
           </div>
-          <p className="text-xs text-muted-foreground">O modelo do contrato do montador ainda precisa ser cadastrado em Modelos de documentos. O termo de ferramentas é gerado pelo próprio montador, com as fotos.</p>
+          {mismatch && <p className="rounded-md bg-warning/15 p-2 text-xs">Este montador está cadastrado como {engagement === "CONTRATADO" ? "contratado" : "autônomo"}: confira se o contrato escolhido é o do vínculo dele.</p>}
+          {isContract && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1"><Label className="text-xs">Início da vigência</Label><Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
+              <div className="space-y-1"><Label className="text-xs">Fim (vazio = em branco)</Label><Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></div>
+              <div className="col-span-2 space-y-1"><Label className="text-xs">Uso de imagem e voz</Label>
+                <select className={selectCls} value={imageConsent} onChange={(e) => setImageConsent(e.target.value as "" | "SIM" | "NAO")}>
+                  <option value="">Sem marcação (não autoriza)</option>
+                  <option value="SIM">Autoriza</option>
+                  <option value="NAO">Não autoriza</option>
+                </select>
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">O termo de ferramentas é gerado pelo próprio montador, com as fotos.</p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>

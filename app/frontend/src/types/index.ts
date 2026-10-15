@@ -147,6 +147,9 @@ export type Contractor = {
   address: string | null;
   specialty: string | null;
   dailyRate: number;
+  /** AUTONOMO (diária/serviço) ou CONTRATADO (salário mensal) */
+  engagement?: "AUTONOMO" | "CONTRATADO";
+  monthlySalary?: number | null;
   active: boolean;
   notes: string | null;
   createdAt: string;
@@ -183,6 +186,11 @@ export type ContractorSummary = {
     days: number;
     openShifts: number;
     total: number;
+    engagement?: "AUTONOMO" | "CONTRATADO";
+    /** dias fechados abaixo das horas combinadas da diária */
+    missingMinutes?: number;
+    /** abatimento que o contrato permite (sugestão; não sai do total) */
+    suggestedDeduction?: number;
     bonus: number;
     totalWithBonus: number;
   }[];

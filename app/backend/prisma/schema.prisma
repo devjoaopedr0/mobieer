@@ -3408,6 +3408,10 @@ model Contractor {
   // na grade: montador titular ou ajudante de montagem
   crewRole             String                   @default("MONTADOR") // MONTADOR | AJUDANTE
   dailyRate            Decimal                  @default(0) @db.Decimal(12, 2) // valor da diária
+  // AUTONOMO: paga por diária ou serviço (contrato de prestação de serviços)
+  // CONTRATADO: salário mensal, fora do fechamento de diárias
+  engagement           String                   @default("AUTONOMO")
+  monthlySalary        Decimal?                 @db.Decimal(12, 2)
   active               Boolean                  @default(true)
   notes                String?                  @db.Text
   userId               String?                  @unique // acesso do montador ao sistema

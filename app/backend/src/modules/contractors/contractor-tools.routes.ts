@@ -31,6 +31,7 @@ import { ok } from "../../utils/response";
 import { pipeToResponse } from "../../utils/stream";
 import { CONTRACT_CONTACTS, contractPdf, renderTemplate } from "../templates/contract.service";
 import { contractorValues, normalizeCatalog, termIsCurrent, toolTermIntro } from "./contractor-tools.rules";
+import { imageConsentText } from "./contractor-contracts";
 
 const catalogKey = (org: string) => `contractors.tool-catalog.${org}`;
 const TERM_PREFIX = "termo-ferramentas-";
@@ -219,7 +220,15 @@ toolsManageRouter.post(
   asyncHandler(async (req, res) => {
     const orgId = req.user!.organizationId;
     const input = z
-      .object({ templateId: z.string().min(1), kind: z.nativeEnum(ContractorDocumentType).default(ContractorDocumentType.OUTRO), send: z.boolean().default(true) })
+      .object({
+        templateId: z.string().min(1),
+        kind: z.nativeEnum(ContractorDocumentType).default(ContractorDocumentType.OUTRO),
+        send: z.boolean().default(true),
+        // contrato: vigência e uso de imagem escolhidos ao gerar
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        imageConsent: z.enum(["SIM", "NAO"]).optional().nullable(),
+      })
       .parse(req.body);
     const [c, t, org] = await Promise.all([
       prisma.contractor.findFirst({ where: { id: req.params.id, organizationId: orgId } }),
@@ -231,7 +240,10 @@ toolsManageRouter.post(
     const now = new Date();
     const local = new Date(now.toLocaleString("en-US", { timeZone: "America/Fortaleza" }));
     const { text, missing } = renderTemplate(t.bodyHtml, {
-      ...contractorValues({ ...c, dailyRate: Number(c.dailyRate) }),
+      ...contractorValues({ ...c, dailyRate: Number(c.dailyRate), monthlySalary: c.monthlySalary == null ? null : Number(c.monthlySalary) }),
+      "montador.usoImagem": imageConsentText(input.imageConsent),
+      "contrato.inicio": input.startDate ? input.startDate.split("-").reverse().join("/") : brDate(now),
+      "contrato.fim": input.endDate ? input.endDate.split("-").reverse().join("/") : "____/____/________",
       "contrato.data": brDate(now),
       "contrato.dataExtenso": `${local.getDate()} de ${MESES[local.getMonth()]} de ${local.getFullYear()}`,
       "contrato.cidade": org?.enterprise?.municipio || "Fortaleza",
