@@ -56,5 +56,5 @@ Além de Cozinha, Cozinha e área gourmet, Lavanderia e Outros ambientes, o bot�
 Quando um cadastro não é aceito, a mensagem diz qual campo está errado e por quê, por exemplo "Confira os campos — E-mail: e-mail inválido; CEP: CEP inválido". No cadastro de cliente e de projeto a mensagem também fica escrita dentro da janela.
 
 ## Editar o cadastro do cliente
-Em **Clientes e projetos**, aba Clientes, cada cliente tem o botão **Editar**. Ele abre o mesmo formulário do cadastro, já preenchido: nome, CPF/CNPJ, e-mail, telefones, origem do lead, consultor, atendente e o endereço completo (CEP, rua, número, complemento, condomínio, bairro, cidade, estado e endereço de entrega). O bairro e a cidade são os que aparecem nas Assistências para juntar visitas da mesma região.
+Em **Clientes e projetos**, aba Clientes, cada cliente tem o botão **Editar**. Ele abre o mesmo formulário do cadastro, já preenchido: nome, CPF/CNPJ, e-mail, telefones, origem do lead, projetista, atendente e o endereço completo (CEP, rua, número, complemento, condomínio, bairro, cidade, estado e endereço de entrega). O bairro e a cidade são os que aparecem nas Assistências para juntar visitas da mesma região.
 
