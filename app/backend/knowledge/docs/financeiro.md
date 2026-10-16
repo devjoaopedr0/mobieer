@@ -33,3 +33,13 @@ Aba **Comissões e dívidas** do Financeiro. Mostra três totais e três listas,
 - **Contas vencidas de meses anteriores**: contas a pagar com vencimento antes do mês atual que continuam em aberto, por fornecedor ou categoria.
 
 Corrigir ou apagar uma parcela é na aba Lançamentos.
+
+## Ponto de equilíbrio
+Menu **Ponto de equilíbrio**, no grupo Financeiro. Mostra quanto a loja precisa vender no mês para pagar os custos fixos e para chegar à meta de lucro, pelos **contratos assinados** (orçamentos aceitos) no mês.
+- **Contratos assinados**: total líquido vendido (sem a taxa da financeira), a pontuação média e quantos contratos.
+- **Margem de contribuição**: o líquido menos a compra (custo dos ambientes), as comissões, o frete e outros custos e a previsão de impostos.
+- **Ponto de equilíbrio**: venda necessária = custos fixos ÷ margem (%). **Meta de lucro**: (custos fixos + lucro) ÷ margem (%). Cada um com o progresso e quanto falta.
+- **Resultado atual**: margem − custos fixos (lucro ou prejuízo) e a cobertura dos fixos.
+- Gráfico da **evolução no mês**, a **composição da margem** e a **composição financeira**.
+
+Mês sem contrato usa a margem média dos 3 meses anteriores e avisa. Os custos fixos começam pela soma das despesas de Financeiro → Fixos.

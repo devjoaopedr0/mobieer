@@ -17,8 +17,13 @@ export type Guide = {
 /** Caminho da tela (com :parâmetro) -> guia. */
 export const GUIDES: Record<string, Guide> = {
   "/": {
-    intro: "Resumo do dia: o que precisa de atenção em cada área da loja.",
-    steps: ["Veja os números e alertas do topo.", "Clique em um cartão para ir direto à tela daquele assunto."],
+    intro: "Resumo da loja: escolha o tipo de dashboard (Comercial, Financeiro ou Estoque).",
+    steps: [
+      "Em Tipo de dashboard, escolha Comercial, Financeiro ou Estoque. O sistema lembra a escolha.",
+      "Comercial: novos projetos do mês, projetos quentes (para fechar em 30 dias), futuros (venda futura) e em atraso; o progresso de vendas e a meta.",
+      "Financeiro: fluxo de caixa dos próximos 7 dias, contas a pagar e a receber que vencem hoje e vencidas, e orçamentos esperando liberação.",
+      "Clique em Ver carteira ou no número de títulos para ir à tela do assunto.",
+    ],
     tip: "O menu à esquerda segue a ordem do atendimento: Comercial → Projeto → Produção → Montagem → Pós-venda → Financeiro.",
   },
   "/comercial": {
@@ -167,6 +172,21 @@ export const GUIDES: Record<string, Guide> = {
   "/pos-venda": {
     intro: "Vistorias, garantias e manutenção preventiva.",
     steps: ["Veja as obras que precisam de vistoria ou manutenção.", "A vistoria e o certificado de garantia de cada obra ficam na aba Pós-venda do projeto."],
+  },
+  "/financeiro/ponto-de-equilibrio": {
+    intro: "Quanto a loja precisa vender no mês para pagar os custos fixos e para chegar à meta de lucro.",
+    steps: [
+      "Escolha o mês e o ano.",
+      "Informe os custos fixos, a meta de lucro e a previsão de impostos. Saia do campo para salvar.",
+      "Veja a venda necessária para o ponto de equilíbrio e para a meta, o quanto falta e o resultado do mês.",
+      "Para testar números sem salvar, ligue o Modo simulação.",
+    ],
+    sections: [
+      ["Contratos assinados", "o que foi vendido no mês (orçamentos aceitos), já sem a taxa da financeira."],
+      ["Margem de contribuição", "o que sobra da venda depois de compra, comissões, frete e impostos."],
+      ["Evolução no mês", "a venda acumulada dia a dia contra as linhas do equilíbrio e da meta."],
+    ],
+    tip: "Os custos fixos começam pela soma das despesas cadastradas em Financeiro → Fixos.",
   },
   "/financeiro": {
     intro: "Contas a pagar e a receber, caixa e resultado.",

@@ -95,3 +95,17 @@ As comissões dos orçamentos aceitos entram sozinhas e vencem junto com a parce
 1. No topo de cada tela, clique em **Como usar esta tela**.
 2. Veja o **passo a passo** e o que tem em cada aba.
 3. Para outras dúvidas, pergunte ao **Mobieer AI**, por exemplo: "como gero o contrato?" ou "como incluo um projeto antigo na produção?".
+
+## Como ver o ponto de equilíbrio do mês
+1. Abra o menu **Ponto de equilíbrio** (grupo Financeiro).
+2. Escolha o **Mês** e o **Ano**.
+3. Informe os **Custos fixos**, a **Meta de lucro** e os **Impostos (%)**. Saia do campo para salvar.
+4. Veja a venda necessária para o ponto de equilíbrio e para a meta, quanto falta e o **Resultado atual**.
+5. Para testar outros números sem salvar, ligue o **Modo simulação**. Ao desligar, volta aos valores salvos.
+
+## Como trocar o tipo de dashboard
+1. Abra o **Dashboard** (primeiro item do menu).
+2. Em **Tipo de dashboard**, escolha **Comercial**, **Financeiro** ou **Estoque**.
+3. O sistema lembra a escolha na próxima vez.
+
+No Comercial aparecem novos projetos, quentes, futuros e em atraso; no Financeiro, o fluxo dos próximos 7 dias, as contas que vencem hoje e as vencidas.

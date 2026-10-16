@@ -15,8 +15,50 @@ import { formatDate, formatNumber } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
 import { UsagePanel } from "@/features/stock/usage-panel";
+import { useState } from "react";
+import { CommercialOverview, FinanceOverview } from "@/components/overview-panels";
 
+type DashKind = "comercial" | "financeiro" | "estoque";
+const DASH_KEY = "mobieer.dashboard.tipo";
+const DASH_LABEL: Record<DashKind, string> = { comercial: "Comercial", financeiro: "Financeiro", estoque: "Estoque" };
+
+/** Dashboard com o "Tipo de dashboard" (Comercial, Financeiro ou Estoque), como no sistema que a loja usava. */
 export function DashboardPage() {
+  const { can } = useAuth();
+  const kinds = (["comercial", "financeiro", "estoque"] as DashKind[]).filter((k) => (k === "comercial" ? can("commercial.read") : k === "financeiro" ? can("finance.read") : true));
+  const [kind, setKind] = useState<DashKind>(() => {
+    try {
+      const saved = localStorage.getItem(DASH_KEY) as DashKind | null;
+      if (saved && kinds.includes(saved)) return saved;
+    } catch {
+      // sem armazenamento: começa no primeiro
+    }
+    return kinds[0];
+  });
+  const choose = (k: DashKind) => {
+    setKind(k);
+    try { localStorage.setItem(DASH_KEY, k); } catch { /* vale até recarregar */ }
+  };
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Dashboard</h1>
+        {kinds.length > 1 && (
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Tipo de dashboard</span>
+            <select className="h-9 rounded-md border bg-background px-2" value={kind} onChange={(e) => choose(e.target.value as DashKind)}>
+              {kinds.map((k) => <option key={k} value={k}>{DASH_LABEL[k]}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
+      {kind === "comercial" ? <CommercialOverview /> : kind === "financeiro" ? <FinanceOverview /> : <StockDashboard />}
+    </div>
+  );
+}
+
+/** Painel do almoxarifado (o dashboard de antes). */
+function StockDashboard() {
   const { can } = useAuth();
   const navigate = useNavigate();
 
