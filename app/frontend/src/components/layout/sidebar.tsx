@@ -39,6 +39,7 @@ import {
   Users,
   Headphones,
   CalendarRange,
+  Scale,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -135,6 +136,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Financeiro",
     items: [
       { label: "Financeiro", to: "/financeiro", icon: Wallet, permission: "finance.read" },
+      { label: "Ponto de equilíbrio", to: "/financeiro/ponto-de-equilibrio", icon: Scale, permission: "finance.read" },
       { label: "Notas fiscais", to: "/notas-fiscais", icon: ScrollText, permission: "finance.read" },
       { label: "Solicitar ao financeiro", to: "/solicitacoes-financeiras", icon: HandCoins, permission: "finance.request" },
     ],

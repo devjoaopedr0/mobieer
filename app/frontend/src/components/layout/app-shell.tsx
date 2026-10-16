@@ -3,6 +3,7 @@ import { Link, Outlet } from "react-router-dom";
 import { ShieldCheck, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { AiAssistant } from "@/components/ai-assistant";
+import { PageGuide } from "@/components/page-guide";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { Navbar } from "./navbar";
@@ -70,6 +71,7 @@ export function AppShell() {
                 <button type="button" onClick={closeMfaHint} title="Fechar" className="rounded p-0.5 hover:bg-amber-100"><X className="h-4 w-4" /></button>
               </div>
             )}
+            <PageGuide />
             <Outlet />
           </div>
         </main>

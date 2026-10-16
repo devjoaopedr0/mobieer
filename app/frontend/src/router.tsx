@@ -61,6 +61,7 @@ const ConfirmVisitPage = lazy(() => import("@/pages/confirm-visit").then((m) => 
 const PortalSignupPage = lazy(() => import("@/pages/portal/signup").then((m) => ({ default: m.PortalSignupPage })));
 const PortalBriefingPage = lazy(() => import("@/pages/portal/briefing").then((m) => ({ default: m.PortalBriefingPage })));
 const FinancePage = lazy(() => import("@/pages/finance").then((m) => ({ default: m.FinancePage })));
+const BreakEvenPage = lazy(() => import("@/pages/break-even").then((m) => ({ default: m.BreakEvenPage })));
 const FiscalPage = lazy(() => import("@/pages/fiscal").then((m) => ({ default: m.FiscalPage })));
 const TemplatesPage = lazy(() => import("@/pages/templates").then((m) => ({ default: m.TemplatesPage })));
 const WorkspacePage = lazy(() => import("@/pages/workspace").then((m) => ({ default: m.WorkspacePage })));
@@ -154,6 +155,7 @@ export const router = createBrowserRouter([
           { path: "/comercial", element: <PermissionGate permission="commercial.read"><CommercialPage /></PermissionGate> },
           { path: "/comercial/orcamentos/:id", element: <PermissionGate permission="commercial.read"><QuoteEditorPage /></PermissionGate> },
           { path: "/financeiro", element: <PermissionGate permission="finance.read"><FinancePage /></PermissionGate> },
+          { path: "/financeiro/ponto-de-equilibrio", element: <PermissionGate permission="finance.read"><BreakEvenPage /></PermissionGate> },
           { path: "/notas-fiscais", element: <PermissionGate permission="finance.read"><FiscalPage /></PermissionGate> },
           { path: "/relatorios", element: <ReportsPage /> },
           { path: "/usuarios", element: <PermissionGate permission="users.read"><UsersPage /></PermissionGate> },
