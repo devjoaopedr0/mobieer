@@ -10,6 +10,10 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { storage, buildStorageKey } from "../../lib/storage";
+import { aiComplete, aiEnabled } from "../../lib/ai";
+import { visionProvider } from "../ai/provider/vision";
+import { extractPdfLines } from "../promob/promob.pdf";
+import { expenseKey, invoicePrompt, parseAiItems, parseInvoiceText, type InvoiceItem } from "./card-invoice.rules";
 
 const router = Router();
 router.use(authenticate);
@@ -151,8 +155,7 @@ router.patch(
   })
 );
 
-// Sobe a fatura (PDF). A leitura automática do PDF fica como evolução — hoje as
-// despesas são lançadas manualmente por categoria.
+// Sobe a fatura (PDF). A leitura das compras é em /cards/statements/:id/read.
 router.post(
   "/cards/:id/statements",
   requirePermission("finance.manage"),
@@ -220,6 +223,107 @@ router.post(
   })
 );
 
+// Lê as compras da fatura enviada e devolve para conferir (não grava).
+// Gemini lê o PDF direto (até escaneado); sem ele, o texto do PDF vai para a IA
+// de texto; sem IA, as linhas são lidas pelo formato "data descrição valor".
+router.post(
+  "/cards/statements/:id/read",
+  requirePermission("finance.manage"),
+  asyncHandler(async (req, res) => {
+    const stmt = await prisma.cardStatement.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      include: { expenses: { select: { date: true, amount: true, description: true } } },
+    });
+    if (!stmt) throw new NotFoundError("Fatura não encontrada");
+    if (!stmt.fileKey) throw new BadRequestError("Esta fatura não tem arquivo. Envie o PDF da fatura primeiro.");
+    const bytes = await storage.getBytes(stmt.fileKey);
+    const isPdf = bytes.subarray(0, 4).toString() === "%PDF";
+    let items: InvoiceItem[] = [];
+    let source: "IA_PDF" | "IA_TEXTO" | "LEITURA_SIMPLES" = "LEITURA_SIMPLES";
+    const vision = visionProvider();
+    if (vision.enabled) {
+      // o Gemini às vezes responde "ocupado": tenta de novo uma vez
+      for (let attempt = 0; attempt < 2 && !items.length; attempt++) {
+        try {
+          items = parseAiItems(await vision.readJson({ bytes, mime: isPdf ? "application/pdf" : "image/jpeg", prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth);
+          source = "IA_PDF";
+        } catch {
+          items = [];
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 2500));
+        }
+      }
+    }
+    if (!items.length && isPdf) {
+      // PDF que o leitor de texto não abre: segue sem texto (a leitura pela IA do PDF já foi tentada)
+      const text = await extractPdfLines(bytes)
+        .then((lines) => lines.map((l) => l.cells.map((c) => c.s).join(" ")).join("\n"))
+        .catch(() => "");
+      if (aiEnabled() && text.trim()) {
+        try {
+          items = parseAiItems(await aiComplete({ prompt: `${invoicePrompt(stmt.referenceMonth)}\n\nTexto da fatura:\n${text.slice(0, 30000)}`, json: true, temperature: 0, maxTokens: 6000 }), stmt.referenceMonth);
+          source = "IA_TEXTO";
+        } catch {
+          items = [];
+        }
+      }
+      if (!items.length) {
+        items = parseInvoiceText(text, stmt.referenceMonth);
+        source = "LEITURA_SIMPLES";
+      }
+    }
+    // o que já foi lançado nesta fatura vem marcado, para não repetir
+    const have = new Set(stmt.expenses.map((e) => expenseKey({ date: e.date.toISOString().slice(0, 10), amount: Number(e.amount), description: e.description })));
+    const list = items.map((i) => ({ ...i, already: have.has(expenseKey(i)) }));
+    const msg = list.length ? `${list.length} compras lidas. Confira as categorias e lance.` : "Não foi possível ler compras nesta fatura. Lance à mão ou envie outro arquivo.";
+    return ok(res, { items: list, source }, msg);
+  })
+);
+
+// Lança várias compras de uma vez (as conferidas da leitura). Repetida não entra.
+router.post(
+  "/cards/statements/:id/expenses/bulk",
+  requirePermission("finance.manage"),
+  asyncHandler(async (req, res) => {
+    const stmt = await prisma.cardStatement.findFirst({
+      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      include: { expenses: { select: { date: true, amount: true, description: true } } },
+    });
+    if (!stmt) throw new NotFoundError("Fatura não encontrada");
+    const { items } = z
+      .object({
+        items: z
+          .array(
+            z.object({
+              description: z.string().trim().min(1).max(200),
+              category: z.string().trim().min(1).max(60),
+              amount: z.coerce.number().positive(),
+              date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+              installment: z.string().trim().max(10).optional().nullable(),
+            })
+          )
+          .min(1)
+          .max(500),
+      })
+      .parse(req.body);
+    const have = new Set(stmt.expenses.map((e) => expenseKey({ date: e.date.toISOString().slice(0, 10), amount: Number(e.amount), description: e.description })));
+    const fresh = items.filter((i) => {
+      const k = expenseKey(i);
+      if (have.has(k)) return false;
+      have.add(k);
+      return true;
+    });
+    if (fresh.length) {
+      await prisma.cardExpense.createMany({
+        data: fresh.map((i) => ({ statementId: stmt.id, description: i.description, category: i.category, amount: D(i.amount), date: new Date(`${i.date}T12:00:00Z`), installment: i.installment ?? null })),
+      });
+    }
+    const agg = await prisma.cardExpense.aggregate({ where: { statementId: stmt.id }, _sum: { amount: true } });
+    await prisma.cardStatement.update({ where: { id: stmt.id }, data: { total: agg._sum.amount ?? D(0) } });
+    const skipped = items.length - fresh.length;
+    return ok(res, { created: fresh.length, skipped }, `${fresh.length} ${fresh.length === 1 ? "compra lançada" : "compras lançadas"}${skipped ? ` (${skipped} já estavam na fatura)` : ""}`);
+  })
+);
+
 router.delete(
   "/cards/expenses/:id",
   requirePermission("finance.manage"),
@@ -252,6 +356,7 @@ router.get(
       include: { card: { select: { name: true } }, expenses: { select: { category: true, amount: true } } },
     });
     const byCategory = new Map<string, number>();
+    const countByCategory = new Map<string, number>();
     const byCard = new Map<string, number>();
     const byMonth = new Map<string, number>();
     let total = 0;
@@ -260,12 +365,15 @@ router.get(
         const v = money(e.amount);
         total += v;
         byCategory.set(e.category, (byCategory.get(e.category) ?? 0) + v);
+        countByCategory.set(e.category, (countByCategory.get(e.category) ?? 0) + 1);
         byCard.set(s.card.name, (byCard.get(s.card.name) ?? 0) + v);
         byMonth.set(s.referenceMonth, (byMonth.get(s.referenceMonth) ?? 0) + v);
       }
     }
     const toArr = (m: Map<string, number>) => [...m.entries()].map(([k, v]) => ({ key: k, total: round2(v) })).sort((a, b) => b.total - a.total);
-    return ok(res, { total: round2(total), byCategory: toArr(byCategory), byCard: toArr(byCard), byMonth: toArr(byMonth).sort((a, b) => a.key.localeCompare(b.key)) });
+    // quantas compras de cada tipo (quantas corridas de Uber, quantas refeições…)
+    const withCount = toArr(byCategory).map((c) => ({ ...c, count: countByCategory.get(c.key) ?? 0 }));
+    return ok(res, { total: round2(total), byCategory: withCount, byCard: toArr(byCard), byMonth: toArr(byMonth).sort((a, b) => a.key.localeCompare(b.key)) });
   })
 );
 

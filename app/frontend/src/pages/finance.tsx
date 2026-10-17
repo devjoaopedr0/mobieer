@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { FinanceDocuments } from "@/components/finance-documents";
 import { PayDialog } from "@/components/pay-dialog";
+import { CARD_CATEGORIES, CardInvoiceReader } from "@/components/card-invoice-reader";
 import { FinanceOpenBalances } from "@/components/finance-open-balances";
 import { FinanceRequestsPanel, RecurringTab } from "@/components/finance-recurring";
 import { KpiCard } from "@/components/kpi-card";
@@ -37,7 +38,7 @@ const CATEGORIES: Record<"RECEITA" | "DESPESA", string[]> = {
   DESPESA: ["Matéria-prima", "Ferragens", "Acabamento", "Folha de pagamento", "Frete", "Impostos", "Aluguel", "Serviços de terceiros", "Dívida anterior", "Outros"],
 };
 
-const CARD_EXPENSE_CATEGORIES = ["Matéria-prima", "Ferragens", "Acabamento", "Combustível", "Alimentação", "Ferramentas", "Software / assinaturas", "Marketing", "Viagem", "Manutenção", "Outros"];
+const CARD_EXPENSE_CATEGORIES = CARD_CATEGORIES;
 
 const fmtDate = (v: string | null) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
 const monthLabel = (m: string) => {
@@ -666,7 +667,7 @@ export function FinancePage() {
                 <CardContent className="space-y-1.5">
                   {cardAnalysis.data.data.byCategory.map((r) => (
                     <div key={r.key} className="flex items-center justify-between text-sm">
-                      <span>{r.key}</span>
+                      <span>{r.key}{r.count ? <span className="text-xs text-muted-foreground"> · {r.count} {r.count === 1 ? "compra" : "compras"}</span> : null}</span>
                       <span className="font-medium tabular-nums">{formatCurrency(r.total)}</span>
                     </div>
                   ))}
@@ -1275,8 +1276,16 @@ export function FinancePage() {
               )}
 
               {canManage && (
+                <CardInvoiceReader
+                  statementId={statementDetail.data.data.id}
+                  hasFile={statementDetail.data.data.hasFile}
+                  onDone={() => { void statementDetail.refetch(); qc.invalidateQueries({ queryKey: ["finance", "cards"] }); }}
+                />
+              )}
+
+              {canManage && (
                 <div className="space-y-3 rounded-lg border border-border p-3">
-                  <p className="text-xs font-semibold text-muted-foreground">Adicionar despesa</p>
+                  <p className="text-xs font-semibold text-muted-foreground">Adicionar despesa à mão</p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="Descrição" className="sm:col-span-2"><Input value={expForm.description} onChange={(e) => setExpForm({ ...expForm, description: e.target.value })} /></Field>
                     <Field label="Categoria">

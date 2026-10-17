@@ -790,7 +790,7 @@ export type CardStatementDetail = {
 
 export type CardAnalysis = {
   total: number;
-  byCategory: { key: string; total: number }[];
+  byCategory: { key: string; total: number; count?: number }[];
   byCard: { key: string; total: number }[];
   byMonth: { key: string; total: number }[];
 };

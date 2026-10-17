@@ -43,3 +43,10 @@ Menu **Ponto de equilíbrio**, no grupo Financeiro. Mostra quanto a loja precisa
 - Gráfico da **evolução no mês**, a **composição da margem** e a **composição financeira**.
 
 Mês sem contrato usa a margem média dos 3 meses anteriores e avisa. Os custos fixos começam pela soma das despesas de Financeiro → Fixos.
+
+## Fatura do cartão: leitura automática
+Aba **Cartões** do Financeiro. Depois de enviar o PDF da fatura, abra a fatura e clique em **Ler fatura**: o sistema lê cada compra (data, loja, valor e parcela) e já sugere a categoria — Uber e 99 em **Transporte (Uber/99)**, iFood, restaurante e padaria em **Alimentação**, posto em **Combustível**, e assim por diante. Pagamentos, estornos e totais ficam de fora.
+
+Confira a lista, troque a categoria do que precisar e desmarque o que não deve entrar; compra que já estava na fatura vem desmarcada. Clique em **Lançar**. Em **Gasto por categoria** aparece o total e a quantidade de compras de cada tipo (quantas corridas de Uber, quantas refeições).
+
+A leitura usa a IA (Gemini lê o PDF direto, até fatura escaneada); sem IA, o sistema lê as linhas no formato "data, descrição, valor".

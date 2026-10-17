@@ -109,3 +109,10 @@ As comissões dos orçamentos aceitos entram sozinhas e vencem junto com a parce
 3. O sistema lembra a escolha na próxima vez.
 
 No Comercial aparecem novos projetos, quentes, futuros e em atraso; no Financeiro, o fluxo dos próximos 7 dias, as contas que vencem hoje e as vencidas.
+
+## Como ler a fatura do cartão e separar os gastos por categoria
+1. Abra **Financeiro**, aba **Cartões**.
+2. Clique em **Enviar fatura**, escolha o cartão, o mês e o PDF da fatura.
+3. Abra a fatura e clique em **Ler fatura**. Pode levar até 1 minuto.
+4. Confira as compras: troque a categoria do que precisar e desmarque o que não deve entrar.
+5. Clique em **Lançar**. Em **Gasto por categoria** aparece quanto foi gasto e quantas compras de cada tipo (Uber, alimentação…).
