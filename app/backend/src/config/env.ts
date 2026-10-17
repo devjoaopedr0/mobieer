@@ -93,7 +93,7 @@ export const env = {
   assistant: {
     provider: (process.env.ASSISTANT_PROVIDER || "").trim().toLowerCase() as "" | "gemini" | "openai",
     apiKey: (process.env.GEMINI_API_KEY || "").trim(),
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    model: process.env.GEMINI_MODEL || "gemini-3.5-flash",
     embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001",
     timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 25000),
     // Render com IA (imagem a partir de imagem)

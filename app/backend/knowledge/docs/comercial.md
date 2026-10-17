@@ -68,3 +68,6 @@ Ao digitar o **CEP** completo, o sistema busca o endereço (ViaCEP, com a Brasil
 
 ## Cliente que fecha mais ambientes depois
 O cadastro do cliente é o mesmo. Se os ambientes novos forem feitos **junto** com o contrato atual, abra o orçamento aceito e clique em **Adendo**: coloque só os ambientes novos; ao ser aceito, o financeiro lança só o valor do adendo, e os ambientes dele entram também nos documentos do projeto (descritiva, termo de entrega, imagens 3D, pasta técnica, cronograma de montagem e certificado de garantia). Se forem feitos **depois**, em outro momento, crie um **projeto novo** para o mesmo cliente em Clientes e projetos e faça um orçamento normal para ele: cada fase fica com seus prazos, sua produção e sua montagem.
+
+## Comissões do orçamento: papéis da loja
+Os papéis de comissão seguem a tabela da loja: **Projetista 1%**, **Consultor 3%**, **Produção 2%**, **Gerência 1%** (total 7%), e Técnico, Conferência, Supervisor, Montagem e Aux. montagem com 0% para escolher quando houver. O orçamento novo já vem com as linhas acima de 0%: o projetista do cliente, quem está fazendo o orçamento como consultor, e Produção e Gerência sem pessoa (a comissão fica para a equipe com o nome do papel). Para mudar os percentuais ou os papéis, use a configuração do orçamento.
