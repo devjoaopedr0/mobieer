@@ -29,7 +29,7 @@ type DiscountMode = "VALOR" | "PERCENTUAL" | "TOTAL";
 type FinancingPlan = { id: string; name: string; method: "CARTAO" | "FINANCEIRA"; installments: number; feePercent: number; requiresDownPayment: boolean };
 type CommissionRole = { role: string; label: string; defaultPercent: number };
 type QuoteDocumentConfig = { supplier: string; line: string; deliveryDays: number; deliveryText: string; mandatoryNote: string; notes: string[] };
-type PricingConfig = { defaultMarkup: number; minScore: number; validityDays: number; commissionRoles: CommissionRole[]; financingPlans: FinancingPlan[]; document: QuoteDocumentConfig };
+type PricingConfig = { defaultMarkup: number; defaultFreightPercent?: number; defaultTaxPercent?: number; minScore: number; validityDays: number; commissionRoles: CommissionRole[]; financingPlans: FinancingPlan[]; document: QuoteDocumentConfig };
 type Approval = "NOT_REQUIRED" | "PENDING" | "APPROVED" | "REJECTED";
 type QuoteStatus = "DRAFT" | "SENT" | "VIEWED" | "NEGOTIATION" | "APPROVED" | "REJECTED" | "EXPIRED" | "CANCELLED";
 
@@ -59,6 +59,10 @@ type Quote = {
   targetTotal?: number | null;
   total: number;
   freight: number;
+  freightExtra?: number;
+  freightPercent?: number;
+  taxPercent?: number;
+  taxAmount?: number;
   otherCosts: number;
   payment: { method: PaymentMethod; planId: string | null; planName: string | null; installments: number; downPayment: number; feePercent: number; financingFee: number };
   result: number;
@@ -89,6 +93,9 @@ type Calc = {
   discountRate?: number;
   total: number;
   freight: number;
+  freightPercent?: number;
+  taxPercent?: number;
+  taxAmount?: number;
   otherCosts: number;
   commissions: { name: string; percent: number; amount: number }[];
   commissionTotal: number;
@@ -241,6 +248,9 @@ type Form = {
   /** como o desconto é informado: em R$, em % ou pelo valor final combinado com o cliente */
   discountMode: DiscountMode;
   freight: string;
+  /** valor de referência: frete e imposto em %, entram no preço como a comissão */
+  freightPercent: string;
+  taxPercent: string;
   otherCosts: string;
   method: PaymentMethod;
   planId: string;
@@ -270,7 +280,9 @@ function fromQuote(q: Quote): Form {
     // reabre no mesmo modo em que foi salvo
     discount: q.targetTotal ? toField(q.targetTotal) : q.discountPercent ? String(q.discountPercent).replace(".", ",") : toField(q.discount),
     discountMode: q.targetTotal ? "TOTAL" : q.discountPercent ? "PERCENTUAL" : "VALOR",
-    freight: toField(q.freight),
+    freight: toField(q.freightExtra ?? q.freight),
+    freightPercent: toField(q.freightPercent ?? 0),
+    taxPercent: toField(q.taxPercent ?? 0),
     otherCosts: toField(q.otherCosts),
     method: q.payment.method,
     planId: q.payment.planId ?? "",
@@ -304,6 +316,8 @@ function toPayload(f: Form, roleLabel: (role: string) => string, addendumOf?: st
     discountPercent: f.discountMode === "PERCENTUAL" ? parse(f.discount) || null : null,
     targetTotal: f.discountMode === "TOTAL" ? parse(f.discount) || null : null,
     freight: parse(f.freight),
+    freightPercent: parse(f.freightPercent),
+    taxPercent: parse(f.taxPercent),
     otherCosts: parse(f.otherCosts),
     payment: {
       method: f.method,
@@ -369,6 +383,8 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
           discount: "",
           discountMode: "VALOR",
           freight: "",
+          freightPercent: toField(config.defaultFreightPercent ?? 2),
+          taxPercent: toField(config.defaultTaxPercent ?? 6),
           otherCosts: "",
           method: "AVISTA",
           planId: "",
@@ -434,7 +450,7 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
     [form, config.commissionRoles, quote, params]
   );
   const calcBody = useDebounced(
-    { items: payload.items, markup: payload.markup, commissions: payload.commissions, discount: payload.discount, discountPercent: payload.discountPercent, targetTotal: payload.targetTotal, freight: payload.freight, otherCosts: payload.otherCosts, payment: payload.payment },
+    { items: payload.items, markup: payload.markup, commissions: payload.commissions, discount: payload.discount, discountPercent: payload.discountPercent, targetTotal: payload.targetTotal, freight: payload.freight, freightPercent: payload.freightPercent, taxPercent: payload.taxPercent, otherCosts: payload.otherCosts, payment: payload.payment },
     350
   );
   const preview = useQuery({
@@ -621,9 +637,11 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
                     </Select>
                   </div>
                 </Field>
-                <Field label="Frete (R$)"><Input disabled={!canEdit} inputMode="decimal" placeholder="0,00" value={form.freight} onChange={(e) => set("freight", e.target.value)} /></Field>
+                <Field label="Frete (%)"><Input disabled={!canEdit} inputMode="decimal" placeholder="2" value={form.freightPercent} onChange={(e) => set("freightPercent", e.target.value)} /></Field>
+                <Field label="Imposto (%)"><Input disabled={!canEdit} inputMode="decimal" placeholder="6" value={form.taxPercent} onChange={(e) => set("taxPercent", e.target.value)} /></Field>
+                <Field label="Frete extra (R$)"><Input disabled={!canEdit} inputMode="decimal" placeholder="0,00" value={form.freight} onChange={(e) => set("freight", e.target.value)} /></Field>
                 <Field label="Outros custos (R$)"><Input disabled={!canEdit} inputMode="decimal" placeholder="0,00" value={form.otherCosts} onChange={(e) => set("otherCosts", e.target.value)} /></Field>
-                <p className="col-span-2 text-xs text-muted-foreground">O custo já inclui peças e montagem. Frete e outros custos saem do resultado, não entram no preço.</p>
+                <p className="col-span-2 text-xs text-muted-foreground">O custo já inclui peças e montagem. Frete (%) e imposto (%) entram no preço como a comissão (valor de referência da planilha). Frete extra e outros custos em R$ saem do resultado, não entram no preço.</p>
               </CardContent>
             </Card>
 
@@ -800,6 +818,7 @@ function ResultPanel({ calc, quote, error }: { calc: Calc | null; quote: Quote |
         commissions: calc.commissionTotal,
         fee: calc.payment.financingFee,
         freight: calc.freight + calc.otherCosts,
+        tax: calc.taxAmount ?? 0,
         result: calc.result,
         margin: calc.marginPercent,
         score: calc.score,
@@ -817,6 +836,7 @@ function ResultPanel({ calc, quote, error }: { calc: Calc | null; quote: Quote |
           commissions: quote.commissions.reduce((s, c) => s + c.amount, 0),
           fee: quote.payment.financingFee,
           freight: quote.freight + quote.otherCosts,
+          tax: quote.taxAmount ?? 0,
           result: quote.result,
           margin: quote.marginPercent,
           score: quote.score,
@@ -849,6 +869,7 @@ function ResultPanel({ calc, quote, error }: { calc: Calc | null; quote: Quote |
             <Row k="Comissões" v={`- ${formatCurrency(v.commissions)}`} />
             {v.fee > 0 && <Row k="Taxa da financeira" v={`- ${formatCurrency(v.fee)}`} />}
             {v.freight > 0 && <Row k="Frete e outros custos" v={`- ${formatCurrency(v.freight)}`} />}
+            {v.tax > 0 && <Row k="Imposto" v={`- ${formatCurrency(v.tax)}`} />}
             <Row k="Resultado" v={formatCurrency(v.result)} strong />
             <Row k="Margem" v={v.margin == null ? "—" : `${v.margin.toFixed(1).replace(".", ",")}%`} />
           </>
@@ -1173,6 +1194,8 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
               <Field label="Mark-up padrão"><NumInput value={c.defaultMarkup} onChange={(v) => setC({ ...c, defaultMarkup: v })} /></Field>
               <Field label="Pontuação mínima"><NumInput value={c.minScore} onChange={(v) => setC({ ...c, minScore: v })} /></Field>
               <Field label="Validade (dias)"><NumInput value={c.validityDays} onChange={(v) => setC({ ...c, validityDays: Math.round(v) })} /></Field>
+              <Field label="Frete padrão (%)"><NumInput value={c.defaultFreightPercent ?? 2} onChange={(v) => setC({ ...c, defaultFreightPercent: v })} /></Field>
+              <Field label="Imposto padrão (%)"><NumInput value={c.defaultTaxPercent ?? 6} onChange={(v) => setC({ ...c, defaultTaxPercent: v })} /></Field>
             </div>
             <p className="text-xs text-muted-foreground">
               A pontuação é o mark-up que sobra depois de desconto, taxa da financeira, comissões, frete e outros custos. Abaixo do mínimo, o orçamento precisa de liberação.

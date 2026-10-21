@@ -71,3 +71,6 @@ O cadastro do cliente é o mesmo. Se os ambientes novos forem feitos **junto** c
 
 ## Comissões do orçamento: papéis da loja
 Os papéis de comissão seguem a tabela da loja: **Projetista 1%**, **Consultor 3%**, **Produção 2%**, **Gerência 1%** (total 7%), e Técnico, Conferência, Supervisor, Montagem e Aux. montagem com 0% para escolher quando houver. O orçamento novo já vem com as linhas acima de 0%: o projetista do cliente, quem está fazendo o orçamento como consultor, e Produção e Gerência sem pessoa (a comissão fica para a equipe com o nome do papel). Para mudar os percentuais ou os papéis, use a configuração do orçamento.
+
+## Contrato com vários projetos do mesmo cliente
+Quando cada ambiente foi cadastrado como um projeto (por exemplo, "Guarda-roupa Kelvia" e "Guarda-roupa Keila"), o contrato pode juntar todos. Em **Modelos de documentos**, gere o contrato, escolha o cliente e marque em **Projetos deste contrato** os projetos que entram (ao escolher o cliente, todos já vêm marcados). Se os projetos têm orçamento, o contrato junta os ambientes (AA, AB…), soma os valores e junta as parcelas, com as entradas do mesmo dia somadas. Projeto sem orçamento usa o arquivo do Promob mais recente.

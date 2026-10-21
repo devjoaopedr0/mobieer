@@ -146,7 +146,7 @@ export function FinancePage() {
   });
 
   const [dialog, setDialog] = useState(false);
-  const blank = { type: "DESPESA", category: "", amount: "", date: localIsoDate(), dueDate: "", description: "", status: "PENDENTE", projectId: "", clientId: "", supplierId: "", costCenterId: "" };
+  const blank = { type: "DESPESA", category: "", amount: "", date: localIsoDate(), dueDate: "", description: "", payee: "", status: "PENDENTE", projectId: "", clientId: "", supplierId: "", costCenterId: "" };
   const [form, setForm] = useState(blank);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["finance"] });
@@ -160,6 +160,7 @@ export function FinancePage() {
         date: form.date,
         dueDate: form.dueDate || null,
         description: form.description || null,
+        payee: form.payee.trim() || null,
         status: form.status,
         projectId: form.projectId || null,
         clientId: form.clientId || null,
@@ -1129,6 +1130,9 @@ export function FinancePage() {
                 <Picker value={form.supplierId} onChange={(v) => setForm({ ...form, supplierId: v })} items={suppliers.data?.data ?? []} />
               </Field>
             )}
+            <Field label={form.type === "RECEITA" ? "Quem paga (pessoa)" : "Quem recebe (pessoa)"} className="sm:col-span-2">
+              <Input value={form.payee} placeholder="Ex.: Kelson — aparece no planner e nas pendências por pessoa" onChange={(e) => setForm({ ...form, payee: e.target.value })} />
+            </Field>
             <Field label="Descrição" className="sm:col-span-2">
               <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </Field>

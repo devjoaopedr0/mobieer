@@ -23,6 +23,7 @@ import { FactoryStepsOverview, ProductionStepsCard } from "@/components/producti
 import { ProductionBoard } from "@/components/production-board";
 import { ProductionFrontsCard } from "@/components/production-fronts";
 import { LegacyProductionDialog, ProductionFilesCard } from "@/components/production-files";
+import { ProductionReworkCard, ProductionReworkOverview } from "@/components/production-rework";
 
 export const PRODUCTION_STAGES = ["RELEASED", "IN_PRODUCTION", "PRE_ASSEMBLY", "OUT_FOR_DELIVERY", "DELIVERED"] as const;
 export type ProductionStage = (typeof PRODUCTION_STAGES)[number];
@@ -384,6 +385,7 @@ export function ProductionProjectPanel({ projectId, canManage }: { projectId: st
 
       <CutPlanCard projectId={projectId} canManage={canManage} cutPlan={o.cutPlan} onChange={(id) => patch.mutate({ cutPlanImportId: id })} saving={patch.isPending} />
       <ProductionFilesCard projectId={projectId} canManage={canManage} />
+      <ProductionReworkCard projectId={projectId} canManage={canManage} />
 
       <ProductionItemsPanel projectId={projectId} canManage={canManage} />
 
@@ -521,6 +523,7 @@ export function ProductionPage() {
         <ProductionBoard />
       ) : (
       <>
+      <ProductionReworkOverview />
       <FactoryStepsOverview />
       <LeadTimesCard />
       {total === 0 ? (

@@ -195,7 +195,7 @@ export type ContractContext = {
  */
 export async function buildContractContext(
   organizationId: string,
-  input: { clientId: string; projectId?: string | null; promobImportId?: string | null } & ContractOverrides,
+  input: { clientId: string; projectId?: string | null; projectIds?: string[] | null; promobImportId?: string | null } & ContractOverrides,
   /** orçamento aceito: valores, parcelas e quadros saem dele */
   order?: ContractOrder | null
 ): Promise<ContractContext> {
@@ -205,32 +205,40 @@ export async function buildContractContext(
   });
   if (!client) throw new NotFoundError("Cliente não encontrado");
 
-  const project = input.projectId
-    ? await prisma.project.findFirst({ where: { id: input.projectId, clientId: client.id, organizationId } })
-    : null;
-  if (input.projectId && !project) throw new NotFoundError("Projeto não encontrado para este cliente");
+  // um contrato pode juntar vários projetos do mesmo cliente
+  const ids = [...new Set(input.projectIds?.length ? input.projectIds : input.projectId ? [input.projectId] : [])];
+  const projects = ids.length ? await prisma.project.findMany({ where: { id: { in: ids }, clientId: client.id, organizationId } }) : [];
+  if (projects.length !== ids.length) throw new NotFoundError("Projeto não encontrado para este cliente");
+  projects.sort((x, y) => ids.indexOf(x.id) - ids.indexOf(y.id));
+  const project = projects[0] ?? null;
 
-  // Orçamento do Promob: explícito, ou o mais recente do projeto com valor.
-  let promob = null as Awaited<ReturnType<typeof prisma.promobImport.findFirst>>;
+  // Orçamento do Promob: explícito, ou o mais recente com valor de cada projeto.
+  type Parsed = { ambientes?: string[]; totals?: { itens?: number; valor?: number | null }; valoresPorAmbiente?: { ambiente: string; valor: number }[] };
+  const imports: NonNullable<Awaited<ReturnType<typeof prisma.promobImport.findFirst>>>[] = [];
   if (input.promobImportId) {
-    promob = await prisma.promobImport.findFirst({ where: { id: input.promobImportId, organizationId } });
-    if (!promob) throw new NotFoundError("Importação do Promob não encontrada");
-  } else if (project) {
-    promob =
-      (await prisma.promobImport.findFirst({
-        where: { projectId: project.id, organizationId, totalValue: { not: null } },
-        orderBy: { createdAt: "desc" },
-      })) ??
-      (await prisma.promobImport.findFirst({ where: { projectId: project.id, organizationId }, orderBy: { createdAt: "desc" } }));
+    const one = await prisma.promobImport.findFirst({ where: { id: input.promobImportId, organizationId } });
+    if (!one) throw new NotFoundError("Importação do Promob não encontrada");
+    imports.push(one);
+  } else {
+    for (const pr of projects) {
+      const one =
+        (await prisma.promobImport.findFirst({ where: { projectId: pr.id, organizationId, totalValue: { not: null } }, orderBy: { createdAt: "desc" } })) ??
+        (await prisma.promobImport.findFirst({ where: { projectId: pr.id, organizationId }, orderBy: { createdAt: "desc" } }));
+      if (one) imports.push(one);
+    }
   }
+  const promob = imports[0] ?? null;
+  const parsedList = imports.map((i) => (i.parsedJson ?? null) as Parsed | null);
+  const parsed: Parsed | null = imports.length
+    ? {
+        ambientes: parsedList.flatMap((x) => x?.ambientes ?? []),
+        totals: { itens: parsedList.reduce((n, x) => n + (x?.totals?.itens ?? 0), 0) },
+        valoresPorAmbiente: parsedList.flatMap((x) => x?.valoresPorAmbiente ?? []),
+      }
+    : null;
+  const importTotals = imports.map((i, k) => (i.totalValue != null ? Number(i.totalValue) : (parsedList[k]?.totals?.valor ?? null)));
 
-  const parsed = (promob?.parsedJson ?? null) as {
-    ambientes?: string[];
-    totals?: { itens?: number; valor?: number | null };
-    valoresPorAmbiente?: { ambiente: string; valor: number }[];
-  } | null;
-
-  const promobTotal = promob?.totalValue != null ? Number(promob.totalValue) : (parsed?.totals?.valor ?? null);
+  const promobTotal = importTotals.some((v) => v != null) ? importTotals.reduce<number>((t, v) => t + (v ?? 0), 0) : null;
   const total = order ? order.total : input.totalOverride != null ? input.totalOverride : promobTotal;
   const totalSource: ContractContext["meta"]["totalSource"] =
     order || input.totalOverride != null ? "MANUAL" : promobTotal != null ? "PROMOB" : "NENHUM";
@@ -257,8 +265,8 @@ export async function buildContractContext(
     "cliente.telefone": client.phone ?? "",
     "cliente.endereco": endereco,
     "cliente.contato": client.primaryContact ?? client.name,
-    "projeto.codigo": project?.code ?? "",
-    "projeto.nome": project?.name ?? "",
+    "projeto.codigo": projects.map((x) => x.code).join(", "),
+    "projeto.nome": projects.map((x) => x.name).join(" + "),
     "projeto.descricao": project?.description ?? "",
     "projeto.inicio": brDate(project?.startAt),
     "projeto.prazo": brDate(project?.dueAt),
@@ -273,7 +281,7 @@ export async function buildContractContext(
     "promob.totalExtenso": total != null ? moneyToWords(total) : "",
     "promob.ambientes": (parsed?.ambientes ?? []).join(", "),
     "promob.qtdItens": String(parsed?.totals?.itens ?? promob?.itemCount ?? ""),
-    "promob.arquivo": promob?.fileName ?? "",
+    "promob.arquivo": imports.map((i) => i.fileName).join(", "),
     "promob.tabelaAmbientes": tabelaAmbientes,
     "pagamento.entrada": input.entrada != null ? brl(input.entrada) : "",
     "pagamento.parcelas": input.parcelas != null ? String(input.parcelas) : "",

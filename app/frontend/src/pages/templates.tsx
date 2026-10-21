@@ -414,7 +414,8 @@ function ContractDialog({
 }) {
   const [form, setForm] = useState({
     clientId: "",
-    projectId: "",
+    // um contrato pode juntar vários projetos do cliente (cada ambiente cadastrado como projeto)
+    projectIds: [] as string[],
     promobImportId: "",
     entrada: "",
     parcelas: "",
@@ -426,11 +427,12 @@ function ContractDialog({
   const [preview, setPreview] = useState<ContractPreview | null>(null);
 
   const projForClient = projects.filter((p) => !form.clientId || p.client.id === form.clientId);
+  const single = form.projectIds.length === 1 ? form.projectIds[0] : "";
 
   const imports = useQuery({
-    queryKey: ["promob-imports", form.projectId],
-    queryFn: () => apiGet<{ data: PromobImport[] }>(`/promob/projects/${form.projectId}/imports`),
-    enabled: !!form.projectId,
+    queryKey: ["promob-imports", single],
+    queryFn: () => apiGet<{ data: PromobImport[] }>(`/promob/projects/${single}/imports`),
+    enabled: !!single,
   });
 
   // Pré-seleciona a importação mais recente que tenha valor.
@@ -445,8 +447,9 @@ function ContractDialog({
     const n = (v: string) => (v.trim() === "" ? null : Number(v.replace(",", ".")));
     return {
       clientId: form.clientId,
-      projectId: form.projectId || null,
-      promobImportId: form.promobImportId || null,
+      projectId: single || null,
+      projectIds: form.projectIds,
+      promobImportId: single ? form.promobImportId || null : null,
       entrada: n(form.entrada),
       parcelas: n(form.parcelas),
       valorParcela: n(form.valorParcela),
@@ -488,7 +491,12 @@ function ContractDialog({
             <Label>Cliente</Label>
             <Select
               value={form.clientId || "NONE"}
-              onValueChange={(v) => { setForm({ ...form, clientId: v === "NONE" ? "" : v, projectId: "", promobImportId: "" }); setPreview(null); }}
+              onValueChange={(v) => {
+                const clientId = v === "NONE" ? "" : v;
+                // ao escolher o cliente, já vêm marcados todos os projetos dele
+                setForm({ ...form, clientId, projectIds: projects.filter((p) => p.client.id === clientId).map((p) => p.id), promobImportId: "" });
+                setPreview(null);
+              }}
             >
               <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
@@ -499,24 +507,37 @@ function ContractDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Projeto</Label>
-            <Select
-              value={form.projectId || "NONE"}
-              onValueChange={(v) => { setForm({ ...form, projectId: v === "NONE" ? "" : v, promobImportId: "" }); setPreview(null); }}
-            >
-              <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NONE">Nenhum</SelectItem>
-                {projForClient.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Label>Projetos deste contrato</Label>
+            {!form.clientId ? (
+              <p className="text-xs text-muted-foreground">Escolha o cliente.</p>
+            ) : !projForClient.length ? (
+              <p className="text-xs text-muted-foreground">O cliente não tem projeto.</p>
+            ) : (
+              <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2 text-sm">
+                {projForClient.map((p) => (
+                  <label key={p.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={form.projectIds.includes(p.id)}
+                      onChange={(e) => {
+                        setForm({ ...form, projectIds: e.target.checked ? [...form.projectIds, p.id] : form.projectIds.filter((x) => x !== p.id), promobImportId: "" });
+                        setPreview(null);
+                      }}
+                    />
+                    {p.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">Marque todos os projetos (ambientes) que entram no mesmo contrato. Projeto com orçamento: ambientes, valores e parcelas vêm do orçamento.</p>
           </div>
 
           <div className="space-y-2 sm:col-span-2">
             <Label>Orçamento do Promob</Label>
             <Select value={form.promobImportId || "NONE"} onValueChange={(v) => { setForm({ ...form, promobImportId: v === "NONE" ? "" : v }); setPreview(null); }}>
               <SelectTrigger>
-                <SelectValue placeholder={form.projectId ? "Mais recente com valor" : "Selecione um projeto primeiro"} />
+                <SelectValue placeholder={single ? "Mais recente com valor" : form.projectIds.length > 1 ? "O mais recente de cada projeto" : "Selecione um projeto primeiro"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="NONE">Mais recente com valor</SelectItem>

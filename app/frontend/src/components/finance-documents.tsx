@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/ui/states";
 import { apiDelete, apiDownload, apiGet, apiOpen, apiPatch, apiPost, apiPostForm } from "@/services/api";
 import { BoletoReader } from "@/components/boleto-reader";
+import { PurchasesSummary, ReceiptReader } from "@/components/receipt-reader";
 import { InvoiceItems, type InvoiceItem } from "@/components/invoice-items";
 import { errorMessage } from "@/lib/errors";
 import { useAuth } from "@/hooks/use-auth";
@@ -152,6 +153,7 @@ export function FinanceDocuments() {
 
   const recarregar = () => qc.invalidateQueries({ queryKey: ["finance-docs"] });
   const [boleto, setBoleto] = useState(false);
+  const [recibo, setRecibo] = useState(false);
 
   const itens = lista.data?.data.items ?? [];
   const totais = painel.data?.data.totais;
@@ -192,6 +194,11 @@ export function FinanceDocuments() {
             </Button>
           )}
           {podeGerenciar && (
+            <Button variant="outline" onClick={() => setRecibo(true)}>
+              <ScanBarcode className="h-4 w-4" /> Ler NF, recibo ou cupom
+            </Button>
+          )}
+          {podeGerenciar && (
             <Button onClick={() => setForm(true)}>
               <Plus className="h-4 w-4" /> Novo documento
             </Button>
@@ -200,13 +207,19 @@ export function FinanceDocuments() {
       </Card>
 
       <BoletoReader open={boleto} onClose={() => setBoleto(false)} onCreated={recarregar} />
+      <ReceiptReader open={recibo} onClose={() => setRecibo(false)} onCreated={recarregar} />
 
       <Tabs defaultValue="lista">
         <TabsList>
           <TabsTrigger value="lista">Documentos ({itens.length})</TabsTrigger>
           <TabsTrigger value="vencimentos">Vencimentos</TabsTrigger>
           <TabsTrigger value="quebras">Por categoria e fornecedor</TabsTrigger>
+          <TabsTrigger value="compras">O que compramos</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="compras">
+          <PurchasesSummary />
+        </TabsContent>
 
         <TabsContent value="lista">
           <Card>

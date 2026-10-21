@@ -1165,6 +1165,7 @@ model Project {
   warranty        Warranty?
   maintenances    PreventiveMaintenance[]
 
+  reworks             ProductionRework[]
   @@unique([organizationId, code])
   @@index([organizationId, status])
   @@index([clientId])
@@ -1901,6 +1902,10 @@ model CommercialQuote {
   commissionPercent   Decimal       @default(0) @db.Decimal(6, 2)
   freight             Decimal       @default(0) @db.Decimal(14, 2)
   otherCosts          Decimal       @default(0) @db.Decimal(14, 2)
+  // valor de referência: frete e imposto em % entram no preço como a comissão (o frete em R$ acima já inclui o do %)
+  freightPercent      Decimal       @default(0) @db.Decimal(6, 2)
+  taxPercent          Decimal       @default(0) @db.Decimal(6, 2)
+  taxAmount           Decimal       @default(0) @db.Decimal(14, 2)
   paymentMethod       String        @default("AVISTA")
   financingPlanId     String?
   financingPlanName   String?
@@ -2569,6 +2574,8 @@ model FinanceTransaction {
   date           DateTime // competência / lançamento
   dueDate        DateTime? // vencimento (contas a pagar/receber)
   description    String?       @db.Text
+  // quem recebe (despesa) ou quem paga (receita), em texto: pessoa da equipe, prestador…
+  payee          String?
   status         FinanceStatus @default(PENDENTE)
   paidAt         DateTime?
   method         String? // forma de pagamento
@@ -2649,6 +2656,7 @@ model FinanceTransaction {
   @@unique([recurringId, recurringMonth])
   @@index([referrerId])
   @@index([originQuoteId])
+  @@index([organizationId, payee])
 }
 
 // ---- Cartão de crédito (análise de gastos + fatura) ----
@@ -4980,4 +4988,25 @@ model ProductionFile {
   createdAt    DateTime        @default(now())
 
   @@index([orderId])
+}
+
+/// Peça que precisa ser refeita por erro. Vira uma tarefa no planejamento da
+/// semana (planTaskId) para quem vai refazer; feita a tarefa, a peça está refeita.
+model ProductionRework {
+  id             String    @id @default(cuid())
+  organizationId String
+  projectId      String
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  piece          String // qual peça
+  reason         String // código do motivo (production-rework.rules)
+  note           String?
+  person         String? // quem vai refazer, como a loja escreve
+  dueDate        DateTime? // dia combinado, ao meio-dia UTC
+  planTaskId     String?
+  doneAt         DateTime?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([projectId])
 }

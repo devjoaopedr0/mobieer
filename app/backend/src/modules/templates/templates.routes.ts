@@ -17,7 +17,7 @@ import {
   CONTRACT_CONTACTS,
   contractPdf,
 } from "./contract.service";
-import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder } from "./contract-order";
+import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder, mergeOrders, quotesForProjects } from "./contract-order";
 import { pipeToResponse } from "../../utils/stream";
 
 const router = Router();
@@ -264,6 +264,8 @@ router.get(
 const contractInput = z.object({
   clientId: z.string().min(1),
   projectId: z.string().min(1).optional().nullable(),
+  /** vários projetos do mesmo cliente num contrato só */
+  projectIds: z.array(z.string().min(1)).max(20).optional().nullable(),
   promobImportId: z.string().min(1).optional().nullable(),
   /** orçamento aceito: o pedido, o pagamento e as parcelas saem dele */
   quoteId: z.string().min(1).optional().nullable(),
@@ -280,10 +282,17 @@ const contractInput = z.object({
 
 /** Orçamento do contrato, conferindo que é do mesmo cliente. */
 async function orderFor(input: z.infer<typeof contractInput>, organizationId: string) {
-  if (!input.quoteId) return null;
-  const order = await loadContractOrder(organizationId, input.quoteId);
-  if (order.clientId !== input.clientId) throw new BadRequestError("O orçamento é de outro cliente");
-  return order;
+  if (input.quoteId) {
+    const order = await loadContractOrder(organizationId, input.quoteId);
+    if (order.clientId !== input.clientId) throw new BadRequestError("O orçamento é de outro cliente");
+    return order;
+  }
+  // projetos escolhidos: usa o orçamento de cada um (o Promob escolhido à mão vale mais)
+  const ids = input.projectIds?.length ? input.projectIds : input.projectId ? [input.projectId] : [];
+  if (!ids.length || input.promobImportId) return null;
+  const { quoteIds } = await quotesForProjects(organizationId, input.clientId, ids);
+  if (!quoteIds.length) return null;
+  return mergeOrders(await Promise.all(quoteIds.map((id) => loadContractOrder(organizationId, id))));
 }
 
 async function loadContractTemplate(id: string, organizationId: string) {

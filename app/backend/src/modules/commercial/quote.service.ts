@@ -83,6 +83,11 @@ export function serializeQuote(q: QuoteRow) {
     targetTotal: q.targetTotal == null ? null : n(q.targetTotal),
     total,
     freight: n(q.freight),
+    freightPercent: n(q.freightPercent),
+    taxPercent: n(q.taxPercent),
+    taxAmount: n(q.taxAmount),
+    /** frete digitado em R$, sem a parte do % */
+    freightExtra: Math.max(0, Math.round((n(q.freight) - (n(q.total) * n(q.freightPercent)) / 100) * 100) / 100),
     otherCosts: n(q.otherCosts),
     payment: {
       method: q.paymentMethod as PaymentMethod,
@@ -123,6 +128,9 @@ export function calcToData(c: QuoteCalc) {
     total: D(c.total),
     freight: D(c.freight),
     otherCosts: D(c.otherCosts),
+    freightPercent: D(c.freightPercent),
+    taxPercent: D(c.taxPercent),
+    taxAmount: D(c.taxAmount),
     paymentMethod: c.payment.method,
     financingPlanId: c.payment.planId,
     financingPlanName: c.payment.planName,

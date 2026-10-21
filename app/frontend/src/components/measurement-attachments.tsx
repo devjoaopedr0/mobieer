@@ -61,7 +61,7 @@ function Thumb({ att }: { att: MeasurementAttachment }) {
  * - Aba "Anexos": fotos e documentos do ambiente medido.
  * - Aba "Desenho": prancheta para o técnico desenhar a medida no tablet.
  */
-export function MeasurementAttachments({ visitId, canManage }: { visitId: string; canManage: boolean }) {
+export function MeasurementAttachments({ visitId, canManage, initialTab = "anexos" }: { visitId: string; canManage: boolean; initialTab?: "anexos" | "desenho" }) {
   const qc = useQueryClient();
   const key = ["measurement-attachments", visitId];
   const list = useQuery({
@@ -223,7 +223,7 @@ export function MeasurementAttachments({ visitId, canManage }: { visitId: string
 
   return (
     <div className="space-y-3">
-      <Tabs defaultValue="anexos">
+      <Tabs defaultValue={initialTab}>
         <TabsList>
           <TabsTrigger value="anexos">Anexos {files.length ? `(${files.length})` : ""}</TabsTrigger>
           <TabsTrigger value="desenho">Desenho {drawings.length ? `(${drawings.length})` : ""}</TabsTrigger>
