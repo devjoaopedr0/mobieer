@@ -116,3 +116,17 @@ No Comercial aparecem novos projetos, quentes, futuros e em atraso; no Financeir
 3. Abra a fatura e clique em **Ler fatura**. Pode levar até 1 minuto.
 4. Confira as compras: troque a categoria do que precisar e desmarque o que não deve entrar.
 5. Clique em **Lançar**. Em **Gasto por categoria** aparece quanto foi gasto e quantas compras de cada tipo (Uber, alimentação…).
+
+## Como usar o planner do financeiro
+1. Abra **Planner do financeiro** (grupo Financeiro).
+2. No dia, escreva em **+ item** e aperte Enter: "NOME: do que é valor", por exemplo "KELSON: 1ª quinzena outubro 854,00".
+3. Marque a caixinha quando pagar. Para pagar parte ou anexar comprovante, clique no texto da conta.
+4. Arraste a conta para outro dia para mudar o vencimento.
+5. Em **Por pessoa**, veja quanto a loja deve a cada um e os descontos; em **Lista**, filtre, marque e veja a soma.
+
+## Como registrar uma nota fiscal, recibo ou cupom de compra
+1. Abra **Financeiro**, aba **Documentos**.
+2. Clique em **Ler NF, recibo ou cupom** e tire a foto ou escolha o PDF.
+3. Confira o fornecedor, a data, o total, a categoria e os itens. Marque **Já está pago** se for cupom ou recibo pago.
+4. Clique em **Salvar compra**. A foto fica anexada.
+5. Para ver o que a loja compra, abra a aba **O que compramos** e escolha o período.

@@ -136,6 +136,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Financeiro",
     items: [
       { label: "Financeiro", to: "/financeiro", icon: Wallet, permission: "finance.read" },
+      { label: "Planner do financeiro", to: "/financeiro/planner", icon: CalendarDays, permission: "finance.read" },
       { label: "Ponto de equilíbrio", to: "/financeiro/ponto-de-equilibrio", icon: Scale, permission: "finance.read" },
       { label: "Notas fiscais", to: "/notas-fiscais", icon: ScrollText, permission: "finance.read" },
       { label: "Solicitar ao financeiro", to: "/solicitacoes-financeiras", icon: HandCoins, permission: "finance.request" },

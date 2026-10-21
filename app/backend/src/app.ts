@@ -50,7 +50,11 @@ import financeOpenBalancesRoutes from "./modules/finance/open-balances.routes";
 import cepRoutes from "./modules/cep/cep.routes";
 import productionFilesRoutes from "./modules/production/production-files.routes";
 import descriptiveRoutes from "./modules/descriptive/descriptive.routes";
+import productionReworkRoutes from "./modules/production/production-rework.routes";
+import measurementDrawingsRoutes from "./modules/measurements/measurement-drawings.routes";
 import overviewRoutes from "./modules/overview/overview.routes";
+import financePlannerRoutes from "./modules/finance/finance-planner.routes";
+import purchaseReceiptRoutes from "./modules/finance/purchase-receipt.routes";
 import contractorAttendanceRoutes from "./modules/contractors/attendance.routes";
 import projectStartAtRoutes from "./modules/timeline/start-at.routes";
 import mfaRoutes from "./modules/auth/mfa.routes";
@@ -182,6 +186,8 @@ export function createApp() {
   app.use("/api/integrations", integrationsRoutes);
   app.use("/api/finance", financeExtrasRoutes);
   app.use("/api/finance", financeOpenBalancesRoutes);
+  app.use("/api/finance", financePlannerRoutes);
+  app.use("/api/finance", purchaseReceiptRoutes);
   app.use("/api/cep", cepRoutes);
   app.use("/api/overview", overviewRoutes);
   app.use("/api/finance", financeRoutes);
@@ -194,6 +200,8 @@ export function createApp() {
   app.use("/api/commercial", commercialRoutes);
   app.use("/api/briefing", briefingRoutes);
   app.use("/api/appliances", appliancesRoutes);
+  // antes das rotas da medição: "/drawings" não pode cair em "/:id"
+  app.use("/api/measurements", measurementDrawingsRoutes);
   app.use("/api/measurements", measurementsRoutes);
   app.use("/api/tech-approval", techProjectRoutes);
   app.use("/api/production", productionRoutes);
@@ -210,6 +218,7 @@ export function createApp() {
   app.use("/api/production", productionFrontsRoutes);
   app.use("/api/production", productionFilesRoutes);
   app.use("/api/production", descriptiveRoutes);
+  app.use("/api/production", productionReworkRoutes);
   app.use("/api/fiscal/import", fiscalImportRoutes);
   app.use("/api/fiscal", fiscalRoutes);
   app.use("/api/promob", promobRoutes);

@@ -26,6 +26,8 @@ const txSchema = z.object({
   date: z.coerce.date(),
   dueDate: z.coerce.date().optional().nullable(),
   description: z.string().trim().max(5000).optional().nullable(),
+  /** quem recebe (despesa) ou quem paga (receita) */
+  payee: z.string().trim().max(80).optional().nullable(),
   status: z.enum(["PENDENTE", "PAGO"]).default("PENDENTE"),
   method: z.string().trim().max(60).optional().nullable(),
   projectId: z.string().min(1).optional().nullable(),
@@ -48,6 +50,7 @@ const include = {
 const serialize = (t: {
   id: string; type: string; category: string; amount: Prisma.Decimal; paidAmount?: Prisma.Decimal | null; date: Date; dueDate: Date | null;
   description: string | null; status: string; paidAt: Date | null; method: string | null; createdAt: Date;
+  payee?: string | null;
   project: { id: string; code: string; name: string } | null;
   client: { id: string; name: string } | null;
   supplier: { id: string; name: string } | null;
@@ -63,6 +66,7 @@ const serialize = (t: {
   date: t.date,
   dueDate: t.dueDate,
   description: t.description,
+  payee: t.payee ?? null,
   status: t.status,
   paidAt: t.paidAt,
   method: t.method,
@@ -512,6 +516,7 @@ router.post(
         date: input.date,
         dueDate: input.dueDate ?? null,
         description: input.description ?? null,
+        payee: input.payee || null,
         status: input.status,
         paidAt: input.status === "PAGO" ? new Date() : null,
         method: input.method ?? null,
@@ -550,6 +555,7 @@ router.patch(
         date: input.date,
         dueDate: input.dueDate === undefined ? undefined : input.dueDate,
         description: input.description === undefined ? undefined : input.description,
+        payee: input.payee === undefined ? undefined : input.payee || null,
         method: input.method === undefined ? undefined : input.method,
         status: input.status,
         paidAt: nextStatus === "PAGO" ? current.paidAt ?? new Date() : null,

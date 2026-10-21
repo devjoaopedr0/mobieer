@@ -57,6 +57,8 @@ const calcSchema = z.object({
   discountPercent: z.coerce.number().min(0).max(100).optional().nullable(),
   targetTotal: money.optional().nullable(),
   freight: money.optional(),
+  freightPercent: z.coerce.number().min(0).max(30).optional().nullable(),
+  taxPercent: z.coerce.number().min(0).max(30).optional().nullable(),
   otherCosts: money.optional(),
   payment: z.object({
     method: z.enum(PAYMENT_METHODS),
@@ -162,6 +164,8 @@ router.put(
     const input = z
       .object({
         defaultMarkup: z.coerce.number().positive().max(20),
+        defaultFreightPercent: z.coerce.number().min(0).max(30).optional(),
+        defaultTaxPercent: z.coerce.number().min(0).max(30).optional(),
         minScore: z.coerce.number().positive().max(20),
         validityDays: z.coerce.number().int().min(1).max(365),
         commissionRoles: z.array(z.object({ role: z.string().trim().min(1).max(40), label: z.string().trim().min(1).max(60), defaultPercent: z.coerce.number().min(0).max(50) })).min(1).max(10),
@@ -380,7 +384,7 @@ router.post(
     const s = serializeQuote(cur);
     const config = await loadPricing();
     const c = calc(
-      { items: s.items, markup: s.markup, commissions: s.commissions, discount: s.discount, discountPercent: s.discountPercent, targetTotal: s.targetTotal, freight: s.freight, otherCosts: s.otherCosts, payment: { ...s.payment, planId: config.financingPlans.some((p) => p.id === s.payment.planId) ? s.payment.planId : null } },
+      { items: s.items, markup: s.markup, commissions: s.commissions, discount: s.discount, discountPercent: s.discountPercent, targetTotal: s.targetTotal, freight: s.freightExtra, freightPercent: s.freightPercent, taxPercent: s.taxPercent, otherCosts: s.otherCosts, payment: { ...s.payment, planId: config.financingPlans.some((p) => p.id === s.payment.planId) ? s.payment.planId : null } },
       config
     );
     const copy = await prisma.commercialQuote.create({

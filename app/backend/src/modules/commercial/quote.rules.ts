@@ -56,6 +56,9 @@ export type QuoteDocumentConfig = {
 
 export type PricingConfig = {
   defaultMarkup: number;
+  /** valor de referência da planilha da loja: frete e imposto em % do preço, somados como a comissão */
+  defaultFreightPercent: number;
+  defaultTaxPercent: number;
   minScore: number;
   validityDays: number;
   commissionRoles: CommissionRole[];
@@ -106,6 +109,8 @@ export function obsLabel(index: number): string {
 
 export const DEFAULT_PRICING: PricingConfig = {
   defaultMarkup: 1.67, // custo R$ 600 → venda R$ 1.000
+  defaultFreightPercent: 2,
+  defaultTaxPercent: 6,
   // mark-up efetivo (o que sobra sobre o custo): de 2 para cima fecha direto, abaixo precisa de liberação
   minScore: 2,
   validityDays: 10,
@@ -169,6 +174,9 @@ export type QuoteInput = {
   targetTotal?: number | null;
   freight?: number;
   otherCosts?: number;
+  /** frete e imposto em % do preço; sem eles, valem os da configuração */
+  freightPercent?: number | null;
+  taxPercent?: number | null;
   payment: PaymentInput;
 };
 
@@ -181,8 +189,11 @@ export class QuoteRuleError extends Error {}
 export function computeQuote(input: QuoteInput, config: PricingConfig) {
   if (!(input.markup > 0)) throw new QuoteRuleError("O mark-up precisa ser maior que zero");
   const commissionPercent = r2(input.commissions.reduce((s, c) => s + pos(c.percent), 0));
-  if (commissionPercent > MAX_COMMISSION_PERCENT) throw new QuoteRuleError(`A soma das comissões passa de ${MAX_COMMISSION_PERCENT}%`);
-  const gross = input.markup / (1 - commissionPercent / 100);
+  // frete e imposto da planilha entram no preço como a comissão
+  const freightPercent = r2(input.freightPercent == null ? config.defaultFreightPercent : pos(input.freightPercent));
+  const taxPercent = r2(input.taxPercent == null ? config.defaultTaxPercent : pos(input.taxPercent));
+  if (commissionPercent + freightPercent + taxPercent > MAX_COMMISSION_PERCENT) throw new QuoteRuleError(`Comissões, frete e imposto somam mais de ${MAX_COMMISSION_PERCENT}%`);
+  const gross = input.markup / (1 - (commissionPercent + freightPercent + taxPercent) / 100);
 
   const items = input.items.map((it) => {
     const quantity = it.quantity && it.quantity > 0 ? it.quantity : 1;
@@ -213,7 +224,9 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
     targetTotal != null ? r2(Math.max(0, subtotal - targetTotal)) : discountPercentInput != null ? r2((subtotal * discountPercentInput) / 100) : Math.min(r2(pos(input.discount)), subtotal);
   const discountMode: "VALOR" | "PERCENTUAL" | "TOTAL" = targetTotal != null ? "TOTAL" : discountPercentInput != null ? "PERCENTUAL" : "VALOR";
   const total = r2(subtotal - discount);
-  const freight = r2(pos(input.freight));
+  // frete: o % sobre o preço final mais o valor em R$ informado à parte
+  const freight = r2((total * freightPercent) / 100 + pos(input.freight));
+  const taxAmount = r2((total * taxPercent) / 100);
   const otherCosts = r2(pos(input.otherCosts));
 
   const commissions = input.commissions
@@ -238,9 +251,9 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
 
   // O que fica para a loja e o que sobra depois de tudo.
   const netRevenue = r2(total - financingFee);
-  const result = r2(netRevenue - costTotal - commissionTotal - freight - otherCosts);
+  const result = r2(netRevenue - costTotal - commissionTotal - freight - otherCosts - taxAmount);
   const marginPercent = total > 0 ? r2((result / total) * 100) : null;
-  const score = costTotal > 0 ? r4((netRevenue - commissionTotal - freight - otherCosts) / costTotal) : null;
+  const score = costTotal > 0 ? r4((netRevenue - commissionTotal - freight - otherCosts - taxAmount) / costTotal) : null;
   // folga de meio centésimo: o preço é arredondado em centavos e um mark-up de 2,00 pode dar 1,9999
   const needsApproval = score != null && score < config.minScore - 0.005;
 
@@ -259,6 +272,11 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
     discountRate: subtotal > 0 ? r2((discount / subtotal) * 100) : 0,
     total,
     freight,
+    /** frete digitado em R$, além do % (para a tela reabrir igual) */
+    freightExtra: r2(pos(input.freight)),
+    freightPercent,
+    taxPercent,
+    taxAmount,
     otherCosts,
     commissions,
     commissionTotal,
@@ -333,6 +351,9 @@ export function normalizePricing(raw: unknown): PricingConfig {
   const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : d);
   return {
     defaultMarkup: num(o.defaultMarkup, DEFAULT_PRICING.defaultMarkup),
+    // 0 é uma escolha válida aqui
+    defaultFreightPercent: typeof o.defaultFreightPercent === "number" && o.defaultFreightPercent >= 0 ? o.defaultFreightPercent : DEFAULT_PRICING.defaultFreightPercent,
+    defaultTaxPercent: typeof o.defaultTaxPercent === "number" && o.defaultTaxPercent >= 0 ? o.defaultTaxPercent : DEFAULT_PRICING.defaultTaxPercent,
     minScore: num(o.minScore, DEFAULT_PRICING.minScore),
     validityDays: Math.round(num(o.validityDays, DEFAULT_PRICING.validityDays)),
     commissionRoles: Array.isArray(o.commissionRoles) && o.commissionRoles.length ? o.commissionRoles : DEFAULT_PRICING.commissionRoles,

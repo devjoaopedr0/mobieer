@@ -192,3 +192,59 @@ export function drawPaymentBlock(doc: Doc, o: ContractOrder) {
   doc.x = L;
   doc.y += 6;
 }
+
+/**
+ * Um contrato para vários projetos do mesmo cliente: junta os orçamentos.
+ * Ambientes em sequência (AA, AB…), valores somados; nas parcelas, as entradas
+ * do mesmo dia viram uma só e o resto entra na ordem do vencimento.
+ */
+export function mergeOrders(orders: ContractOrder[]): ContractOrder {
+  if (orders.length === 1) return orders[0];
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const uniq = (l: string[]) => [...new Set(l.filter(Boolean))];
+  const items = orders.flatMap((o) => o.items).map((it, i) => ({ ...it, code: ambCode(i) }));
+  const all = orders.flatMap((o) => o.installments);
+  const downs = new Map<string, number>();
+  for (const p of all.filter((x) => x.label === "ENTRADA")) {
+    const k = p.due ? p.due.toISOString().slice(0, 10) : "";
+    downs.set(k, r2((downs.get(k) ?? 0) + p.amount));
+  }
+  const rest = all.filter((x) => x.label !== "ENTRADA").sort((a, b) => (a.due?.getTime() ?? 0) - (b.due?.getTime() ?? 0));
+  const installments = [
+    ...[...downs.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, amount]) => ({ label: "ENTRADA", due: k ? new Date(`${k}T12:00:00Z`) : null, amount })),
+    ...rest.map((p, i) => ({ label: `PARC ${i + 1}`, due: p.due, amount: p.amount })),
+  ];
+  return {
+    quoteId: orders[0].quoteId,
+    number: orders.map((o) => o.number).join(" + "),
+    clientId: orders[0].clientId,
+    projectId: orders[0].projectId,
+    seller: uniq(orders.map((o) => o.seller)).join(", "),
+    soldAt: new Date(Math.max(...orders.map((o) => o.soldAt.getTime()))),
+    items,
+    subtotal: r2(orders.reduce((s, o) => s + o.subtotal, 0)),
+    discount: r2(orders.reduce((s, o) => s + o.discount, 0)),
+    total: r2(orders.reduce((s, o) => s + o.total, 0)),
+    condition: uniq(orders.map((o) => `${o.number}: ${o.condition}`)).join(" | "),
+    method: uniq(orders.map((o) => o.method)).join(" / "),
+    installments,
+    deliveryText: orders[0].deliveryText,
+    deliveryDays: Math.max(...orders.map((o) => o.deliveryDays)),
+  };
+}
+
+/** Orçamento de cada projeto (o aceito mais recente; sem aceite, o mais recente). Projetos sem orçamento ficam de fora. */
+export async function quotesForProjects(organizationId: string, clientId: string, projectIds: string[]): Promise<{ quoteIds: string[]; withoutQuote: string[] }> {
+  const quoteIds: string[] = [];
+  const withoutQuote: string[] = [];
+  for (const projectId of projectIds) {
+    const q = await prisma.commercialQuote.findFirst({
+      where: { organizationId, clientId, projectId, kind: "PADRAO", status: { not: "CANCELLED" } },
+      orderBy: [{ approvedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+      select: { id: true },
+    });
+    if (q) quoteIds.push(q.id);
+    else withoutQuote.push(projectId);
+  }
+  return { quoteIds, withoutQuote };
+}

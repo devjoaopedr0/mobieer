@@ -61,3 +61,6 @@ Na tela **Produção**, botão **Incluir projeto em andamento**: escolha o clien
 
 ## Planos de corte e etiquetas
 No pedido de produção, o cartão **Planos de corte e etiquetas** recebe os arquivos direto (PDF, imagem ou planilha), vários de uma vez, separados em Plano de corte, Etiquetas e Outro arquivo. Não depende do arquivo do Promob. Qualquer pessoa da produção baixa; remover é para quem gerencia.
+
+## Peça a refazer
+Quando uma peça sai com erro e precisa ser feita de novo: na tela **Produção**, abra o pedido e, no cartão **Peças a refazer**, clique em **Peça a refazer**. Informe qual peça, o motivo (erro de corte, de medida, de projeto, acabamento, furação, avaria, peça faltando ou outro), quem vai refazer e para quando. A peça entra no **Planejamento da semana**, no dia e para a pessoa escolhida (sem nome vai para a EQUIPE), como "REFAZER: peça (motivo)". Quando a tarefa for marcada como feita, a peça fica refeita; também dá para clicar em **Marcar refeita**. No topo da Produção aparecem as peças em aberto de todos os pedidos e os motivos do mês.

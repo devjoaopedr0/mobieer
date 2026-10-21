@@ -93,3 +93,6 @@ O render é uma imagem ilustrativa: medidas e detalhes de execução continuam v
 
 ### Render pelo Mobieer AI
 O render também pode ser pedido no chat do Mobieer AI: clique no botão de imagem ao lado do campo de texto, escolha a imagem do Promob, escreva os acabamentos (opcional), escolha a iluminação e envie. O render aparece na conversa, com os botões **Baixar** e **Ajustar este render**. O render feito pelo chat não fica guardado no projeto; para guardar, use a aba Render do projeto.
+
+## Desenhos de medição (como os quadros do iPad)
+Na tela **Medições**, botão **Desenhos**: todos os desenhos de todas as medições num lugar só, do mais recente para o mais antigo, com a miniatura, o cliente e o projeto. A busca acha pelo nome do cliente, do projeto ou do desenho. Clique no desenho para abrir a medição na aba Desenho e continuar (lápis). **Novo desenho**: escolha a medição do cliente e use **Novo desenho** na prancheta (dá para desenhar à mão, sobre uma foto, com régua e borracha).

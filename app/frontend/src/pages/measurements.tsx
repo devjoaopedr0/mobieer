@@ -17,6 +17,7 @@ import { apiGet, apiPatch, apiPost } from "@/services/api";
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage } from "@/lib/utils";
 import { MeasurementAttachments } from "@/components/measurement-attachments";
+import { MeasurementDrawings } from "@/components/measurement-drawings";
 
 export type MeasurementVisit = {
   id: string;
@@ -305,6 +306,8 @@ export function MeasurementsPage() {
   const visits = useQuery({ queryKey: key, queryFn: () => apiGet<{ data: MeasurementVisit[] }>("/measurements") });
   const people = useQuery({ queryKey: ["org-people"], queryFn: () => apiGet<{ data: Person[] }>("/organization/people") });
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
+  // "Desenhos": todos os desenhos de medição num lugar só, como os quadros do iPad
+  const [view, setView] = useState<"medicoes" | "desenhos">("medicoes");
 
   const groups = useMemo(() => {
     const all = visits.data?.data ?? [];
@@ -336,8 +339,16 @@ export function MeasurementsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Medições" description="Solicitações de medição, agendamento e prazo do projeto técnico (12 dias)." />
-      {total === 0 ? (
+      <PageHeader title="Medições" description="Solicitações de medição, agendamento e prazo do projeto técnico (12 dias).">
+        <div className="flex overflow-hidden rounded-md border text-sm">
+          {([["medicoes", "Medições"], ["desenhos", "Desenhos"]] as const).map(([v, l]) => (
+            <button key={v} type="button" className={`px-3 py-1.5 ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setView(v)}>{l}</button>
+          ))}
+        </div>
+      </PageHeader>
+      {view === "desenhos" ? (
+        <MeasurementDrawings visits={visits.data?.data ?? []} canManage={canManage} />
+      ) : total === 0 ? (
         <EmptyState title="Nenhuma medição" description="Quando um cliente solicitar a medição pelo portal, aparece aqui." />
       ) : (
         <div className="space-y-4">

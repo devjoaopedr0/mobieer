@@ -50,3 +50,18 @@ Aba **Cartões** do Financeiro. Depois de enviar o PDF da fatura, abra a fatura 
 Confira a lista, troque a categoria do que precisar e desmarque o que não deve entrar; compra que já estava na fatura vem desmarcada. Clique em **Lançar**. Em **Gasto por categoria** aparece o total e a quantidade de compras de cada tipo (quantas corridas de Uber, quantas refeições).
 
 A leitura usa a IA (Gemini lê o PDF direto, até fatura escaneada); sem IA, o sistema lê as linhas no formato "data, descrição, valor".
+
+## Planner do financeiro
+Menu **Planner do financeiro** (grupo Financeiro): as contas da semana por dia, no jeito do planner da produção. Cada dia mostra quanto falta pagar, o que já foi pago e o que há a receber.
+- **+ item**: escreva como na lista do WhatsApp, com o nome antes de dois-pontos e o valor no fim — "KELSON: 1ª quinzena outubro 854,00" ou "David Bruno: diárias 720,00 + 40,00". O sistema cria a conta naquele dia, com a pessoa e a categoria (diária, quinzena, salário e ajuda de custo vão para Folha de pagamento; acordo para Acordos).
+- **Caixinha**: marca como pago o valor todo. Para pagamento parcial ou comprovante, clique no texto da conta.
+- **Arrastar** a conta para outro dia muda o vencimento. As atrasadas de antes da semana aparecem no topo.
+- **Por pessoa**: as pendências de cada pessoa — o que a loja deve (salário, ajuda de custo, comissão) menos o que a pessoa deve (descontos e acordos lançados como a receber com o nome dela).
+- **Lista**: filtre por período, tipo, situação e busca, marque as contas e veja a soma na hora.
+
+O campo **Quem recebe / quem paga** do Novo lançamento é o mesmo nome que aparece no planner.
+
+## Entrada de nota fiscal, recibo e cupom
+Em **Financeiro**, aba **Documentos**, botão **Ler NF, recibo ou cupom**. Tire a foto ou envie o PDF: a IA lê o fornecedor, o CNPJ, o número, a data, o total, a forma de pagamento e os itens, e sugere a categoria (MDF e fita em Matéria-prima, dobradiça e corrediça em Ferragens, cola e tinta em Acabamento…). Confira, ajuste e clique em **Salvar compra**: a despesa entra com os itens e o arquivo anexado; cupom e recibo entram pagos, nota com prazo fica a pagar no vencimento.
+
+A aba **O que compramos** mostra, no período, o total comprado por categoria, por fornecedor e os itens que mais pesam, juntando as notas, recibos e cupons com as compras dos cartões.

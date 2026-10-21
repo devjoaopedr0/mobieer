@@ -128,3 +128,10 @@ O cliente também abre pelo portal, com fotos.
 4. Escolha o vencimento e clique em **Lançar R$ … no financeiro**: vira uma conta a receber. Mudou um item? Use **Atualizar a cobrança**.
 5. Use **Dar baixa no estoque** para as peças tiradas do almoxarifado.
 6. Clique em **Ordem de serviço (PDF)** para o técnico levar.
+
+## Como pedir que uma peça seja refeita
+1. Abra **Produção** e clique no pedido.
+2. No cartão **Peças a refazer**, clique em **Peça a refazer**.
+3. Escreva qual peça, escolha o motivo, quem vai refazer e para quando.
+4. Clique em **Registrar**. A peça entra no **Planejamento da semana** daquele dia.
+5. Quando a tarefa for feita, a peça fica refeita. Também dá para usar **Marcar refeita**.

@@ -1,0 +1,26 @@
+Esta imagem é a vista frontal técnica (com cotas em milímetros) de um móvel planejado: Armário com caixaria em MDF Cinza Urban, para o ambiente Suíte Master.
+Gere uma perspectiva 3D fotorrealista DESTE MESMO móvel, com as portas fechadas.
+
+Medidas reais:
+- Largura 2540 mm, altura 2380 mm, profundidade 550 mm.
+- Rodapé de 70 mm.
+- Roda-teto (faixa de acabamento em cima) de 50 mm.
+- Fechamento lateral esquerdo de 50 mm, na altura toda.
+- Chapas e prateleiras com 15,5 mm de espessura.
+
+Composição, da esquerda para a direita:
+- Coluna 1 (1000 mm de largura): de cima para baixo: maleiro (compartimento alto para malas) (400 mm de altura, cerca de 18% da altura); nicho aberto com 2 prateleiras, formando 3 vãos (1029 mm de altura, cerca de 46% da altura); 4 gavetas (800 mm de altura, cerca de 35% da altura).
+- Coluna 2 (700 mm de largura): sapateira com exatamente 9 prateleiras inclinadas para sapatos.
+- Coluna 3 (840 mm de largura): 2 portas de abrir — Portas de giro em alumínio prata e espelho prata.
+
+Materiais e acabamentos:
+- Caixaria em MDF Cinza Urban
+- Portas de giro em alumínio prata e espelho prata
+
+Obrigatório:
+- Mantenha as proporções da vista: mesma largura de cada coluna, mesma quantidade e mesma posição de portas, prateleiras e gavetas.
+- Antes de gerar, conte na vista enviada as prateleiras, as gavetas e as portas de cada coluna: a imagem tem de ter exatamente as mesmas quantidades descritas acima.
+- Não acrescente, não remova e não mova nada. Não invente puxadores, nichos, iluminação ou objetos que não estão descritos.
+- Perspectiva levemente de lado e de cima, mostrando frente, uma lateral e o tampo; o móvel inteiro dentro do quadro.
+- Fundo neutro e claro de estúdio, piso discreto, sombra suave. Sem pessoas e sem decoração.
+- Nenhum texto na imagem: sem cotas, sem legendas, sem marca d'água.

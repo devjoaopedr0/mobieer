@@ -86,7 +86,7 @@ export const GUIDES: Record<string, Guide> = {
   },
   "/medicoes": {
     intro: "Pedidos de medição: do cliente (pelo portal) ou criados pela equipe.",
-    steps: ["Nova medição: escolha o cliente e a data.", "Na visita, anexe as fotos e as medidas.", "Conclua a medição para o projeto seguir."],
+    steps: ["Nova medição: escolha o cliente e a data.", "Na visita, anexe as fotos e as medidas.", "Conclua a medição para o projeto seguir.", "Desenhos: todos os desenhos de medição num lugar só, como os quadros do iPad. Busque pelo cliente e clique para continuar o desenho."],
   },
   "/producao": {
     intro: "Onde está cada pedido na fábrica, do liberado à entrega.",
@@ -172,6 +172,17 @@ export const GUIDES: Record<string, Guide> = {
   "/pos-venda": {
     intro: "Vistorias, garantias e manutenção preventiva.",
     steps: ["Veja as obras que precisam de vistoria ou manutenção.", "A vistoria e o certificado de garantia de cada obra ficam na aba Pós-venda do projeto."],
+  },
+  "/financeiro/planner": {
+    intro: "As contas da semana por dia, como no planner da produção, com soma automática.",
+    steps: [
+      "No dia, escreva em + conta: NOME: do que é valor (ex.: KELSON: 1ª quinzena outubro 854,00) e aperte Enter.",
+      "Arraste a conta para outro dia para mudar o vencimento.",
+      "Marque a caixinha quando pagar: abre o registro do pagamento, com comprovante.",
+      "Por pessoa: o que a loja deve a cada um, o que a pessoa deve (acordos, descontos) e o saldo.",
+      "Lista e soma: filtre por período, tipo e situação e marque as contas para ver a soma.",
+    ],
+    tip: "As contas atrasadas de antes da semana aparecem em vermelho no topo.",
   },
   "/financeiro/ponto-de-equilibrio": {
     intro: "Quanto a loja precisa vender no mês para pagar os custos fixos e para chegar à meta de lucro.",
