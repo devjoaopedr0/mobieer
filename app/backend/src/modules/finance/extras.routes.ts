@@ -12,6 +12,7 @@ import { ok } from "../../utils/response";
 import { storage, buildStorageKey } from "../../lib/storage";
 import { aiComplete, aiEnabled } from "../../lib/ai";
 import { visionProvider } from "../ai/provider/vision";
+import { pdfPageImages } from "../../lib/pdf-images";
 import { extractPdfLines } from "../promob/promob.pdf";
 import { expenseKey, invoicePrompt, parseAiItems, parseInvoiceText, type InvoiceItem } from "./card-invoice.rules";
 
@@ -224,7 +225,8 @@ router.post(
 );
 
 // Lê as compras da fatura enviada e devolve para conferir (não grava).
-// Foto da fatura: a IA de imagem lê. PDF: o texto vai para a IA de texto; sem
+// Foto da fatura: a IA de imagem lê. PDF: o texto vai para a IA de texto; PDF
+// escaneado (sem texto): a foto de cada página vai para a IA de imagem; sem
 // IA, as linhas são lidas pelo formato "data descrição valor".
 router.post(
   "/cards/statements/:id/read",
@@ -258,7 +260,19 @@ router.post(
       const text = await extractPdfLines(bytes)
         .then((lines) => lines.map((l) => l.cells.map((c) => c.s).join(" ")).join("\n"))
         .catch(() => "");
-      if (aiEnabled() && text.trim()) {
+      // escaneado: sem texto dentro, cada página é uma foto
+      if (!text.trim() && vision.enabled) {
+        const pages = await pdfPageImages(bytes, 8).catch(() => []);
+        for (const pg of pages) {
+          try {
+            items.push(...parseAiItems(await vision.readJson({ bytes: pg.bytes, mime: pg.mime, prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth));
+          } catch {
+            // página que a IA não leu: segue com as outras
+          }
+        }
+        if (items.length) source = "IA_PDF";
+      }
+      if (!items.length && aiEnabled() && text.trim()) {
         try {
           items = parseAiItems(await aiComplete({ prompt: `${invoicePrompt(stmt.referenceMonth)}\n\nTexto da fatura:\n${text.slice(0, 30000)}`, json: true, temperature: 0, maxTokens: 6000 }), stmt.referenceMonth);
           source = "IA_TEXTO";

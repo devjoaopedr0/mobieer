@@ -19,6 +19,7 @@ import { ApiError, BadRequestError } from "../../utils/ApiError";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ok } from "../../utils/response";
 import { visionProvider } from "../ai/provider/vision";
+import { pdfPageImages } from "../../lib/pdf-images";
 import { extractPdfLines } from "../promob/promob.pdf";
 import { parseReceipt, purchaseSummary, receiptPrompt, type PurchaseLine, type Receipt } from "./purchase-receipt.rules";
 
@@ -53,6 +54,18 @@ router.post(
       if (text.trim()) {
         try {
           receipt = parseReceipt(await aiComplete({ prompt: `${receiptPrompt()}\n\nTexto do documento:\n${text.slice(0, 20000)}`, json: true, temperature: 0, maxTokens: 4000 }));
+        } catch {
+          receipt = null;
+        }
+      }
+    }
+    // PDF escaneado (sem texto): a foto da página vai para a IA de imagem
+    if (!receipt && isPdf && vision.enabled) {
+      const pages = await pdfPageImages(req.file.buffer, 3).catch(() => []);
+      for (const pg of pages) {
+        try {
+          receipt = parseReceipt(await vision.readJson({ bytes: pg.bytes, mime: pg.mime, prompt: receiptPrompt() }));
+          break;
         } catch {
           receipt = null;
         }
