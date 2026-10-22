@@ -143,6 +143,7 @@ export const MERGE_FIELDS: { key: string; label: string; example: string }[] = [
   { key: "contrato.data", label: "Data do contrato", example: "13/09/2026" },
   { key: "contrato.dataExtenso", label: "Data por extenso", example: "13 de setembro de 2026" },
   { key: "contrato.cidade", label: "Cidade do contrato", example: "Fortaleza" },
+  { key: "contrato.numero", label: "Nº do contrato (continua a sequência da loja)", example: "1520" },
   { key: "contrato.prazoEntregaDias", label: "Prazo de entrega (dias)", example: "45" },
   { key: "venda.numero", label: "Nº do orçamento aceito", example: "ORC-00012" },
   { key: "venda.vendedor", label: "Quem vendeu", example: "Ana" },
@@ -325,9 +326,9 @@ export { renderTemplate } from "../../utils/template";
  * vira título de seção, "Rótulo: valor" sai com o rótulo em negrito, "• " vira
  * item de lista e o resto é parágrafo justificado.
  */
-export function contractPdf(opts: { title: string; body: string; footer?: string; contacts?: string[]; blocks?: Record<string, (doc: ReturnType<typeof brandDocument>["doc"]) => void> }): Promise<Buffer> {
+export function contractPdf(opts: { title: string; subtitle?: string; body: string; footer?: string; contacts?: string[]; blocks?: Record<string, (doc: ReturnType<typeof brandDocument>["doc"]) => void> }): Promise<Buffer> {
   const { doc, done, width } = brandDocument({ contacts: opts.contacts });
-  brandTitle(doc, opts.title);
+  brandTitle(doc, opts.title, opts.subtitle);
 
   // título de seção só no começo de um bloco: "CONTRATANTE" sob a linha de assinatura é texto
   let blockStart = true;

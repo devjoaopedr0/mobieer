@@ -2,17 +2,20 @@
  * Padrão visual dos documentos da Mobieer (orçamento, contrato, recibo,
  * vistoria, certificado de garantia), tirado do "Manual de uso e certificado
  * de garantia" da loja: papel claro, laranja queimado, título em duas cores com
- * um traço curto embaixo, faixa escura com a marca e contatos no rodapé.
+ * um traço curto embaixo, marca no topo e contatos no rodapé.
+ * Impresso na loja: fundo branco, sem faixas escuras, para gastar pouca tinta.
  */
 import PDFDocument from "pdfkit";
 
 export const BRAND = {
-  paper: "#F8F4EF",
+  paper: "#FFFFFF",
   ink: "#1B1B1B",
   orange: "#C8551F",
   muted: "#6E6761",
   line: "#E4DACF",
   band: "#141414",
+  /** cabeçalho das tabelas: claro, para economizar tinta */
+  head: "#EFE8E0",
   soft: "#F1E9E0",
   tagline: "PLANEJADOS   |   CASA COM A SUA CASA",
   contacts: ["(85) 99637-9339", "@mobieer", "www.mobieer.com.br"],
@@ -39,18 +42,20 @@ function decorate(doc: Doc, pageNumber: number, contacts: string[]) {
   doc.save();
 
   doc.rect(0, 0, width, height).fill(BRAND.paper);
-  doc.rect(0, 0, width, PAGE.bandHeight).fill(BRAND.band);
+  // topo claro: só a marca e um fio embaixo (a faixa preta gastava muita tinta)
+  doc.moveTo(PAGE.left, PAGE.bandHeight - 8).lineTo(width - PAGE.right, PAGE.bandHeight - 8).lineWidth(0.6).strokeColor(BRAND.line).stroke();
+  doc.moveTo(PAGE.left, PAGE.bandHeight - 8).lineTo(PAGE.left + 36, PAGE.bandHeight - 8).lineWidth(1.4).strokeColor(BRAND.orange).stroke();
 
   // MØBIEER: o Ø em laranja, como na marca
   doc.font("Helvetica").fontSize(21);
   const opt = { characterSpacing: 3.2, lineBreak: false } as const;
   let wx = PAGE.left;
   const wy = 18;
-  for (const [part, color] of [["M", "#FFFFFF"], ["Ø", BRAND.orange], ["BIEER", "#FFFFFF"]] as const) {
+  for (const [part, color] of [["M", BRAND.ink], ["Ø", BRAND.orange], ["BIEER", BRAND.ink]] as const) {
     doc.fillColor(color).text(part, wx, wy, opt);
     wx += doc.widthOfString(part, opt);
   }
-  doc.font("Helvetica").fontSize(6.5).fillColor("#CFC8C0");
+  doc.font("Helvetica").fontSize(6.5).fillColor(BRAND.muted);
   const tagW = doc.widthOfString(BRAND.tagline, { characterSpacing: 1.6 });
   doc.text(BRAND.tagline, width - PAGE.right - tagW, 27, { characterSpacing: 1.6, lineBreak: false });
 
@@ -154,8 +159,8 @@ export function brandTable(doc: Doc, cols: BrandCol[], data: string[][], minRowH
   const xs = cols.reduce<number[]>((acc, c, i) => [...acc, i === 0 ? L : acc[i - 1] + cols[i - 1].w * W], []);
   const header = () => {
     const y = doc.y;
-    doc.rect(L, y, W, 18).fill(BRAND.band);
-    cols.forEach((c, i) => brandOneLine(doc, c.label, xs[i] + 6, y + 6, c.w * W - 12, { size: 7, bold: true, color: "#FFFFFF", align: c.align }));
+    doc.rect(L, y, W, 18).fill(BRAND.head);
+    cols.forEach((c, i) => brandOneLine(doc, c.label, xs[i] + 6, y + 6, c.w * W - 12, { size: 7, bold: true, color: BRAND.ink, align: c.align }));
     doc.y = y + 18;
   };
   ensureSpace(doc, 18 + minRowH);

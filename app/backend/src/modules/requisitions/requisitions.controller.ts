@@ -25,3 +25,11 @@ export const updateStatus = asyncHandler(async (req: Request, res: Response) => 
 export const updateItemStatus = asyncHandler(async (req: Request, res: Response) => { const input = updateItemStatusSchema.parse(req.body); return ok(res, await service.updateItemStatus(req.params.id, req.params.itemId, input.status, req.user!.id, input.note), "Peça atualizada"); });
 export const inspect = asyncHandler(async (req: Request, res: Response) => { const input = inspectionSchema.parse(req.body); return ok(res, await service.inspectRequisition(req.params.id, input.result, input.note ?? null, req.user!.id), "Conferência registrada"); });
 export const reserve = asyncHandler(async (req: Request, res: Response) => ok(res, await service.reserveMaterials(req.params.id, reservationSchema.parse(req.body), req.user!.id), "Materiais reservados"));
+export const print = asyncHandler(async (req: Request, res: Response) => {
+  const ids = String(req.query.ids ?? "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200);
+  const pdf = await service.printRequisitions(ids, req.user!.permissions.includes("requisitions.read.all") ? undefined : req.user!.id);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="requisicoes.pdf"`);
+  res.send(pdf);
+});
+export const deliver = asyncHandler(async (req: Request, res: Response) => ok(res, await service.deliverSupplies(req.params.id, req.user!.id, req.user!.name), "Insumos entregues e baixados do estoque"));

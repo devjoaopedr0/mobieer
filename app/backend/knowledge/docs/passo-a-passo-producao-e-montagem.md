@@ -43,6 +43,25 @@ No fim da semana, o **fechamento** mostra o que foi feito e os motivos mais freq
 3. Em **Leitor de etiquetas**, leia cada etiqueta com o leitor ou a câmera do celular: cada leitura dá baixa em um item.
 4. O que ficar sem baixa aparece em vermelho na conferência do projeto.
 
+## Como imprimir a requisição de peças
+1. Abra o menu **Requisições (peças e insumos)**.
+2. Para uma só: clique na requisição e em **Imprimir**.
+3. Para todas as que estão em aberto: clique em **Imprimir em aberto**.
+
+Saem duas requisições por folha, com quadradinho de "produzido" para marcar à mão. A requisição enviada fica na lista com o status Solicitada e vai para o Painel de corte depois de liberada.
+
+## Como pedir insumos ao almoxarifado
+1. Abra **Requisições (peças e insumos)**.
+2. Clique em **Requisição de insumos**.
+3. Informe o solicitante, o cliente e o projeto.
+4. Em cada item, clique em **Escolher no estoque**, escolha o insumo (cola, parafuso, corrediça…) e a quantidade.
+5. Clique em **Criar e enviar**.
+
+## Como o almoxarifado entrega os insumos
+1. Abra **Requisições (peças e insumos)** e filtre **Só insumos**.
+2. Abra a requisição, separe os itens (dá para imprimir) e clique em **Entregar insumos**.
+3. O estoque baixa sozinho e a requisição fica concluída.
+
 ## Como marcar uma montagem, entrega ou vistoria
 1. Abra o menu **Montagens**.
 2. Clique em **Novo agendamento**.

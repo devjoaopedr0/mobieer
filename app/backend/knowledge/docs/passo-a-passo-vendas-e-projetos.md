@@ -49,6 +49,15 @@ Se a pontuação ficar abaixo do mínimo, o orçamento fica aguardando liberaç�
 4. Clique em **Gerar e enviar ao cliente**. O contrato sai com o pedido, os acabamentos e as parcelas do orçamento e vai para o portal.
 5. A loja assina em **Documentos** do projeto; o cliente assina no portal.
 
+O contrato sai com o título "Contrato Nº" e o número da sequência da loja. Gerado pela tela **Modelos**, sem orçamento escolhido, vale o último orçamento do cliente.
+
+## Como continuar a numeração dos contratos antigos
+1. Abra o menu **Modelos de documentos**.
+2. Em **Próximo número de contrato**, digite o número que o próximo contrato deve receber (o último contrato antigo mais um).
+3. Clique em **Salvar**.
+
+Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Um número já usado não volta. No texto do modelo, o marcador {{contrato.numero}} mostra o número.
+
 ## Como acrescentar ambientes a um contrato já fechado (adendo)
 1. Abra o orçamento aceito do cliente.
 2. Clique em **Adendo**.

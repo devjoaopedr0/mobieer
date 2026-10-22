@@ -247,6 +247,7 @@ router.post(
 
     const created = await createRequisition(
       {
+        kind: "PECAS",
         clientName: project.client?.name ?? null,
         projectReference: project.code,
         priority: "NORMAL",

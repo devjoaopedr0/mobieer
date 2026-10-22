@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState, PageSkeleton } from "@/components/ui/states";
-import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm } from "@/services/api";
+import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm, apiPut } from "@/services/api";
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage } from "@/lib/utils";
 import type { ContractPreview, DocumentTemplate, MergeField } from "@/types";
@@ -137,6 +137,8 @@ export function TemplatesPage() {
           </Button>
         )}
       </PageHeader>
+
+      {canManage && <ContractNumbering />}
 
       {list.length === 0 ? (
         <EmptyState title="Nenhum modelo" description="Escreva um contrato com marcadores ou envie um PDF padrão." />
@@ -367,6 +369,41 @@ export function TemplatesPage() {
 }
 
 /** Lista de marcadores disponíveis; clicar insere no fim do texto. */
+/** Próximo número de contrato: continua a sequência dos contratos que a loja já fazia. */
+function ContractNumbering() {
+  const qc = useQueryClient();
+  const current = useQuery({ queryKey: ["templates", "contract-numbering"], queryFn: () => apiGet<{ data: { next: number } }>("/templates/contract-numbering") });
+  const [value, setValue] = useState("");
+  useEffect(() => {
+    if (current.data) setValue(String(current.data.data.next));
+  }, [current.data]);
+  const save = useMutation({
+    mutationFn: () => apiPut<{ data: { next: number } }>("/templates/contract-numbering", { next: Number(value) }),
+    onSuccess: (r) => {
+      setValue(String(r.data.next));
+      qc.invalidateQueries({ queryKey: ["templates", "contract-numbering"] });
+      toast.success(Number(value) === r.data.next ? "Numeração dos contratos salva" : `Esse número já foi usado. O próximo fica ${r.data.next}.`);
+    },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao salvar a numeração")),
+  });
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-end gap-3 pt-6">
+        <div className="space-y-1">
+          <Label htmlFor="contract-next">Próximo número de contrato</Label>
+          <Input id="contract-next" className="w-36" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ""))} />
+        </div>
+        <Button size="sm" variant="outline" disabled={!value || save.isPending || String(current.data?.data.next ?? "") === value} onClick={() => save.mutate()}>
+          {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Salvar
+        </Button>
+        <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
+          Continue a numeração dos contratos antigos: informe o número que o próximo contrato deve receber. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Use {"{{contrato.numero}}"} no texto do modelo.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function MergeFieldHelp({ fields, onInsert }: { fields: MergeField[]; onInsert: (key: string) => void }) {
   const [open, setOpen] = useState(false);
   if (!fields.length) return null;

@@ -792,6 +792,8 @@ enum InspectionResult {
 model Requisition {
   id               String              @id @default(cuid())
   number           String              @unique // REQ-00001
+  /// PECAS (corte na fábrica) ou INSUMOS (pedido ao almoxarifado)
+  kind             String              @default("PECAS")
   sector           String?
   destination      String?
   status           RequisitionStatus   @default(DRAFT)
@@ -839,6 +841,7 @@ model Requisition {
   purchaseRequests PurchaseRequest[]
 
   @@index([status])
+  @@index([kind])
   @@index([productionOrderId])
   @@index([priority])
   @@index([neededAt])
@@ -2321,6 +2324,8 @@ model ProjectDocument {
   templateId              String?
   template                DocumentTemplate?          @relation(fields: [templateId], references: [id], onDelete: SetNull)
   type                    ProjectDocumentType        @default(OUTRO)
+  /// número do contrato (continua a sequência dos contratos antigos da loja)
+  number                  String?
   title                   String
   description             String?                    @db.Text
   storageKey              String // caminho no bucket / disco
