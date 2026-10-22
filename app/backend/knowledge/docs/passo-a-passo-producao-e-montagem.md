@@ -48,7 +48,7 @@ No fim da semana, o **fechamento** mostra o que foi feito e os motivos mais freq
 2. Para uma só: clique na requisição e em **Imprimir**.
 3. Para todas as que estão em aberto: clique em **Imprimir em aberto**.
 
-Saem duas requisições por folha, com quadradinho de "produzido" para marcar à mão. A requisição enviada fica na lista com o status Solicitada e vai para o Painel de corte depois de liberada.
+Saem três requisições por folha, com quadradinho de "produzido" para marcar à mão. A requisição enviada fica na lista com o status Solicitada e vai para o Painel de corte depois de liberada.
 
 ## Como pedir insumos ao almoxarifado
 1. Abra **Requisições (peças e insumos)**.

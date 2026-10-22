@@ -1,6 +1,6 @@
 /**
- * Requisição de peças impressa, como a planilha da loja: duas por folha A4
- * (meia folha cada) para economizar papel. Sem fundo nem faixas escuras.
+ * Requisição de peças impressa, como a planilha da loja: três por folha A4
+ * (um terço cada; dá para pedir duas) para economizar papel. Sem fundo nem faixas escuras.
  * Requisição com muitas peças ocupa a folha inteira e continua na seguinte.
  */
 import PDFDocument from "pdfkit";
@@ -35,18 +35,19 @@ export function pieceText(i: RequisitionPrint["items"][number]): string {
   return [i.description, i.material, i.thickness != null ? `${n(i.thickness)} mm` : "", size].filter(Boolean).join(" · ");
 }
 
-/** Altura que a requisição ocupa (para saber se cabe em meia folha). */
+/** Altura que a requisição ocupa (para saber se cabe na sua parte da folha). */
 export function blockHeight(r: RequisitionPrint) {
   return 66 + HEAD_H + Math.max(r.items.length, 3) * ROW_H + (r.note ? 26 : 0) + 30;
 }
 
-export function requisitionsPdf(reqs: RequisitionPrint[]): Promise<Buffer> {
+export function requisitionsPdf(reqs: RequisitionPrint[], perPage: 2 | 3 = 3): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", margin: M, info: { Title: "Requisições de peças" } });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
   const W = doc.page.width - 2 * M;
-  const half = (doc.page.height - 2 * M) / 2;
+  // altura de cada parte da folha
+  const part = (doc.page.height - 2 * M) / perPage;
   const pieceCols = [
     { label: "QTD", w: 0.07 },
     { label: "DESCRIÇÃO", w: 0.5 },
@@ -93,11 +94,11 @@ export function requisitionsPdf(reqs: RequisitionPrint[]): Promise<Buffer> {
   };
 
   let top = M;
-  let slot = 0; // 0 = metade de cima livre, 1 = metade de baixo livre
+  let slot = 0; // próxima parte livre da folha (perPage = folha cheia)
   reqs.forEach((r, idx) => {
-    const fitsHalf = blockHeight(r) <= half - 8;
+    const fits = blockHeight(r) <= part - 8;
     if (idx > 0) {
-      if (fitsHalf && slot === 1) top = M + half + 8;
+      if (fits && slot < perPage) top = M + slot * part + 6;
       else {
         doc.addPage();
         top = M;
@@ -139,11 +140,12 @@ export function requisitionsPdf(reqs: RequisitionPrint[]): Promise<Buffer> {
     }
     doc.font("Helvetica").fontSize(7).fillColor(BRAND.muted).text("Conferido por: ______________________________     Data: ____/____/______", M, y + 8, { width: W, lineBreak: false });
     y += 22;
-    if (fitsHalf && slot === 0 && y <= M + half) {
-      // linha de corte entre as duas metades
-      doc.moveTo(M, M + half + 4).lineTo(M + W, M + half + 4).dash(3, { space: 3 }).lineWidth(0.4).strokeColor(BRAND.muted).stroke().undash();
-      slot = 1;
-    } else slot = 2;
+    const end = M + (slot + 1) * part;
+    if (fits && y <= end) {
+      // linha de corte entre uma requisição e a próxima
+      if (slot + 1 < perPage) doc.moveTo(M, end + 1).lineTo(M + W, end + 1).dash(3, { space: 3 }).lineWidth(0.4).strokeColor(BRAND.muted).stroke().undash();
+      slot += 1;
+    } else slot = perPage;
   });
   if (!reqs.length) doc.font("Helvetica").fontSize(10).text("Nenhuma requisição para imprimir.");
   doc.end();

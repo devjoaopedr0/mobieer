@@ -1,5 +1,5 @@
 /**
- * Requisição impressa: duas por folha, peças e insumos.
+ * Requisição impressa: três por folha, peças e insumos.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -13,10 +13,10 @@ test("peça impressa com material, espessura e medidas", () => {
   assert.equal(pieceText({ ...peca, material: null, thickness: null, width: null }), "PEÇA ACABAMENTO · 2119 mm");
 });
 
-test("requisição pequena cabe em meia folha; com muitas peças, não", () => {
-  const half = (841.89 - 56) / 2;
-  assert.ok(blockHeight({ ...base, items: [peca, peca] }) < half - 8);
-  assert.ok(blockHeight({ ...base, items: Array(30).fill(peca) }) > half);
+test("requisição pequena cabe em um terço da folha; com muitas peças, não", () => {
+  const third = (841.89 - 56) / 3;
+  assert.ok(blockHeight({ ...base, items: [peca, peca] }) < third - 8);
+  assert.ok(blockHeight({ ...base, items: Array(30).fill(peca) }) > third);
 });
 
 test("duas requisições pequenas saem na mesma folha; insumos têm título próprio", async () => {
@@ -26,4 +26,12 @@ test("duas requisições pequenas saem na mesma folha; insumos têm título pró
   ]);
   const txt = pdf.toString("latin1");
   assert.equal((txt.match(/\/Type \/Page\b/g) ?? []).length, 1);
+});
+
+test("três requisições pequenas na mesma folha; a quarta vai para a próxima; duas por folha se pedir", async () => {
+  const reqs = [1, 2, 3, 4].map((n) => ({ ...base, number: `REQ-0000${n}`, items: [peca, peca] }));
+  const pages = (pdf: Buffer) => (pdf.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length;
+  assert.equal(pages(await requisitionsPdf(reqs)), 2);
+  assert.equal(pages(await requisitionsPdf(reqs.slice(0, 3))), 1);
+  assert.equal(pages(await requisitionsPdf(reqs.slice(0, 3), 2)), 2);
 });

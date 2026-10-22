@@ -195,8 +195,8 @@ export async function listCuttingBoard() {
   return rows.map(serialize);
 }
 
-/** Requisições para imprimir (duas por folha): as escolhidas, ou as em aberto. */
-export async function printRequisitions(ids: string[], userId?: string) {
+/** Requisições para imprimir (três por folha): as escolhidas, ou as em aberto. */
+export async function printRequisitions(ids: string[], userId?: string, perPage: 2 | 3 = 3) {
   const rows = await prisma.requisition.findMany({
     where: {
       ...(ids.length ? { id: { in: ids } } : { status: { notIn: [RequisitionStatus.DRAFT, RequisitionStatus.COMPLETED, RequisitionStatus.CANCELLED] } }),
@@ -219,7 +219,8 @@ export async function printRequisitions(ids: string[], userId?: string) {
       cutter: r.cutter?.name ?? null,
       note: r.note,
       items: r.items.map((i) => ({ quantity: i.quantity, unit: i.unit, description: i.description, material: i.material, thickness: i.thickness == null ? null : Number(i.thickness), length: i.length == null ? null : Number(i.length), width: i.width == null ? null : Number(i.width), edgeFinish: i.edgeFinish, note: i.note })),
-    }))
+    })),
+    perPage
   );
 }
 
