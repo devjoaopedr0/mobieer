@@ -1,12 +1,13 @@
 /**
  * Indexa a documentação do Mobieer AI (knowledge/docs/*.md) no banco:
- * corta em trechos, gera os embeddings no Gemini e grava em AiDocument/AiChunk.
+ * corta em trechos e grava em AiDocument/AiChunk (a busca do chat é por palavras;
+ * o provedor de AI_API_KEY não gera embeddings).
  * Só reprocessa arquivo novo ou alterado; `--tudo` refaz todos.
  *
  *   npx tsx scripts/indexar-conhecimento.ts
  *   npx tsx scripts/indexar-conhecimento.ts --tudo
  *
- * Precisa de GEMINI_API_KEY no .env e da migration 20261003180000_assistente_ia aplicada.
+ * Precisa da migration 20261003180000_assistente_ia aplicada.
  */
 import "dotenv/config";
 

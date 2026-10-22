@@ -54,12 +54,12 @@ router.get(
     const base = { enabled, knowledge, render: imageProvider().enabled };
     // o diagnóstico (qual provedor, qual modelo, por que falhou) é só para quem administra
     if (!req.user!.permissions.includes("settings.manage")) return ok(res, base);
-    const gemini = provider.name === "gemini";
     const diagnosis: Record<string, unknown> = {
-      provider: gemini ? "Gemini" : env.ai.providerName,
-      model: gemini ? env.assistant.model : env.ai.model,
-      missing: enabled ? null : "Nenhuma chave de IA no servidor: defina AI_API_KEY (ou GEMINI_API_KEY) nas variáveis de ambiente do backend e publique de novo.",
-      endpointAdjusted: !gemini && env.ai.endpointAdjusted,
+      provider: env.ai.providerName,
+      model: env.ai.model,
+      visionModel: env.ai.visionModel,
+      missing: enabled ? null : "Nenhuma chave de IA no servidor: defina AI_API_KEY nas variáveis de ambiente do backend e publique de novo.",
+      endpointAdjusted: env.ai.endpointAdjusted,
     };
     // ?check=1 faz uma chamada mínima ao provedor para dizer se a chave e o modelo funcionam
     if (enabled && req.query.check === "1") {

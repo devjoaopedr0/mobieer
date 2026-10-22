@@ -25,7 +25,7 @@ const bool = (v: string | undefined, dflt = false) =>
 
 const aiApiKey = (process.env.AI_API_KEY || "").trim();
 // endereço e modelo saem da própria chave quando AI_BASE_URL falta ou é de outro provedor
-const aiEndpoint = resolveAiEndpoint(aiApiKey, process.env.AI_BASE_URL, process.env.AI_MODEL);
+const aiEndpoint = resolveAiEndpoint(aiApiKey, process.env.AI_BASE_URL, process.env.AI_MODEL, process.env.AI_VISION_MODEL);
 const signatureToken = process.env.SIGNATURE_API_TOKEN || "";
 const nfeToken = process.env.NFE_API_TOKEN || "";
 
@@ -82,20 +82,18 @@ export const env = {
     baseUrl: aiEndpoint.baseUrl,
     apiKey: aiApiKey,
     model: aiEndpoint.model,
+    /** modelo que lê foto (nota, fatura, medidas); AI_VISION_MODEL troca */
+    visionModel: aiEndpoint.visionModel,
     providerName: aiEndpoint.provider,
     /** AI_BASE_URL apontava para outro provedor e foi trocado pelo da chave */
     endpointAdjusted: aiEndpoint.adjusted,
     timeoutMs: Number(process.env.AI_TIMEOUT_MS || 30000),
   },
 
-  // --- Mobieer AI (assistente da equipe). A chave fica só no backend.
-  //     Sem GEMINI_API_KEY o assistente aparece como indisponível. ---
+  // --- Gemini: só a geração de imagens (render). Chat, leitura de foto e
+  //     de PDF usam o provedor de AI_API_KEY acima. ---
   assistant: {
-    provider: (process.env.ASSISTANT_PROVIDER || "").trim().toLowerCase() as "" | "gemini" | "openai",
     apiKey: (process.env.GEMINI_API_KEY || "").trim(),
-    model: process.env.GEMINI_MODEL || "gemini-3.5-flash",
-    embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001",
-    timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 25000),
     // Render com IA (imagem a partir de imagem)
     imageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image-preview",
     imageTimeoutMs: Number(process.env.GEMINI_IMAGE_TIMEOUT_MS || 55000),

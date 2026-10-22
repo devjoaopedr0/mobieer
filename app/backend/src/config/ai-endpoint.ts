@@ -7,17 +7,17 @@
  * variáveis para o servidor), o endereço certo é usado no lugar.
  */
 
-type Known = { name: string; prefix: string; host: string; baseUrl: string; model: string };
+type Known = { name: string; prefix: string; host: string; baseUrl: string; model: string; /** modelo que lê imagem */ visionModel: string };
 
 const PROVIDERS: Known[] = [
-  { name: "Groq", prefix: "gsk_", host: "api.groq.com", baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b" },
-  { name: "OpenRouter", prefix: "sk-or-", host: "openrouter.ai", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
-  { name: "xAI", prefix: "xai-", host: "api.x.ai", baseUrl: "https://api.x.ai/v1", model: "grok-2-latest" },
+  { name: "Groq", prefix: "gsk_", host: "api.groq.com", baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", visionModel: "qwen/qwen3.8-27b" },
+  { name: "OpenRouter", prefix: "sk-or-", host: "openrouter.ai", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", visionModel: "openai/gpt-4o-mini" },
+  { name: "xAI", prefix: "xai-", host: "api.x.ai", baseUrl: "https://api.x.ai/v1", model: "grok-2-latest", visionModel: "grok-2-vision-latest" },
   // por último: "sk-" sozinho é o formato da OpenAI (e de vários compatíveis)
-  { name: "OpenAI", prefix: "sk-", host: "api.openai.com", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  { name: "OpenAI", prefix: "sk-", host: "api.openai.com", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", visionModel: "gpt-4o-mini" },
 ];
 
-export type AiEndpoint = { baseUrl: string; model: string; provider: string; /** true quando o endereço informado foi trocado pelo do provedor da chave */ adjusted: boolean };
+export type AiEndpoint = { baseUrl: string; model: string; visionModel: string; provider: string; /** true quando o endereço informado foi trocado pelo do provedor da chave */ adjusted: boolean };
 
 const hostOf = (url: string) => {
   try {
@@ -27,7 +27,13 @@ const hostOf = (url: string) => {
   }
 };
 
-export function resolveAiEndpoint(apiKey: string, baseUrl?: string | null, model?: string | null): AiEndpoint {
+export function resolveAiEndpoint(apiKey: string, baseUrl?: string | null, model?: string | null, visionModel?: string | null): AiEndpoint {
+  const base = resolveText(apiKey, baseUrl, model);
+  const known = PROVIDERS.find((p) => apiKey.trim().startsWith(p.prefix) && p.baseUrl === base.baseUrl);
+  return { ...base, visionModel: (visionModel ?? "").trim() || known?.visionModel || base.model };
+}
+
+function resolveText(apiKey: string, baseUrl?: string | null, model?: string | null): Omit<AiEndpoint, "visionModel"> {
   const key = apiKey.trim();
   const url = (baseUrl ?? "").trim().replace(/\/$/, "");
   const mdl = (model ?? "").trim();

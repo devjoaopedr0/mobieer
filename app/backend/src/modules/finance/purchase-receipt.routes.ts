@@ -35,8 +35,8 @@ router.post(
     if (!isPdf && !req.file.mimetype.startsWith("image/")) throw new BadRequestError("Envie uma foto ou um PDF");
     let receipt: Receipt | null = null;
     const vision = visionProvider();
-    if (vision.enabled) {
-      // o Gemini às vezes responde "ocupado": tenta de novo uma vez
+    if (vision.enabled && !isPdf) {
+      // a IA às vezes responde "ocupado": tenta de novo uma vez
       for (let attempt = 0; attempt < 2 && !receipt; attempt++) {
         try {
           receipt = parseReceipt(await vision.readJson({ bytes: req.file.buffer, mime: req.file.mimetype, prompt: receiptPrompt() }));
@@ -45,7 +45,7 @@ router.post(
         }
       }
     }
-    // sem leitura de imagem: o texto do PDF vai para a IA de texto
+    // PDF: o texto vai para a IA de texto
     if (!receipt && isPdf && aiEnabled()) {
       const text = await extractPdfLines(req.file.buffer)
         .then((lines) => lines.map((l) => l.cells.map((c) => c.s).join(" ")).join("\n"))

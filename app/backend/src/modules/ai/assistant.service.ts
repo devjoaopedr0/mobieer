@@ -1,5 +1,5 @@
 /**
- * Orquestração do Mobieer AI: histórico → busca na documentação → Gemini com
+ * Orquestração do Mobieer AI: histórico → busca na documentação → IA (provedor de AI_API_KEY) com
  * as ferramentas do usuário → conferência de escopo → grava a conversa.
  */
 import { prisma } from "../../prisma";
@@ -52,7 +52,7 @@ export async function chat(user: ToolUser, input: { message: string; conversatio
   });
 
   const out = finalAnswer(result.text, sourcesOf(chunks), result.toolsUsed);
-  log("Gemini response generated", { inScope: out.inScope, tools: out.toolsUsed.length, sources: out.sources.length, ms: Date.now() - started });
+  log("AI response generated", { inScope: out.inScope, tools: out.toolsUsed.length, sources: out.sources.length, ms: Date.now() - started });
 
   await prisma.$transaction([
     prisma.aiMessage.create({ data: { conversationId, role: "user", content: input.message } }),

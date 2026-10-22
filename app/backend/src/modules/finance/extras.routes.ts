@@ -224,8 +224,8 @@ router.post(
 );
 
 // Lê as compras da fatura enviada e devolve para conferir (não grava).
-// Gemini lê o PDF direto (até escaneado); sem ele, o texto do PDF vai para a IA
-// de texto; sem IA, as linhas são lidas pelo formato "data descrição valor".
+// Foto da fatura: a IA de imagem lê. PDF: o texto vai para a IA de texto; sem
+// IA, as linhas são lidas pelo formato "data descrição valor".
 router.post(
   "/cards/statements/:id/read",
   requirePermission("finance.manage"),
@@ -241,12 +241,12 @@ router.post(
     let items: InvoiceItem[] = [];
     let source: "IA_PDF" | "IA_TEXTO" | "LEITURA_SIMPLES" = "LEITURA_SIMPLES";
     const vision = visionProvider();
-    if (vision.enabled) {
-      // o Gemini às vezes responde "ocupado": tenta de novo uma vez
+    if (vision.enabled && !isPdf) {
+      // a IA às vezes responde "ocupado": tenta de novo uma vez
       for (let attempt = 0; attempt < 2 && !items.length; attempt++) {
         try {
-          items = parseAiItems(await vision.readJson({ bytes, mime: isPdf ? "application/pdf" : "image/jpeg", prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth);
-          source = "IA_PDF";
+          items = parseAiItems(await vision.readJson({ bytes, mime: "image/jpeg", prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth);
+          source = "IA_PDF"; // lida pela IA direto do arquivo
         } catch {
           items = [];
           if (attempt === 0) await new Promise((r) => setTimeout(r, 2500));
@@ -254,7 +254,7 @@ router.post(
       }
     }
     if (!items.length && isPdf) {
-      // PDF que o leitor de texto não abre: segue sem texto (a leitura pela IA do PDF já foi tentada)
+      // PDF que o leitor de texto não abre (escaneado): segue sem texto
       const text = await extractPdfLines(bytes)
         .then((lines) => lines.map((l) => l.cells.map((c) => c.s).join(" ")).join("\n"))
         .catch(() => "");

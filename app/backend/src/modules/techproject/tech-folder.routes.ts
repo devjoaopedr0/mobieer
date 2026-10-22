@@ -362,7 +362,7 @@ router.post(
   uploadDocument.single("file"),
   asyncHandler(async (req, res) => {
     const p = await projectFor(req.params.projectId, req.user!.organizationId);
-    if (!visionProvider().enabled) throw new BadRequestError("A leitura por IA ainda não está configurada neste ambiente (falta a chave GEMINI_API_KEY). Enquanto isso, digite as medidas.");
+    if (!visionProvider().enabled) throw new BadRequestError("A leitura por IA ainda não está configurada neste ambiente (falta a chave AI_API_KEY). Enquanto isso, digite as medidas.");
     if (!req.file || !/^image\/(png|jpe?g|webp)$/i.test(req.file.mimetype)) throw new BadRequestError("Envie uma foto ou imagem (PNG, JPG ou WEBP) do rascunho ou da prancha.");
 
     const limit = hitLimit(aiStore, `tech-ai:${req.user!.id}`, AI_LIMIT);
