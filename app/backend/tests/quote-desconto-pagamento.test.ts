@@ -8,6 +8,9 @@ import test from "node:test";
 import { planFinance } from "../src/modules/commercial/quote.finance";
 import { DEFAULT_PRICING, PAYMENT_LABEL, computeQuote, hasPixEntry, paymentText, settlementOf, type QuoteInput } from "../src/modules/commercial/quote.rules";
 
+// a mecânica do preço testada sem o frete e o imposto de referência (eles têm teste próprio)
+const SEM_REF = { ...DEFAULT_PRICING, defaultFreightPercent: 0, defaultTaxPercent: 0 };
+
 const brl = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
 const base = (over: Partial<QuoteInput> = {}): QuoteInput => ({
   items: [{ room: "Capeamento de mesas", description: "Tampos", unitCost: 4500 }],
@@ -21,7 +24,7 @@ const base = (over: Partial<QuoteInput> = {}): QuoteInput => ({
 });
 
 test("desconto em R$ continua igual: o caso do vídeo dá pontuação 1,48", () => {
-  const c = computeQuote(base({ discount: 2473.68 }), DEFAULT_PRICING);
+  const c = computeQuote(base({ discount: 2473.68 }), SEM_REF);
   assert.equal(c.subtotal, 9473.68);
   assert.equal(c.total, 7000);
   assert.equal(c.commissionTotal, 350);
@@ -31,19 +34,19 @@ test("desconto em R$ continua igual: o caso do vídeo dá pontuação 1,48", () 
 });
 
 test("com desconto em R$, baixar a comissão só baixa o valor final (a queixa do vídeo)", () => {
-  const c = computeQuote(base({ discount: 2473.68, commissions: [{ name: "Jéssica", role: "VENDEDOR", percent: 3 }] }), DEFAULT_PRICING);
+  const c = computeQuote(base({ discount: 2473.68, commissions: [{ name: "Jéssica", role: "VENDEDOR", percent: 3 }] }), SEM_REF);
   assert.ok(c.total < 7000); // o preço caiu junto com a comissão
   assert.ok(Math.abs(c.score! - 1.4778) < 0.03); // e a pontuação quase não mexe
 });
 
 test("fechando no valor final, baixar a comissão mantém os R$ 7.000 e melhora a pontuação", () => {
-  const antes = computeQuote(base({ targetTotal: 7000 }), DEFAULT_PRICING);
+  const antes = computeQuote(base({ targetTotal: 7000 }), SEM_REF);
   assert.equal(antes.total, 7000);
   assert.equal(antes.discount, 2473.68);
   assert.equal(antes.score, 1.4778);
   assert.equal(antes.discountMode, "TOTAL");
 
-  const depois = computeQuote(base({ targetTotal: 7000, commissions: [{ name: "Jéssica", role: "VENDEDOR", percent: 3 }] }), DEFAULT_PRICING);
+  const depois = computeQuote(base({ targetTotal: 7000, commissions: [{ name: "Jéssica", role: "VENDEDOR", percent: 3 }] }), SEM_REF);
   assert.equal(depois.total, 7000); // o cliente paga o mesmo
   assert.equal(depois.commissionTotal, 210);
   assert.equal(depois.score, 1.5089); // (7000 − 210) / 4500
@@ -51,23 +54,23 @@ test("fechando no valor final, baixar a comissão mantém os R$ 7.000 e melhora 
 });
 
 test("valor final acima do preço de venda não vira acréscimo: o desconto fica zero", () => {
-  const c = computeQuote(base({ targetTotal: 20000 }), DEFAULT_PRICING);
+  const c = computeQuote(base({ targetTotal: 20000 }), SEM_REF);
   assert.equal(c.discount, 0);
   assert.equal(c.total, c.subtotal);
 });
 
 test("desconto em % acompanha o preço: mudando o mark-up, o percentual é o mesmo", () => {
-  const a = computeQuote(base({ discountPercent: 10 }), DEFAULT_PRICING);
+  const a = computeQuote(base({ discountPercent: 10 }), SEM_REF);
   assert.equal(a.discount, 947.37);
   assert.equal(a.total, 8526.31);
   assert.equal(a.discountMode, "PERCENTUAL");
   assert.equal(a.discountRate, 10);
-  const b = computeQuote(base({ discountPercent: 10, markup: 2.5 }), DEFAULT_PRICING);
+  const b = computeQuote(base({ discountPercent: 10, markup: 2.5 }), SEM_REF);
   assert.equal(b.discountRate, 10);
   assert.ok(b.total > a.total && b.score! > a.score!);
   // o percentual vale no lugar do desconto em R$ informado junto
-  assert.equal(computeQuote(base({ discountPercent: 10, discount: 5000 }), DEFAULT_PRICING).discount, 947.37);
-  assert.equal(computeQuote(base({ discountPercent: 150 }), DEFAULT_PRICING).total, 0); // nunca passa de 100%
+  assert.equal(computeQuote(base({ discountPercent: 10, discount: 5000 }), SEM_REF).discount, 947.37);
+  assert.equal(computeQuote(base({ discountPercent: 150 }), SEM_REF).total, 0); // nunca passa de 100%
 });
 
 test("entrada no PIX + boleto / cartão / financeira: o saldo segue a segunda forma", () => {
@@ -79,7 +82,7 @@ test("entrada no PIX + boleto / cartão / financeira: o saldo segue a segunda fo
   assert.equal(hasPixEntry("PIX"), false);
   assert.equal(PAYMENT_LABEL.PIX_CARTAO, "Entrada no PIX + cartão");
 
-  const boleto = computeQuote(base({ targetTotal: 7000, payment: { method: "PIX_BOLETO", downPayment: 2000, installments: 10 } }), DEFAULT_PRICING);
+  const boleto = computeQuote(base({ targetTotal: 7000, payment: { method: "PIX_BOLETO", downPayment: 2000, installments: 10 } }), SEM_REF);
   assert.equal(boleto.payment.method, "PIX_BOLETO");
   assert.equal(boleto.payment.financed, 5000);
   assert.equal(boleto.payment.installments, 10);
@@ -87,12 +90,12 @@ test("entrada no PIX + boleto / cartão / financeira: o saldo segue a segunda fo
   assert.equal(boleto.payment.financingFee, 0); // boleto não tem taxa retida
   assert.equal(paymentText(boleto.payment, brl), "Entrada de R$ 2000,00 no PIX + 10x de R$ 500,00 (Boleto parcelado)");
 
-  const cartao = computeQuote(base({ targetTotal: 7000, payment: { method: "PIX_CARTAO", downPayment: 2000, installments: 5, feePercent: 4 } }), DEFAULT_PRICING);
+  const cartao = computeQuote(base({ targetTotal: 7000, payment: { method: "PIX_CARTAO", downPayment: 2000, installments: 5, feePercent: 4 } }), SEM_REF);
   assert.equal(cartao.payment.financingFee, 200); // 4% sobre os 5.000 do cartão, não sobre a entrada
   assert.match(paymentText(cartao.payment, brl), /^Entrada de R\$ 2000,00 no PIX \+ 5x de R\$ 1000,00 \(Cartão de crédito\)$/);
 
   // PIX puro continua uma parcela só
-  assert.equal(computeQuote(base({ payment: { method: "PIX", installments: 6 } }), DEFAULT_PRICING).payment.installments, 1);
+  assert.equal(computeQuote(base({ payment: { method: "PIX", installments: 6 } }), SEM_REF).payment.installments, 1);
 });
 
 test("financeiro do contrato: entrada no PIX e o saldo nas parcelas da segunda forma", () => {
