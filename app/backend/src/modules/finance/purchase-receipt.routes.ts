@@ -19,6 +19,7 @@ import { ApiError, BadRequestError } from "../../utils/ApiError";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ok } from "../../utils/response";
 import { visionProvider } from "../ai/provider/vision";
+import { pdfImagesForAi } from "../../lib/pdf-images";
 import { extractPdfLines } from "../promob/promob.pdf";
 import { parseReceipt, purchaseSummary, receiptPrompt, type PurchaseLine, type Receipt } from "./purchase-receipt.rules";
 
@@ -35,8 +36,8 @@ router.post(
     if (!isPdf && !req.file.mimetype.startsWith("image/")) throw new BadRequestError("Envie uma foto ou um PDF");
     let receipt: Receipt | null = null;
     const vision = visionProvider();
-    if (vision.enabled) {
-      // o Gemini às vezes responde "ocupado": tenta de novo uma vez
+    if (vision.enabled && !isPdf) {
+      // a IA às vezes responde "ocupado": tenta de novo uma vez
       for (let attempt = 0; attempt < 2 && !receipt; attempt++) {
         try {
           receipt = parseReceipt(await vision.readJson({ bytes: req.file.buffer, mime: req.file.mimetype, prompt: receiptPrompt() }));
@@ -45,7 +46,7 @@ router.post(
         }
       }
     }
-    // sem leitura de imagem: o texto do PDF vai para a IA de texto
+    // PDF: o texto vai para a IA de texto
     if (!receipt && isPdf && aiEnabled()) {
       const text = await extractPdfLines(req.file.buffer)
         .then((lines) => lines.map((l) => l.cells.map((c) => c.s).join(" ")).join("\n"))
@@ -53,6 +54,18 @@ router.post(
       if (text.trim()) {
         try {
           receipt = parseReceipt(await aiComplete({ prompt: `${receiptPrompt()}\n\nTexto do documento:\n${text.slice(0, 20000)}`, json: true, temperature: 0, maxTokens: 4000 }));
+        } catch {
+          receipt = null;
+        }
+      }
+    }
+    // PDF escaneado (sem texto): a foto da página vai para a IA de imagem
+    if (!receipt && isPdf && vision.enabled) {
+      const pages = await pdfImagesForAi(req.file.buffer, 3).catch(() => []);
+      for (const pg of pages) {
+        try {
+          receipt = parseReceipt(await vision.readJson({ bytes: pg.bytes, mime: pg.mime, prompt: receiptPrompt() }));
+          break;
         } catch {
           receipt = null;
         }

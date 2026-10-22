@@ -1,12 +1,11 @@
 /**
- * Leitura de imagem: o Gemini olha uma foto (rascunho, print do Promob) e
- * devolve um JSON. Usado para preencher o formulário de medidas do projeto
- * técnico — a pessoa sempre confere antes de salvar.
+ * Leitura de imagem: a IA olha uma foto (rascunho, print do Promob, nota,
+ * fatura) e devolve um JSON. A pessoa sempre confere antes de salvar.
  *
- * Mesmo padrão do `image.ts`: chave só no servidor (GEMINI_API_KEY) e falha
- * virando `AiProviderError`, sem detalhe interno para a tela.
+ * Usa o provedor cadastrado em AI_API_KEY (Groq, xAI…), com o modelo que lê
+ * imagem (AI_VISION_MODEL). O Gemini fica só na geração de imagens (image.ts).
+ * PDF não vai para cá: quem chama extrai o texto e manda para a IA de texto.
  */
-import { ApiError, GoogleGenAI } from "@google/genai";
 import { env } from "../../../config/env";
 import { AiProviderError } from "./types";
 
@@ -18,31 +17,53 @@ export interface VisionProvider {
   readJson(input: VisionInput): Promise<string>;
 }
 
-let client: GoogleGenAI | null = null;
-
 export function visionProvider(): VisionProvider {
-  const cfg = env.assistant;
-  const enabled = Boolean(cfg.apiKey);
+  const cfg = env.ai;
+  const enabled = Boolean(cfg.apiKey && cfg.visionModel);
   return {
     enabled,
     async readJson(input) {
-      if (!enabled) throw new AiProviderError("Leitura de imagem com IA não configurada (defina GEMINI_API_KEY)");
-      client ??= new GoogleGenAI({ apiKey: cfg.apiKey, httpOptions: { timeout: cfg.imageTimeoutMs } });
+      if (!enabled) throw new AiProviderError("Leitura de imagem com IA não configurada (defina AI_API_KEY)");
+      if (!input.mime.startsWith("image/")) throw new AiProviderError("a leitura por imagem só aceita foto; PDF é lido pelo texto");
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), Math.max(cfg.timeoutMs, 45_000));
       try {
-        const res = await client.models.generateContent({
-          model: cfg.model,
-          contents: [{ role: "user", parts: [{ inlineData: { mimeType: input.mime, data: input.bytes.toString("base64") } }, { text: input.prompt }] }],
-          // temperatura zero: é leitura de medida, não criação
-          config: { temperature: 0, maxOutputTokens: 4000, responseMimeType: "application/json" },
+        const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: cfg.visionModel,
+            // temperatura zero: é leitura, não criação
+            temperature: 0,
+            // o plano gratuito do Groq limita a resposta do modelo de imagem a 1000 por minuto
+            max_tokens: cfg.visionMaxTokens,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: input.prompt },
+                  { type: "image_url", image_url: { url: `data:${input.mime};base64,${input.bytes.toString("base64")}` } },
+                ],
+              },
+            ],
+          }),
         });
-        const text = res.text ?? "";
-        if (!text.trim()) throw new AiProviderError("a IA não devolveu resposta (a imagem pode ter sido recusada pelo filtro do modelo)");
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+          throw new AiProviderError(`a IA de imagem respondeu HTTP ${res.status}`, res.status === 429 || res.status >= 500, res.status, String(err.error?.message ?? "").slice(0, 300));
+        }
+        const json = (await res.json().catch(() => ({}))) as { choices?: { message?: { content?: string | null } }[] };
+        const text = json.choices?.[0]?.message?.content ?? "";
+        if (!text.trim()) throw new AiProviderError("a IA não devolveu resposta para esta imagem");
         return text;
       } catch (e) {
         if (e instanceof AiProviderError) throw e;
-        if (e instanceof ApiError) throw new AiProviderError(`Gemini respondeu HTTP ${e.status}`, e.status === 429 || e.status >= 500, e.status, String(e.message).slice(0, 300));
-        if (e instanceof Error && (e.name === "AbortError" || /timeout|timed out/i.test(e.message))) throw new AiProviderError("tempo limite da leitura excedido", true);
-        throw new AiProviderError("falha de comunicação com o Gemini", true);
+        if (e instanceof Error && e.name === "AbortError") throw new AiProviderError("tempo limite da leitura excedido", true);
+        throw new AiProviderError("falha de comunicação com a IA de imagem", true);
+      } finally {
+        clearTimeout(timer);
       }
     },
   };

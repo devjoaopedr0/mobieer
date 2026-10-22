@@ -45,10 +45,10 @@ export function deliveryTermPdf(d: DeliveryTermPdfInput): Promise<Buffer> {
   const cols = [0.24, 0.14, 0.62];
   const row = (cells: string[], header = false) => {
     const y = doc.y;
-    if (header) doc.rect(L, y, W, 18).fill(BRAND.band);
+    if (header) doc.rect(L, y, W, 18).fill(BRAND.head);
     let x = L;
     cells.forEach((c, i) => {
-      doc.font(header ? "Helvetica-Bold" : "Helvetica").fontSize(header ? 7.5 : 9.5).fillColor(header ? "#FFFFFF" : BRAND.ink).text(c, x + 8, y + (header ? 6 : 5), { width: cols[i] * W - 16, lineBreak: false });
+      doc.font(header ? "Helvetica-Bold" : "Helvetica").fontSize(header ? 7.5 : 9.5).fillColor(BRAND.ink).text(c, x + 8, y + (header ? 6 : 5), { width: cols[i] * W - 16, lineBreak: false });
       x += cols[i] * W;
     });
     if (!header) doc.moveTo(L, y + 20).lineTo(L + W, y + 20).strokeColor(BRAND.line).lineWidth(0.5).stroke();

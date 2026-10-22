@@ -501,6 +501,8 @@ export type RequisitionItemStatus = "PENDING" | "CUTTING" | "CUT" | "INSPECTED";
 
 export type Requisition = {
   id: string;
+  /** PECAS (corte) ou INSUMOS (almoxarifado) */
+  kind: "PECAS" | "INSUMOS";
   number: string;
   sector: string | null;
   destination: string | null;

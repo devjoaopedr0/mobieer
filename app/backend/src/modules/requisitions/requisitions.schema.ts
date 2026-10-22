@@ -17,7 +17,10 @@ export const requisitionItemSchema = z.object({
   note: nullableText(1000),
 });
 
+export const REQUISITION_KINDS = ["PECAS", "INSUMOS"] as const;
+
 export const createRequisitionSchema = z.object({
+  kind: z.enum(REQUISITION_KINDS).default("PECAS"),
   sector: nullableText(100), destination: nullableText(200), clientName: nullableText(150), projectReference: nullableText(150),
   priority: z.nativeEnum(RequisitionPriority).default(RequisitionPriority.NORMAL),
   neededAt: z.string().datetime().optional().nullable(), responsibleId: z.string().optional().nullable(), note: nullableText(3000),
@@ -26,7 +29,7 @@ export const createRequisitionSchema = z.object({
   items: z.array(requisitionItemSchema).min(1, "Adicione ao menos uma peça").max(200),
 });
 
-export const updateRequisitionSchema = createRequisitionSchema.omit({ submit: true }).partial();
+export const updateRequisitionSchema = createRequisitionSchema.omit({ submit: true, kind: true }).partial();
 export const updateStatusSchema = z.object({ status: z.nativeEnum(RequisitionStatus), note: nullableText(1000), responsibleId: z.string().optional().nullable() });
 export const updateItemStatusSchema = z.object({ status: z.nativeEnum(RequisitionItemStatus), note: nullableText(500) });
 export const inspectionSchema = z.object({ result: z.nativeEnum(InspectionResult), note: nullableText(2000) });
@@ -34,6 +37,7 @@ export const reservationSchema = z.object({ items: z.array(z.object({ requisitio
 
 export const requisitionsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1), perPage: z.coerce.number().int().min(1).max(100).default(20),
+  kind: z.enum(REQUISITION_KINDS).optional(),
   status: z.nativeEnum(RequisitionStatus).optional(), priority: z.nativeEnum(RequisitionPriority).optional(), search: z.string().trim().optional(),
   my: z.enum(["true", "false"]).optional(), overdue: z.enum(["true", "false"]).optional(),
   sort: z.enum(["newest", "oldest", "deadline", "priority"]).default("newest"),

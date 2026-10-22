@@ -113,7 +113,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Planejamento da semana", to: "/producao/planejamento", icon: CalendarRange, permission: "organization.read" },
       { label: "Fábrica", to: "/producao/fabrica", icon: SquareKanban, permission: "organization.read" },
       { label: "Leitor de etiquetas", to: "/producao/leitor", icon: ScanBarcode, permission: "organization.read" },
-      { label: "Requisições de Peças", to: "/requisicoes", icon: Scissors, permission: "requisitions.read" },
+      { label: "Requisições (peças e insumos)", to: "/requisicoes", icon: Scissors, permission: "requisitions.read" },
       { label: "Compras de materiais", to: "/materiais", icon: ShoppingCart, permission: "organization.read" },
       { label: "Solicitação de peças", to: "/solicitacao-pecas", icon: Package, permission: "parts.read" },
     ],

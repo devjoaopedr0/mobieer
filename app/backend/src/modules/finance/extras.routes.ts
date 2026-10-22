@@ -12,6 +12,7 @@ import { ok } from "../../utils/response";
 import { storage, buildStorageKey } from "../../lib/storage";
 import { aiComplete, aiEnabled } from "../../lib/ai";
 import { visionProvider } from "../ai/provider/vision";
+import { pdfImagesForAi } from "../../lib/pdf-images";
 import { extractPdfLines } from "../promob/promob.pdf";
 import { expenseKey, invoicePrompt, parseAiItems, parseInvoiceText, type InvoiceItem } from "./card-invoice.rules";
 
@@ -224,8 +225,9 @@ router.post(
 );
 
 // Lê as compras da fatura enviada e devolve para conferir (não grava).
-// Gemini lê o PDF direto (até escaneado); sem ele, o texto do PDF vai para a IA
-// de texto; sem IA, as linhas são lidas pelo formato "data descrição valor".
+// Foto da fatura: a IA de imagem lê. PDF: o texto vai para a IA de texto; PDF
+// escaneado (sem texto): a foto de cada página vai para a IA de imagem; sem
+// IA, as linhas são lidas pelo formato "data descrição valor".
 router.post(
   "/cards/statements/:id/read",
   requirePermission("finance.manage"),
@@ -241,12 +243,12 @@ router.post(
     let items: InvoiceItem[] = [];
     let source: "IA_PDF" | "IA_TEXTO" | "LEITURA_SIMPLES" = "LEITURA_SIMPLES";
     const vision = visionProvider();
-    if (vision.enabled) {
-      // o Gemini às vezes responde "ocupado": tenta de novo uma vez
+    if (vision.enabled && !isPdf) {
+      // a IA às vezes responde "ocupado": tenta de novo uma vez
       for (let attempt = 0; attempt < 2 && !items.length; attempt++) {
         try {
-          items = parseAiItems(await vision.readJson({ bytes, mime: isPdf ? "application/pdf" : "image/jpeg", prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth);
-          source = "IA_PDF";
+          items = parseAiItems(await vision.readJson({ bytes, mime: "image/jpeg", prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth);
+          source = "IA_PDF"; // lida pela IA direto do arquivo
         } catch {
           items = [];
           if (attempt === 0) await new Promise((r) => setTimeout(r, 2500));
@@ -254,11 +256,23 @@ router.post(
       }
     }
     if (!items.length && isPdf) {
-      // PDF que o leitor de texto não abre: segue sem texto (a leitura pela IA do PDF já foi tentada)
+      // PDF que o leitor de texto não abre (escaneado): segue sem texto
       const text = await extractPdfLines(bytes)
         .then((lines) => lines.map((l) => l.cells.map((c) => c.s).join(" ")).join("\n"))
         .catch(() => "");
-      if (aiEnabled() && text.trim()) {
+      // escaneado: sem texto dentro, cada página é uma foto
+      if (!text.trim() && vision.enabled) {
+        const pages = await pdfImagesForAi(bytes, 8).catch(() => []);
+        for (const pg of pages) {
+          try {
+            items.push(...parseAiItems(await vision.readJson({ bytes: pg.bytes, mime: pg.mime, prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth));
+          } catch {
+            // página que a IA não leu: segue com as outras
+          }
+        }
+        if (items.length) source = "IA_PDF";
+      }
+      if (!items.length && aiEnabled() && text.trim()) {
         try {
           items = parseAiItems(await aiComplete({ prompt: `${invoicePrompt(stmt.referenceMonth)}\n\nTexto da fatura:\n${text.slice(0, 30000)}`, json: true, temperature: 0, maxTokens: 6000 }), stmt.referenceMonth);
           source = "IA_TEXTO";

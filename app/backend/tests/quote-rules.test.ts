@@ -6,8 +6,11 @@ import test from "node:test";
 import { quoteModelPdf } from "../src/modules/commercial/quote.pdf";
 import { DEFAULT_PRICING, ambCode, computeQuote, normalizePricing, obsLabel, paymentText, quoteObservations, quoteRooms, type PricingConfig, type QuoteInput } from "../src/modules/commercial/quote.rules";
 
+// a mecânica do preço testada sem o frete e o imposto de referência (eles têm teste próprio)
+const SEM_REF = { ...DEFAULT_PRICING, defaultFreightPercent: 0, defaultTaxPercent: 0 };
+
 const config: PricingConfig = {
-  ...DEFAULT_PRICING,
+  ...SEM_REF,
   minScore: 1.5,
   financingPlans: [
     { id: "sant19", name: "Santander 19x sem entrada", method: "FINANCEIRA", installments: 19, feePercent: 10, requiresDownPayment: false },
@@ -133,13 +136,13 @@ test("Promob → orçamento: ambientes com o subtotal do arquivo e a contagem de
 
 test("regra da loja: mark-up de 2 para cima fecha direto; abaixo pede liberação", () => {
   assert.equal(DEFAULT_PRICING.minScore, 2);
-  const at = (markup: number, over: Partial<QuoteInput> = {}) => computeQuote(base({ markup, ...over }), DEFAULT_PRICING).needsApproval;
+  const at = (markup: number, over: Partial<QuoteInput> = {}) => computeQuote(base({ markup, ...over }), SEM_REF).needsApproval;
   assert.equal(at(2), false);
   assert.equal(at(2.4), false);
   assert.equal(at(1.99), true);
   assert.equal(at(1.67), true);
   // centavos arredondados não derrubam um mark-up de 2 cravado
-  assert.equal(computeQuote(base({ markup: 2, items: [{ room: "Sala", description: "Painel", unitCost: 333.33 }], commissions: [{ name: "Ana", role: "VENDEDOR", percent: 3 }] }), DEFAULT_PRICING).needsApproval, false);
+  assert.equal(computeQuote(base({ markup: 2, items: [{ room: "Sala", description: "Painel", unitCost: 333.33 }], commissions: [{ name: "Ana", role: "VENDEDOR", percent: 3 }] }), SEM_REF).needsApproval, false);
   // desconto que derruba o mark-up efetivo para menos de 2 volta a pedir liberação
   assert.equal(at(2, { discount: 100 }), true);
 });
@@ -197,4 +200,21 @@ test("observações do PDF: só a garantia é fixa; o resto é o que foi escrito
   const antiga = normalizePricing({ document: { notes: [garantia, "ASSISTÊNCIA VITALÍCIA."] } }).document;
   assert.equal(antiga.mandatoryNote, garantia);
   assert.deepEqual(antiga.notes, ["ASSISTÊNCIA VITALÍCIA."]);
+});
+
+test("valor de referência: frete 2% e imposto 6% entram no preço como a comissão e saem do resultado", () => {
+  const input: QuoteInput = { items: [{ room: "Cozinha", description: "Armários", unitCost: 600 }], markup: 1.67, commissions: [{ name: "Ana", role: "VENDEDOR", percent: 3 }], payment: { method: "AVISTA" } };
+  const c = computeQuote(input, DEFAULT_PRICING);
+  // custo × mark-up ÷ (1 − (3% + 2% + 6%))
+  assert.equal(c.total, Math.round(((600 * 1.67) / (1 - 0.11)) * 100) / 100);
+  assert.equal(c.freightPercent, 2);
+  assert.equal(c.taxPercent, 6);
+  assert.equal(c.taxAmount, Math.round(c.total * 0.06 * 100) / 100);
+  // pagos comissão, frete e imposto, sobra custo × mark-up
+  assert.ok(Math.abs(c.result - (600 * 1.67 - 600)) < 0.05);
+  // orçamento com 0% (os antigos) fica como era; frete em R$ soma ao do %
+  const old = computeQuote({ ...input, freightPercent: 0, taxPercent: 0 }, DEFAULT_PRICING);
+  assert.equal(old.total, Math.round(((600 * 1.67) / (1 - 0.03)) * 100) / 100);
+  const extra = computeQuote({ ...input, freight: 100 }, DEFAULT_PRICING);
+  assert.equal(extra.freight, Math.round((extra.total * 0.02 + 100) * 100) / 100);
 });

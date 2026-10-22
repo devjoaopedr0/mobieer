@@ -18,6 +18,7 @@ import {
   contractPdf,
 } from "./contract.service";
 import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder, mergeOrders, quotesForProjects } from "./contract-order";
+import { contractNumberFor, nextContractNumber, peekContractNumber, setNextContractNumber } from "./contract-number";
 import { pipeToResponse } from "../../utils/stream";
 
 const router = Router();
@@ -254,6 +255,23 @@ router.post(
 // Modelo de contrato (corpo de texto com {{marcadores}}) + dados do cliente +
 // valores do orçamento do Promob -> PDF anexado ao cliente/projeto.
 
+// GET/PUT /api/templates/contract-numbering  -> próximo número de contrato
+router.get(
+  "/contract-numbering",
+  requirePermission("documents.read"),
+  asyncHandler(async (_req, res) => ok(res, { next: await nextContractNumber() }))
+);
+router.put(
+  "/contract-numbering",
+  requirePermission("documents.manage"),
+  asyncHandler(async (req, res) => {
+    const { next } = z.object({ next: z.coerce.number().int().min(1).max(99_999_999) }).parse(req.body);
+    await setNextContractNumber(next);
+    // nunca volta para um número já usado
+    return ok(res, { next: await nextContractNumber() }, "Numeração dos contratos salva");
+  })
+);
+
 // GET /api/templates/merge-fields  -> campos disponíveis + modelo padrão
 router.get(
   "/merge-fields",
@@ -289,11 +307,20 @@ async function orderFor(input: z.infer<typeof contractInput>, organizationId: st
   }
   // projetos escolhidos: usa o orçamento de cada um (o Promob escolhido à mão vale mais)
   const ids = input.projectIds?.length ? input.projectIds : input.projectId ? [input.projectId] : [];
-  if (!ids.length || input.promobImportId) return null;
-  const { quoteIds } = await quotesForProjects(organizationId, input.clientId, ids);
-  if (!quoteIds.length) return null;
-  return mergeOrders(await Promise.all(quoteIds.map((id) => loadContractOrder(organizationId, id))));
+  if (input.promobImportId) return null;
+  const { quoteIds } = ids.length ? await quotesForProjects(organizationId, input.clientId, ids) : { quoteIds: [] as string[] };
+  if (quoteIds.length) return mergeOrders(await Promise.all(quoteIds.map((id) => loadContractOrder(organizationId, id))));
+  // orçamento feito sem projeto: vale o último do cliente (o aceito primeiro)
+  const last = await prisma.commercialQuote.findFirst({
+    where: { organizationId, clientId: input.clientId, kind: "PADRAO", status: { not: "CANCELLED" } },
+    orderBy: [{ approvedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+    select: { id: true },
+  });
+  return last ? loadContractOrder(organizationId, last.id) : null;
 }
+
+/** Título do contrato: "Contrato Nº 1520", com o nome do cliente pequeno embaixo. */
+const contractHeading = (number: string) => `Contrato Nº ${number}`;
 
 async function loadContractTemplate(id: string, organizationId: string) {
   const t = await prisma.documentTemplate.findFirst({ where: { id, organizationId } });
@@ -313,6 +340,8 @@ router.post(
     const input = contractInput.parse(req.body);
     const order = await orderFor(input, req.user!.organizationId);
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
+    const numero = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId) : "";
+    ctx.values["contrato.numero"] = numero;
     const rendered = renderTemplate(t.bodyHtml!, ctx.values);
     // na prévia em texto, o quadro vira um resumo
     const text = order
@@ -320,7 +349,7 @@ router.post(
           .replace(BLOCK.pedido, order.items.map((i) => `${i.code} — ${i.room} — ${i.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
           .replace(BLOCK.pagamento, order.installments.map((p) => `${p.label}: ${p.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
       : rendered.text;
-    return ok(res, { title: input.title || t.name, text, missing: rendered.missing, meta: ctx.meta, values: ctx.values });
+    return ok(res, { title: numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || t.name, text, missing: rendered.missing, meta: ctx.meta, values: ctx.values });
   })
 );
 
@@ -333,21 +362,25 @@ router.post(
     const input = contractInput.parse(req.body);
     const order = await orderFor(input, req.user!.organizationId);
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
+    // contrato da loja: número na sequência dos contratos antigos
+    const numero = t.type === "CONTRATO" ? (await contractNumberFor(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId)).number : null;
+    ctx.values["contrato.numero"] = numero ?? "";
     const { text, missing } = renderTemplate(t.bodyHtml!, ctx.values);
 
-    const title = input.title || `${t.name} — ${ctx.meta.clientName}`;
+    const title = numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || `${t.name} — ${ctx.meta.clientName}`;
     const footer = `Gerado pelo sistema MOBIEER em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })}${
       ctx.meta.promobImportId ? ` • orçamento Promob ${ctx.values["promob.arquivo"]}` : ""
     }`;
     const pdf = await contractPdf({
-      title,
+      title: numero ? contractHeading(numero) : title,
+      subtitle: numero ? ctx.meta.clientName : undefined,
       body: text,
       footer,
       contacts: CONTRACT_CONTACTS,
       blocks: order ? { [BLOCK.pedido]: (doc) => drawOrderBlock(doc, order), [BLOCK.pagamento]: (doc) => drawPaymentBlock(doc, order) } : undefined,
     });
 
-    const fileName = `contrato-${(ctx.meta.projectCode || ctx.meta.clientName).replace(/[^\w-]+/g, "-").toLowerCase()}.pdf`;
+    const fileName = `contrato-${(numero || ctx.meta.projectCode || ctx.meta.clientName).replace(/[^\w-]+/g, "-").toLowerCase()}.pdf`;
     const key = buildStorageKey(`clients/${ctx.meta.clientId}`, fileName);
     await storage.put(key, pdf, "application/pdf");
 
@@ -358,6 +391,7 @@ router.post(
         clientId: ctx.meta.clientId,
         templateId: t.id,
         type: "CONTRATO",
+        number: numero,
         title,
         description: t.description,
         storageKey: key,

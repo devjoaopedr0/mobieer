@@ -1,12 +1,9 @@
 /**
  * Ponto único de escolha do provedor do assistente.
  *
- * ASSISTANT_PROVIDER="gemini" | "openai" força um; vazio escolhe sozinho:
- * Gemini quando há GEMINI_API_KEY, senão o provedor compatível com a OpenAI
- * de AI_BASE_URL/AI_API_KEY (Groq, OpenRouter…).
+ * O chat usa o provedor cadastrado em AI_API_KEY (Groq/xAI/OpenRouter, o mesmo
+ * do cronograma da produção). O Gemini fica só na geração de imagens (image.ts).
  */
-import { env } from "../../../config/env";
-import { geminiProvider } from "./gemini";
 import { openAiCompatibleProvider } from "./openai-compatible";
 import type { AiProvider } from "./types";
 
@@ -14,8 +11,7 @@ let current: AiProvider | null = null;
 
 export function aiProvider(): AiProvider {
   if (!current) {
-    const choice = env.assistant.provider || (env.assistant.apiKey ? "gemini" : "openai");
-    current = choice === "gemini" ? geminiProvider() : openAiCompatibleProvider();
+    current = openAiCompatibleProvider();
   }
   return current;
 }

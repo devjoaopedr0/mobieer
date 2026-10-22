@@ -1,7 +1,9 @@
+import { requisitionsPdf } from "./requisitions.pdf";
 import { InspectionResult, MovementType, Prisma, RequisitionItemStatus, RequisitionStatus, ReservationStatus } from "@prisma/client";
 import { prisma } from "../../prisma";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/ApiError";
 import { nextCode } from "../../utils/helpers";
+import { createExitWithClient } from "../stock/stock.service";
 import type { CreateRequisitionInput, ReservationInput, UpdateRequisitionInput } from "./requisitions.schema";
 
 const STATUS_LABEL: Record<RequisitionStatus, string> = {
@@ -48,8 +50,9 @@ async function logHistory(tx: Prisma.TransactionClient, requisitionId: string, u
   ]);
 }
 
-export async function listRequisitions(params: { page: number; perPage: number; status?: RequisitionStatus; priority?: string; search?: string; userId?: string; overdue?: boolean; sort?: string }) {
+export async function listRequisitions(params: { page: number; perPage: number; kind?: string; status?: RequisitionStatus; priority?: string; search?: string; userId?: string; overdue?: boolean; sort?: string }) {
   const where: Prisma.RequisitionWhereInput = {};
+  if (params.kind) where.kind = params.kind;
   if (params.status) where.status = params.status;
   if (params.priority) where.priority = params.priority as never;
   if (params.userId) where.requesterId = params.userId;
@@ -74,9 +77,11 @@ export async function getIndicators(userId?: string) {
 function itemData(item: CreateRequisitionInput["items"][number]) { return { description: item.description, material: item.material ?? null, productId: item.productId ?? null, thickness: item.thickness ?? null, length: item.length ?? null, width: item.width ?? null, quantity: item.quantity, unit: item.unit, edgeFinish: item.edgeFinish ?? null, note: item.note ?? null }; }
 
 export async function createRequisition(input: CreateRequisitionInput, requesterId: string) {
+  // insumo sai do estoque: cada item precisa ser um produto cadastrado
+  if (input.kind === "INSUMOS" && input.items.some((i) => !i.productId)) throw new BadRequestError("Na requisição de insumos, escolha o produto do estoque em cada item");
   const number = await nextCode("requisition", "REQ");
   const created = await prisma.$transaction(async (tx) => {
-    const req = await tx.requisition.create({ data: { number, sector: input.sector ?? null, destination: input.destination ?? null, clientName: input.clientName ?? null, projectReference: input.projectReference ?? null, priority: input.priority, neededAt: input.neededAt ? new Date(input.neededAt) : null, responsibleId: input.responsibleId ?? null, note: input.note ?? null, requesterId, status: input.submit ? RequisitionStatus.REQUESTED : RequisitionStatus.DRAFT, submittedAt: input.submit ? new Date() : null, items: { create: input.items.map(itemData) }, attachments: { create: input.attachments.map((a) => ({ name: a.name, url: a.url, mimeType: a.mimeType ?? null, size: a.size ?? null })) } }, include });
+    const req = await tx.requisition.create({ data: { number, kind: input.kind, sector: input.sector ?? null, destination: input.destination ?? null, clientName: input.clientName ?? null, projectReference: input.projectReference ?? null, priority: input.priority, neededAt: input.neededAt ? new Date(input.neededAt) : null, responsibleId: input.responsibleId ?? null, note: input.note ?? null, requesterId, status: input.submit ? RequisitionStatus.REQUESTED : RequisitionStatus.DRAFT, submittedAt: input.submit ? new Date() : null, items: { create: input.items.map(itemData) }, attachments: { create: input.attachments.map((a) => ({ name: a.name, url: a.url, mimeType: a.mimeType ?? null, size: a.size ?? null })) } }, include });
     await logHistory(tx, req.id, requesterId, input.submit ? "REQUISITION_SUBMITTED" : "REQUISITION_CREATED", undefined, { number, itemCount: input.items.length });
     return req;
   });
@@ -125,6 +130,8 @@ export async function updateRequisitionStatus(id: string, next: RequisitionStatu
   if (current.status === RequisitionStatus.DRAFT && next === RequisitionStatus.REQUESTED && current.requesterId !== actorId && !permissions.includes("requisitions.edit.all")) throw new ForbiddenError("Você só pode enviar seus próprios rascunhos");
   if (next === RequisitionStatus.CANCELLED && !permissions.includes("requisitions.read.all") && (current.requesterId !== actorId || !(current.status === RequisitionStatus.DRAFT || current.status === RequisitionStatus.REQUESTED))) throw new ForbiddenError("Solicitantes só podem cancelar suas próprias requisições antes da análise");
   assertRequisitionTransition(current.status, next, permissions);
+  // insumos não passam pelo corte; concluir é a entrega do almoxarifado (com baixa no estoque)
+  if (current.kind === "INSUMOS" && ([RequisitionStatus.RELEASED, RequisitionStatus.IN_CUTTING, RequisitionStatus.INSPECTION, RequisitionStatus.COMPLETED] as RequisitionStatus[]).includes(next)) throw new BadRequestError("Requisição de insumos: use Entregar insumos");
   if (next === RequisitionStatus.RELEASED) {
     const insufficient = current.items.find((item) => item.product && (item.product.stock - item.product.reservedStock) + item.reservations.reduce((sum, reservation) => sum + reservation.quantity, 0) < item.quantity);
     if (insufficient) throw new BadRequestError(`Material insuficiente para liberar a peça "${insufficient.description}"`);
@@ -184,6 +191,54 @@ export async function reserveMaterials(id: string, input: ReservationInput, acto
 }
 
 export async function listCuttingBoard() {
-  const rows = await prisma.requisition.findMany({ where: { status: { in: [RequisitionStatus.RELEASED, RequisitionStatus.IN_CUTTING, RequisitionStatus.INSPECTION, RequisitionStatus.COMPLETED] } }, include, orderBy: [{ priority: "desc" }, { neededAt: "asc" }, { createdAt: "asc" }], take: 200 });
+  const rows = await prisma.requisition.findMany({ where: { kind: "PECAS", status: { in: [RequisitionStatus.RELEASED, RequisitionStatus.IN_CUTTING, RequisitionStatus.INSPECTION, RequisitionStatus.COMPLETED] } }, include, orderBy: [{ priority: "desc" }, { neededAt: "asc" }, { createdAt: "asc" }], take: 200 });
   return rows.map(serialize);
+}
+
+/** Requisições para imprimir (duas por folha): as escolhidas, ou as em aberto. */
+export async function printRequisitions(ids: string[], userId?: string) {
+  const rows = await prisma.requisition.findMany({
+    where: {
+      ...(ids.length ? { id: { in: ids } } : { status: { notIn: [RequisitionStatus.DRAFT, RequisitionStatus.COMPLETED, RequisitionStatus.CANCELLED] } }),
+      ...(userId ? { requesterId: userId } : {}),
+    },
+    orderBy: { number: "asc" },
+    include: { requester: { select: { name: true } }, cutter: { select: { name: true } }, items: { orderBy: { createdAt: "asc" } } },
+  });
+  return requisitionsPdf(
+    rows.map((r) => ({
+      kind: r.kind,
+      number: r.number,
+      // na tela, "Solicitante" é quem pediu na fábrica (campo setor); sem ele, quem lançou
+      requester: r.sector || r.requester.name,
+      clientName: r.clientName,
+      projectReference: r.projectReference,
+      priority: r.priority,
+      orderedAt: r.submittedAt ?? r.createdAt,
+      neededAt: r.neededAt,
+      cutter: r.cutter?.name ?? null,
+      note: r.note,
+      items: r.items.map((i) => ({ quantity: i.quantity, unit: i.unit, description: i.description, material: i.material, thickness: i.thickness == null ? null : Number(i.thickness), length: i.length == null ? null : Number(i.length), width: i.width == null ? null : Number(i.width), edgeFinish: i.edgeFinish, note: i.note })),
+    }))
+  );
+}
+
+/**
+ * Almoxarifado entrega os insumos: dá baixa no estoque de cada item (saída
+ * ligada à requisição) e conclui a requisição.
+ */
+export async function deliverSupplies(id: string, actorId: string, actorName: string) {
+  const current = await requireRequisition(id);
+  if (current.kind !== "INSUMOS") throw new BadRequestError("Só a requisição de insumos é entregue pelo almoxarifado");
+  if (!([RequisitionStatus.REQUESTED, RequisitionStatus.IN_REVIEW, RequisitionStatus.WAITING_MATERIAL] as RequisitionStatus[]).includes(current.status)) throw new BadRequestError("Envie a requisição antes de entregar");
+  const items = current.items.filter((i) => i.productId).map((i) => ({ productId: i.productId!, quantity: i.quantity }));
+  const updated = await prisma.$transaction(async (tx) => {
+    // reserva feita para a requisição volta antes da saída
+    await cancelReservations(tx, id, actorId);
+    if (items.length) await createExitWithClient(tx, { items, requisitionId: id, sector: current.sector, destination: [current.clientName, current.projectReference].filter(Boolean).join(" — ") || current.destination, reason: "Requisição de insumos", note: current.number }, actorId, actorName);
+    const req = await tx.requisition.update({ where: { id }, data: { status: RequisitionStatus.COMPLETED, completedAt: new Date(), approvedBy: { connect: { id: actorId } } }, include });
+    await logHistory(tx, id, actorId, "REQUISITION_SUPPLIES_DELIVERED", { status: current.status }, { status: RequisitionStatus.COMPLETED, items: items.length });
+    return req;
+  });
+  return serialize(updated);
 }

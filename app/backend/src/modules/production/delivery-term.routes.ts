@@ -42,6 +42,8 @@ async function projectFor(id: string, organizationId: string) {
     select: {
       id: true, code: true, name: true, organizationId: true,
       client: { select: { id: true, name: true, document: true, city: true } },
+      // número do contrato da loja, quando já foi gerado
+      documents: { where: { type: "CONTRATO", number: { not: null } }, orderBy: { createdAt: "desc" }, take: 1, select: { number: true } },
       quotes: {
         where: { kind: "PADRAO" },
         orderBy: [{ approvedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
@@ -60,7 +62,7 @@ type P = Awaited<ReturnType<typeof projectFor>>;
 function suggestion(p: P): DeliveryTermData {
   const quote = p.quotes[0];
   return {
-    contractNumber: quote?.number ?? p.code,
+    contractNumber: p.documents[0]?.number ?? quote?.number ?? p.code,
     rooms: roomsFromQuote(quote?.items ?? [], today()),
     deadlines: [{ label: "Prazo de entrega do material", date: null }],
     deliveryDays: quote?.deliveryDays ?? 45,

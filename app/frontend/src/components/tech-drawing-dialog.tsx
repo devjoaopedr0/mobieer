@@ -237,7 +237,7 @@ export function TechDrawingDialog<T>({ base, open, onClose, onSaved, sheet, defa
         <div className="space-y-4 text-sm">
           <div className="rounded-lg border border-dashed p-3">
             <div className="flex flex-wrap items-center gap-3">
-              <label className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium ${aiMeasures && !reading ? "cursor-pointer hover:bg-muted" : "cursor-not-allowed opacity-50"}`} title={aiMeasures ? "Envie a foto de um rascunho ou um print com as medidas escritas" : "A leitura por IA ainda não está configurada (falta a chave GEMINI_API_KEY no servidor)"}>
+              <label className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium ${aiMeasures && !reading ? "cursor-pointer hover:bg-muted" : "cursor-not-allowed opacity-50"}`} title={aiMeasures ? "Envie a foto de um rascunho ou um print com as medidas escritas" : "A leitura por IA ainda não está configurada (falta a chave AI_API_KEY no servidor)"}>
                 {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Preencher por foto (IA)
                 <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={!aiMeasures || reading} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void readPhoto(file); }} />
               </label>
