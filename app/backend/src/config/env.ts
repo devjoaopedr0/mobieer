@@ -84,6 +84,8 @@ export const env = {
     model: aiEndpoint.model,
     /** modelo que lê foto (nota, fatura, medidas); AI_VISION_MODEL troca */
     visionModel: aiEndpoint.visionModel,
+    /** tamanho máximo da resposta da leitura de foto (AI_VISION_MAX_TOKENS; Groq gratuito: 1000/min) */
+    visionMaxTokens: Number(process.env.AI_VISION_MAX_TOKENS || 1000),
     providerName: aiEndpoint.provider,
     /** AI_BASE_URL apontava para outro provedor e foi trocado pelo da chave */
     endpointAdjusted: aiEndpoint.adjusted,

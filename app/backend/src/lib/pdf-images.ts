@@ -1,5 +1,5 @@
 /**
- * Fotos de dentro de um PDF escaneado: cada página de um PDF escaneado é uma
+ * Imagens de um PDF para a IA ler. Reserva: fotos de dentro de um PDF escaneado: cada página de um PDF escaneado é uma
  * imagem (a folha fotografada). Aqui tiramos a maior imagem de cada página para
  * a IA de imagem ler, sem renderizar o PDF (nada de canvas: roda na Vercel).
  *
@@ -120,4 +120,21 @@ export async function pdfPageImages(bytes: Buffer | Uint8Array, maxPages = 6): P
     }
   });
   return out;
+}
+
+/**
+ * Páginas do PDF como imagem para a IA ler: desenha a página inteira em JPG
+ * (pdf-render, serve para qualquer PDF); se o conversor não carregar no
+ * servidor, cai para a foto tirada de dentro do PDF (acima).
+ */
+export async function pdfImagesForAi(bytes: Buffer | Uint8Array, maxPages = 6): Promise<{ page: number; mime: "image/jpeg" | "image/png"; bytes: Buffer }[]> {
+  try {
+    // carregado só aqui: um problema no canvas não derruba as rotas que importam este arquivo
+    const { pdfToJpgs } = await import("./pdf-render");
+    const pages = await pdfToJpgs(bytes, { maxPages });
+    if (pages.length) return pages;
+  } catch {
+    // segue para a reserva
+  }
+  return pdfPageImages(bytes, maxPages);
 }

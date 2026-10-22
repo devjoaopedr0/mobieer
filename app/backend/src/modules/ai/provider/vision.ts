@@ -36,7 +36,8 @@ export function visionProvider(): VisionProvider {
             model: cfg.visionModel,
             // temperatura zero: é leitura, não criação
             temperature: 0,
-            max_tokens: 4000,
+            // o plano gratuito do Groq limita a resposta do modelo de imagem a 1000 por minuto
+            max_tokens: cfg.visionMaxTokens,
             response_format: { type: "json_object" },
             messages: [
               {

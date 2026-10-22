@@ -12,7 +12,7 @@ import { ok } from "../../utils/response";
 import { storage, buildStorageKey } from "../../lib/storage";
 import { aiComplete, aiEnabled } from "../../lib/ai";
 import { visionProvider } from "../ai/provider/vision";
-import { pdfPageImages } from "../../lib/pdf-images";
+import { pdfImagesForAi } from "../../lib/pdf-images";
 import { extractPdfLines } from "../promob/promob.pdf";
 import { expenseKey, invoicePrompt, parseAiItems, parseInvoiceText, type InvoiceItem } from "./card-invoice.rules";
 
@@ -262,7 +262,7 @@ router.post(
         .catch(() => "");
       // escaneado: sem texto dentro, cada página é uma foto
       if (!text.trim() && vision.enabled) {
-        const pages = await pdfPageImages(bytes, 8).catch(() => []);
+        const pages = await pdfImagesForAi(bytes, 8).catch(() => []);
         for (const pg of pages) {
           try {
             items.push(...parseAiItems(await vision.readJson({ bytes: pg.bytes, mime: pg.mime, prompt: invoicePrompt(stmt.referenceMonth) }), stmt.referenceMonth));

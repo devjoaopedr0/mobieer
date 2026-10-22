@@ -19,7 +19,7 @@ import { ApiError, BadRequestError } from "../../utils/ApiError";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ok } from "../../utils/response";
 import { visionProvider } from "../ai/provider/vision";
-import { pdfPageImages } from "../../lib/pdf-images";
+import { pdfImagesForAi } from "../../lib/pdf-images";
 import { extractPdfLines } from "../promob/promob.pdf";
 import { parseReceipt, purchaseSummary, receiptPrompt, type PurchaseLine, type Receipt } from "./purchase-receipt.rules";
 
@@ -61,7 +61,7 @@ router.post(
     }
     // PDF escaneado (sem texto): a foto da página vai para a IA de imagem
     if (!receipt && isPdf && vision.enabled) {
-      const pages = await pdfPageImages(req.file.buffer, 3).catch(() => []);
+      const pages = await pdfImagesForAi(req.file.buffer, 3).catch(() => []);
       for (const pg of pages) {
         try {
           receipt = parseReceipt(await vision.readJson({ bytes: pg.bytes, mime: pg.mime, prompt: receiptPrompt() }));

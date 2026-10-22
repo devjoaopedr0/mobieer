@@ -40,3 +40,14 @@ test("tira a foto de cada página; ignora logo pequeno; PDF digital sem foto nã
   digital.addPage().drawText("Fatura digital");
   assert.equal((await pdfPageImages(await digital.save())).length, 0);
 });
+
+test("PDF vira JPG página a página (qualquer PDF, até sem foto dentro)", async () => {
+  const { pdfToJpgs } = await import("../src/lib/pdf-render");
+  const doc = await PDFDocument.create();
+  doc.addPage([595, 842]).drawText("Fatura digital", { x: 50, y: 700, size: 24 });
+  doc.addPage([842, 595]);
+  const pages = await pdfToJpgs(await doc.save(), { maxSide: 1000 });
+  assert.deepEqual(pages.map((p) => [p.page, p.mime, Math.max(p.width, p.height)]), [[1, "image/jpeg", 1000], [2, "image/jpeg", 1000]]);
+  assert.equal(pages[0].bytes.subarray(0, 2).toString("hex"), "ffd8"); // cabeçalho de JPG
+  assert.ok(pages[1].width > pages[1].height); // página deitada continua deitada
+});
