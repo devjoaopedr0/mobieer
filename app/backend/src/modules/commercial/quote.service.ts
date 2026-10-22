@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
+import { nextSharedNumber } from "../templates/contract-number";
 import { brl } from "../templates/contract.service";
 import { normalizePricing, paymentText, type PaymentMethod, type PricingConfig, type QuoteCalc } from "./quote.rules";
 import { quoteModelPdf } from "./quote.pdf";
@@ -163,16 +164,13 @@ export function calcToData(c: QuoteCalc) {
   };
 }
 
-/** Próximo número ORC-00001 da organização (as versões repetem o número). */
-export async function nextQuoteNumber(organizationId: string) {
-  const last = await prisma.commercialQuote.findFirst({
-    // adendo reaproveita o número do contrato (ORC-00001-A1): não entra na sequência
-    where: { organizationId, number: { startsWith: "ORC-" }, kind: "PADRAO" },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
-  const num = last ? parseInt(last.number.replace(/\D/g, ""), 10) + 1 : 1;
-  return `ORC-${String(num).padStart(5, "0")}`;
+/**
+ * Próximo número de orçamento (as versões repetem o número; adendo usa o do
+ * contrato com -A1). Segue a numeração da loja junto com os contratos: depois
+ * do ORC-00376 vem o 377, e nenhum número já usado por contrato se repete.
+ */
+export async function nextQuoteNumber(_organizationId: string) {
+  return `ORC-${String(await nextSharedNumber()).padStart(5, "0")}`;
 }
 
 

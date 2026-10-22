@@ -74,7 +74,7 @@ export async function getIndicators(userId?: string) {
   return { open: Object.entries(count).filter(([status]) => !["COMPLETED", "CANCELLED"].includes(status)).reduce((sum, [, value]) => sum + value, 0), inReview: count.IN_REVIEW ?? 0, waitingMaterial: count.WAITING_MATERIAL ?? 0, released: count.RELEASED ?? 0, inCutting: count.IN_CUTTING ?? 0, inspection: count.INSPECTION ?? 0, completed: count.COMPLETED ?? 0, overdue };
 }
 
-function itemData(item: CreateRequisitionInput["items"][number]) { return { description: item.description, material: item.material ?? null, productId: item.productId ?? null, thickness: item.thickness ?? null, length: item.length ?? null, width: item.width ?? null, quantity: item.quantity, unit: item.unit, edgeFinish: item.edgeFinish ?? null, note: item.note ?? null }; }
+function itemData(item: CreateRequisitionInput["items"][number]) { return { room: item.room ?? null, description: item.description, material: item.material ?? null, productId: item.productId ?? null, thickness: item.thickness ?? null, length: item.length ?? null, width: item.width ?? null, quantity: item.quantity, unit: item.unit, edgeFinish: item.edgeFinish ?? null, note: item.note ?? null }; }
 
 export async function createRequisition(input: CreateRequisitionInput, requesterId: string) {
   // insumo sai do estoque: cada item precisa ser um produto cadastrado
@@ -195,22 +195,23 @@ export async function listCuttingBoard() {
   return rows.map(serialize);
 }
 
-/** Requisições para imprimir (duas por folha): as escolhidas, ou as em aberto. */
-export async function printRequisitions(ids: string[], userId?: string) {
+/** Requisições para imprimir (três por folha): as escolhidas, ou as em aberto. */
+export async function printRequisitions(ids: string[], userId?: string, perPage: 2 | 3 = 3) {
   const rows = await prisma.requisition.findMany({
     where: {
       ...(ids.length ? { id: { in: ids } } : { status: { notIn: [RequisitionStatus.DRAFT, RequisitionStatus.COMPLETED, RequisitionStatus.CANCELLED] } }),
       ...(userId ? { requesterId: userId } : {}),
     },
     orderBy: { number: "asc" },
-    include: { requester: { select: { name: true } }, cutter: { select: { name: true } }, items: { orderBy: { createdAt: "asc" } } },
+    include: { requester: { select: { name: true } }, cutter: { select: { name: true } }, items: { orderBy: { createdAt: "asc" }, include: { product: { select: { category: { select: { name: true } } } } } } },
   });
   return requisitionsPdf(
     rows.map((r) => ({
       kind: r.kind,
       number: r.number,
-      // na tela, "Solicitante" é quem pediu na fábrica (campo setor); sem ele, quem lançou
-      requester: r.sector || r.requester.name,
+      // SOLICITADO POR: quem lançou; MONTADOR: o campo "Montador" da tela (guardado em setor)
+      requester: r.requester.name,
+      fitter: r.sector,
       clientName: r.clientName,
       projectReference: r.projectReference,
       priority: r.priority,
@@ -218,8 +219,9 @@ export async function printRequisitions(ids: string[], userId?: string) {
       neededAt: r.neededAt,
       cutter: r.cutter?.name ?? null,
       note: r.note,
-      items: r.items.map((i) => ({ quantity: i.quantity, unit: i.unit, description: i.description, material: i.material, thickness: i.thickness == null ? null : Number(i.thickness), length: i.length == null ? null : Number(i.length), width: i.width == null ? null : Number(i.width), edgeFinish: i.edgeFinish, note: i.note })),
-    }))
+      items: r.items.map((i) => ({ room: i.room, kindLabel: i.product?.category?.name ?? null, quantity: i.quantity, unit: i.unit, description: i.description, material: i.material, thickness: i.thickness == null ? null : Number(i.thickness), length: i.length == null ? null : Number(i.length), width: i.width == null ? null : Number(i.width), edgeFinish: i.edgeFinish, note: i.note })),
+    })),
+    perPage
   );
 }
 
@@ -238,6 +240,23 @@ export async function deliverSupplies(id: string, actorId: string, actorName: st
     if (items.length) await createExitWithClient(tx, { items, requisitionId: id, sector: current.sector, destination: [current.clientName, current.projectReference].filter(Boolean).join(" — ") || current.destination, reason: "Requisição de insumos", note: current.number }, actorId, actorName);
     const req = await tx.requisition.update({ where: { id }, data: { status: RequisitionStatus.COMPLETED, completedAt: new Date(), approvedBy: { connect: { id: actorId } } }, include });
     await logHistory(tx, id, actorId, "REQUISITION_SUPPLIES_DELIVERED", { status: current.status }, { status: RequisitionStatus.COMPLETED, items: items.length });
+    return req;
+  });
+  return serialize(updated);
+}
+
+/**
+ * Marca como concluída de uma vez (o que já foi feito por fora do sistema,
+ * ou entregue sem passar pelas etapas). Não mexe no estoque; reservas da
+ * requisição são liberadas para não prender material.
+ */
+export async function markRequisitionDone(id: string, note: string | null, actorId: string) {
+  const current = await requireRequisition(id);
+  if (current.status === RequisitionStatus.COMPLETED || current.status === RequisitionStatus.CANCELLED) throw new BadRequestError("Esta requisição já está encerrada");
+  const updated = await prisma.$transaction(async (tx) => {
+    await cancelReservations(tx, id, actorId);
+    const req = await tx.requisition.update({ where: { id }, data: { status: RequisitionStatus.COMPLETED, completedAt: new Date(), submittedAt: current.submittedAt ?? new Date() }, include });
+    await logHistory(tx, id, actorId, "REQUISITION_MARKED_DONE", { status: current.status }, { status: RequisitionStatus.COMPLETED }, note);
     return req;
   });
   return serialize(updated);

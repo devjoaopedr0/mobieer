@@ -6,6 +6,7 @@ const nullableText = (max = 500) => z.string().trim().max(max).optional().nullab
 export const requisitionItemSchema = z.object({
   id: z.string().optional(),
   description: z.string().trim().min(2, "Descrição obrigatória").max(200),
+  room: nullableText(120),
   material: nullableText(150),
   productId: z.string().optional().nullable(),
   thickness: z.number().positive().max(10000).optional().nullable(),

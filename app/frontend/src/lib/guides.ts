@@ -264,7 +264,7 @@ export const GUIDES: Record<string, Guide> = {
     intro: "Compras: da solicitação ao recebimento.",
     steps: ["Solicite a compra.", "Aprove e cote com os fornecedores.", "Faça o pedido e, ao receber, dê entrada no estoque."],
   },
-  "/requisicoes": { intro: "Requisições de peças para a produção. Enviada, a requisição fica aqui na lista (status Solicitada) e vai para o Painel de corte depois de liberada.", steps: ["Crie a requisição com as peças do projeto e clique em Enviar.", "Para imprimir, abra a requisição e clique em Imprimir, ou use Imprimir em aberto: saem duas por folha.", "Confira a disponibilidade dos materiais e libere para o corte.", "Acompanhe o corte até concluir."] },
+  "/requisicoes": { intro: "Requisições de peças para a produção. Enviada, a requisição fica aqui na lista (status Solicitada) e vai para o Painel de corte depois de liberada.", steps: ["Crie a requisição com as peças do projeto e clique em Enviar.", "Para imprimir, abra a requisição e clique em Imprimir, ou use Imprimir em aberto: saem três por folha, no formato da planilha.", "Já feita ou entregue por fora? Abra e clique em Marcar como concluída.", "Confira a disponibilidade dos materiais e libere para o corte.", "Acompanhe o corte até concluir."] },
   "/inventario": { intro: "Conferência do estoque físico com o do sistema.", steps: ["Abra um inventário.", "Conte e lance as quantidades.", "Feche para ajustar as diferenças."] },
   "/solicitacao-pecas": { intro: "Peças que os montadores pedem da obra.", steps: ["Veja o pedido, com fotos.", "Acompanhe da produção até a instalação."] },
   "/notas-fiscais": { intro: "Notas fiscais emitidas e recebidas.", steps: ["Emita a NF-e pelo provedor ou registre a nota enviada pela contabilidade."] },

@@ -9,7 +9,7 @@ router.use(authenticate);
 router.get("/indicators", requirePermission("requisitions.read"), controller.indicators);
 router.get("/cutting-board", requirePermission("requisitions.cut"), controller.cuttingBoard);
 router.get("/", requirePermission("requisitions.read"), controller.listRequisitions);
-// PDF para imprimir, duas por folha: ?ids=a,b (sem ids, as em aberto)
+// PDF para imprimir, três por folha (?porFolha=2 para duas): ?ids=a,b (sem ids, as em aberto)
 router.get("/print", requirePermission("requisitions.read"), controller.print);
 router.post("/attachments", requirePermission("requisitions.create"), uploadAttachment.single("file"), controller.uploadAttachment);
 router.post("/", requirePermission("requisitions.create"), controller.createRequisition);
@@ -21,5 +21,7 @@ router.post("/:id/reservations", requirePermission("requisitions.reserve"), cont
 router.post("/:id/inspection", requirePermission("requisitions.inspect"), controller.inspect);
 // almoxarifado entrega a requisição de insumos (baixa no estoque)
 router.post("/:id/deliver", requirePermission("stock.exit"), controller.deliver);
+// marcar como concluída de uma vez (feita por fora, já entregue)
+router.post("/:id/done", requireAnyPermission(["requisitions.inspect", "requisitions.release", "requisitions.read.all", "stock.exit"]), controller.markDone);
 
 export default router;

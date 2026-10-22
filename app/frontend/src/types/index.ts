@@ -530,6 +530,8 @@ export type Requisition = {
   overdue: boolean;
   items: {
     id: string;
+    /** ambiente (cozinha, quarto…) */
+    room?: string | null;
     description: string;
     material: string | null;
     productId: string | null;

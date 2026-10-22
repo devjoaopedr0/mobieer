@@ -53,10 +53,12 @@ O contrato sai com o título "Contrato Nº" e o número da sequência da loja. G
 
 ## Como continuar a numeração dos contratos antigos
 1. Abra o menu **Modelos de documentos**.
-2. Em **Próximo número de contrato**, digite o número que o próximo contrato deve receber (o último contrato antigo mais um).
+2. Em **Próximo número (orçamento e contrato)**, digite o número que deve vir agora (o último contrato antigo mais um).
 3. Clique em **Salvar**.
 
-Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Um número já usado não volta. No texto do modelo, o marcador {{contrato.numero}} mostra o número.
+Orçamentos e contratos seguem uma numeração só: o contrato fica com o número do orçamento (ORC-00376 vira o contrato 376) e o próximo orçamento recebe o número seguinte (ORC-00377). Contrato de um orçamento antigo, de antes da numeração, recebe o próximo número livre.
+
+Só o administrativo (Administrador e Gestor) edita o texto dos modelos (as cláusulas) e a numeração; o comercial gera o contrato. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Um número já usado não volta. No texto do modelo, o marcador {{contrato.numero}} mostra o número.
 
 ## Como acrescentar ambientes a um contrato já fechado (adendo)
 1. Abra o orçamento aceito do cliente.

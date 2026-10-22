@@ -40,6 +40,8 @@ export function TemplatesPage() {
   const qc = useQueryClient();
   const { can } = useAuth();
   const canManage = can("documents.manage");
+  // cláusulas e numeração: só o administrativo edita; o comercial gera
+  const canEdit = can("templates.manage");
 
   const templates = useQuery({ queryKey: ["templates"], queryFn: () => apiGet<{ data: DocumentTemplate[] }>("/templates") });
   const clients = useQuery({ queryKey: ["business-clients", "picklist"], queryFn: () => apiGet<{ data: Picklist }>("/business/clients"), enabled: canManage });
@@ -131,14 +133,14 @@ export function TemplatesPage() {
         title="Modelos de documentos"
         description="Contratos e arquivos padrão. O modelo de contrato usa marcadores {{...}} e puxa os valores do Promob."
       >
-        {canManage && (
+        {canEdit && (
           <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Plus className="mr-2 h-4 w-4" /> Novo modelo
           </Button>
         )}
       </PageHeader>
 
-      {canManage && <ContractNumbering />}
+      {canEdit && <ContractNumbering />}
 
       {list.length === 0 ? (
         <EmptyState title="Nenhum modelo" description="Escreva um contrato com marcadores ou envie um PDF padrão." />
@@ -184,6 +186,8 @@ export function TemplatesPage() {
                           Gerar para cliente
                         </Button>
                       )}
+                      {canEdit && (
+                      <>
                       <Button
                         size="sm"
                         variant="outline"
@@ -198,6 +202,8 @@ export function TemplatesPage() {
                       <Button size="sm" variant="ghost" onClick={() => { if (confirm("Remover este modelo?")) remove.mutate(t.id); }}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      </>
+                      )}
                     </>
                   )}
                 </div>
@@ -390,14 +396,14 @@ function ContractNumbering() {
     <Card>
       <CardContent className="flex flex-wrap items-end gap-3 pt-6">
         <div className="space-y-1">
-          <Label htmlFor="contract-next">Próximo número de contrato</Label>
+          <Label htmlFor="contract-next">Próximo número (orçamento e contrato)</Label>
           <Input id="contract-next" className="w-36" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ""))} />
         </div>
         <Button size="sm" variant="outline" disabled={!value || save.isPending || String(current.data?.data.next ?? "") === value} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Salvar
         </Button>
         <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
-          Continue a numeração dos contratos antigos: informe o número que o próximo contrato deve receber. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Use {"{{contrato.numero}}"} no texto do modelo.
+          Orçamentos e contratos seguem uma numeração só, continuando a dos contratos antigos: o contrato fica com o número do orçamento (ORC-00376 → contrato 376) e o próximo orçamento recebe o número seguinte. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Use {"{{contrato.numero}}"} no texto do modelo.
         </p>
       </CardContent>
     </Card>
