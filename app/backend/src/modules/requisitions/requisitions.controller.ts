@@ -34,3 +34,4 @@ export const print = asyncHandler(async (req: Request, res: Response) => {
   res.send(pdf);
 });
 export const deliver = asyncHandler(async (req: Request, res: Response) => ok(res, await service.deliverSupplies(req.params.id, req.user!.id, req.user!.name), "Insumos entregues e baixados do estoque"));
+export const markDone = asyncHandler(async (req: Request, res: Response) => ok(res, await service.markRequisitionDone(req.params.id, typeof req.body?.note === "string" ? req.body.note.slice(0, 1000) : null, req.user!.id), "Requisição marcada como concluída"));

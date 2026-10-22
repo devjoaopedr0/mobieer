@@ -21,5 +21,7 @@ router.post("/:id/reservations", requirePermission("requisitions.reserve"), cont
 router.post("/:id/inspection", requirePermission("requisitions.inspect"), controller.inspect);
 // almoxarifado entrega a requisição de insumos (baixa no estoque)
 router.post("/:id/deliver", requirePermission("stock.exit"), controller.deliver);
+// marcar como concluída de uma vez (feita por fora, já entregue)
+router.post("/:id/done", requireAnyPermission(["requisitions.inspect", "requisitions.release", "requisitions.read.all", "stock.exit"]), controller.markDone);
 
 export default router;

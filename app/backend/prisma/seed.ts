@@ -90,6 +90,7 @@ const PERMISSIONS = [
   { code: "commercial.quotes.approve", label: "Liberar orçamento com pontuação abaixo do mínimo", module: "Comercial" },
   { code: "documents.read", label: "Ver documentos de projeto", module: "Documentos" },
   { code: "documents.manage", label: "Enviar e gerenciar documentos", module: "Documentos" },
+  { code: "templates.manage", label: "Editar modelos de documentos (cláusulas do contrato) e numeração", module: "Documentos" },
   { code: "hr.read", label: "Ver RH (colaboradores e férias)", module: "RH" },
   { code: "hr.employees.manage", label: "Gerenciar colaboradores", module: "RH" },
   { code: "hr.vacations.manage", label: "Gerenciar solicitações de férias", module: "RH" },

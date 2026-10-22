@@ -853,6 +853,8 @@ model Requisition {
 
 model RequisitionItem {
   id          String                @id @default(cuid())
+  /// ambiente (cozinha, quarto…), como na planilha da loja
+  room        String?
   quantity    Int
   status      RequisitionItemStatus @default(PENDING)
   description String

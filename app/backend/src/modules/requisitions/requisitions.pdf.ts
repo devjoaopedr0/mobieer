@@ -1,16 +1,41 @@
 /**
- * Requisição de peças impressa, como a planilha da loja: três por folha A4
- * (um terço cada; dá para pedir duas) para economizar papel. Sem fundo nem faixas escuras.
- * Requisição com muitas peças ocupa a folha inteira e continua na seguinte.
+ * Requisição impressa no formato da planilha da loja ("REQUISICOES PEÇAS
+ * ASSISTENCIA.xlsx"): três por folha A4 (dá para pedir duas), sem fundo nem
+ * faixas escuras, com linhas em branco para completar à mão.
+ *
+ * Peças:   CLIENTE / MONTADOR · DATA PEDIDO / DATA ENTREGA
+ *          AMBIENTE | COR | QTD | DESCRIÇÃO | FITA | MOTIVO
+ *          SOLICITADO POR · PRODUZIDO POR
+ * Insumos: AMBIENTE | TIPO | QTD | DESCRIÇÃO | PENDENTE | MOTIVO
+ *          SOLICITADO POR · ENTREGUE
+ * Requisição com muitas linhas ocupa o espaço que precisar.
  */
 import PDFDocument from "pdfkit";
 import { BRAND } from "../../lib/brand-pdf";
+
+type Item = {
+  room?: string | null;
+  /** tipo do insumo (categoria do produto) */
+  kindLabel?: string | null;
+  quantity: number;
+  unit?: string;
+  description: string;
+  material: string | null;
+  thickness: number | null;
+  length: number | null;
+  width: number | null;
+  edgeFinish: string | null;
+  note: string | null;
+};
 
 export type RequisitionPrint = {
   /** PECAS ou INSUMOS */
   kind?: string;
   number: string;
+  /** quem pediu no sistema (SOLICITADO POR) */
   requester: string;
+  /** montador / quem vai usar (campo "Montador" da tela) */
+  fitter?: string | null;
   clientName: string | null;
   projectReference: string | null;
   priority: string;
@@ -18,87 +43,70 @@ export type RequisitionPrint = {
   neededAt: Date | null;
   cutter: string | null;
   note: string | null;
-  items: { quantity: number; unit?: string; description: string; material: string | null; thickness: number | null; length: number | null; width: number | null; edgeFinish: string | null; note: string | null }[];
+  items: Item[];
 };
 
-const PRIORITY: Record<string, string> = { LOW: "Baixa", NORMAL: "Normal", HIGH: "Alta", URGENT: "Urgente" };
 const UNIT: Record<string, string> = { UNIT: "un", BOX: "cx", PACKAGE: "pct", METER: "m", LITER: "L", KILO: "kg", ROLL: "rolo", PAIR: "par" };
 const M = 28;
-const HEAD_H = 18;
-const ROW_H = 16;
-const brDate = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" }) : "____/____/______");
+const TITLE_H = 16;
+const BOX_H = 13;
+const ROW_H = 14;
+/** linhas da tabela mesmo sem itens, para escrever à mão (a planilha tem 10) */
+const MIN_ROWS = 10;
+const brDate = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" }) : "");
 const n = (v: number | null) => (v == null ? "" : String(Number(v)).replace(".", ","));
 
-/** "MDF BRANCO · 6 mm · 2119 × 181 mm" */
-export function pieceText(i: RequisitionPrint["items"][number]): string {
+/** "PEÇA ACABAMENTO · 6 mm · 2119 × 181 mm" (a cor vai na coluna COR) */
+export function pieceText(i: Item): string {
   const size = i.length != null && i.width != null ? `${n(i.length)} × ${n(i.width)} mm` : i.length != null ? `${n(i.length)} mm` : "";
-  return [i.description, i.material, i.thickness != null ? `${n(i.thickness)} mm` : "", size].filter(Boolean).join(" · ");
+  return [i.description, i.thickness != null ? `${n(i.thickness)} mm` : "", size].filter(Boolean).join(" · ");
 }
 
 /** Altura que a requisição ocupa (para saber se cabe na sua parte da folha). */
 export function blockHeight(r: RequisitionPrint) {
-  return 66 + HEAD_H + Math.max(r.items.length, 3) * ROW_H + (r.note ? 26 : 0) + 30;
+  return TITLE_H + 2 * BOX_H + ROW_H + Math.max(r.items.length, MIN_ROWS) * ROW_H + BOX_H + (r.note ? BOX_H : 0) + 4;
 }
 
 export function requisitionsPdf(reqs: RequisitionPrint[], perPage: 2 | 3 = 3): Promise<Buffer> {
-  const doc = new PDFDocument({ size: "A4", margin: M, info: { Title: "Requisições de peças" } });
+  const doc = new PDFDocument({ size: "A4", margin: M, info: { Title: "Requisições" } });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
   const W = doc.page.width - 2 * M;
-  // altura de cada parte da folha
   const part = (doc.page.height - 2 * M) / perPage;
-  const pieceCols = [
-    { label: "QTD", w: 0.07 },
-    { label: "DESCRIÇÃO", w: 0.5 },
-    { label: "FITA", w: 0.14 },
-    { label: "MOTIVO / OBS.", w: 0.19 },
-    { label: "PRODUZIDO", w: 0.1 },
+  // larguras como na planilha
+  const colsFor = (supply: boolean) => [
+    { label: "AMBIENTE", w: 0.15 },
+    { label: supply ? "TIPO" : "COR", w: 0.15 },
+    { label: "QTD", w: 0.06 },
+    { label: "DESCRIÇÃO", w: 0.36 },
+    { label: supply ? "PENDENTE" : "FITA", w: 0.12 },
+    { label: "MOTIVO", w: 0.16 },
   ];
-  const supplyCols = [
-    { label: "QTD", w: 0.07 },
-    { label: "INSUMO", w: 0.5 },
-    { label: "UN.", w: 0.1 },
-    { label: "OBS.", w: 0.23 },
-    { label: "ENTREGUE", w: 0.1 },
-  ];
-  let cols = pieceCols;
-  let xs: number[] = [];
-  const layout = (supply: boolean) => {
-    cols = supply ? supplyCols : pieceCols;
-    xs = cols.reduce<number[]>((acc, c, i) => [...acc, i === 0 ? M : acc[i - 1] + cols[i - 1].w * W], []);
-  };
-  const cell = (text: string, i: number, y: number, bold = false, size = 8) =>
-    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(size).fillColor(BRAND.ink).text(text, xs[i] + 4, y + (ROW_H - size) / 2 - 0.5, { width: cols[i].w * W - 8, height: ROW_H - 2, ellipsis: true, lineBreak: false });
-  const tableHead = (y: number) => {
-    doc.rect(M, y, W, HEAD_H).lineWidth(0.6).strokeColor(BRAND.ink).stroke();
-    cols.forEach((c, i) => {
-      if (i) doc.moveTo(xs[i], y).lineTo(xs[i], y + HEAD_H).stroke();
-      doc.font("Helvetica-Bold").fontSize(7).fillColor(BRAND.ink).text(c.label, xs[i] + 4, y + 6, { width: c.w * W - 8, lineBreak: false });
-    });
-    return y + HEAD_H;
-  };
-  const row = (y: number, it: RequisitionPrint["items"][number] | null) => {
-    doc.rect(M, y, W, ROW_H).lineWidth(0.4).strokeColor(BRAND.muted).stroke();
-    cols.forEach((_, i) => i && doc.moveTo(xs[i], y).lineTo(xs[i], y + ROW_H).stroke());
-    if (it) {
-      cell(String(it.quantity), 0, y, true);
-      const supply = cols === supplyCols;
-      cell(supply ? it.description : pieceText(it), 1, y);
-      cell(supply ? UNIT[it.unit ?? ""] ?? it.unit ?? "" : it.edgeFinish ?? "", 2, y);
-      cell(it.note ?? "", 3, y, false, 7);
-    }
-    // quadradinho para marcar à mão
-    doc.rect(xs[4] + (cols[4].w * W) / 2 - 4, y + ROW_H / 2 - 4, 8, 8).lineWidth(0.6).strokeColor(BRAND.ink).stroke();
-    return y + ROW_H;
+  const stroke = () => doc.lineWidth(0.6).strokeColor(BRAND.ink);
+  const text = (s: string, x: number, y: number, w: number, h: number, o: { bold?: boolean; size?: number; align?: "left" | "center" | "right" } = {}) =>
+    doc
+      .font(o.bold ? "Helvetica-Bold" : "Helvetica")
+      .fontSize(o.size ?? 7.5)
+      .fillColor(BRAND.ink)
+      .text(s, x + 3, y + (h - (o.size ?? 7.5)) / 2 + 0.5, { width: w - 6, height: h, ellipsis: true, lineBreak: false, align: o.align ?? "left" });
+  /** caixa "RÓTULO: valor" */
+  const field = (label: string, value: string, x: number, y: number, w: number) => {
+    stroke().rect(x, y, w, BOX_H).stroke();
+    const lw = doc.font("Helvetica-Bold").fontSize(7.5).widthOfString(`${label}: `);
+    text(`${label}:`, x, y, lw + 6, BOX_H, { bold: true });
+    text(value, x + lw, y, w - lw, BOX_H);
   };
 
   let top = M;
   let slot = 0; // próxima parte livre da folha (perPage = folha cheia)
   reqs.forEach((r, idx) => {
-    const fits = blockHeight(r) <= part - 8;
+    const supply = r.kind === "INSUMOS";
+    const cols = colsFor(supply);
+    const xs = cols.reduce<number[]>((acc, c, i) => [...acc, i === 0 ? M : acc[i - 1] + cols[i - 1].w * W], []);
+    const fits = blockHeight(r) <= part - 6;
     if (idx > 0) {
-      if (fits && slot < perPage) top = M + slot * part + 6;
+      if (fits && slot < perPage) top = M + slot * part + 4;
       else {
         doc.addPage();
         top = M;
@@ -106,44 +114,54 @@ export function requisitionsPdf(reqs: RequisitionPrint[], perPage: 2 | 3 = 3): P
       }
     }
     let y = top;
-    const supply = r.kind === "INSUMOS";
-    layout(supply);
-    doc.font("Helvetica-Bold").fontSize(12).fillColor(BRAND.ink).text(supply ? "REQUISIÇÃO DE INSUMOS — ALMOXARIFADO" : "REQUISIÇÃO DE PEÇAS", M, y, { lineBreak: false });
-    doc.font("Helvetica-Bold").fontSize(12).text(r.number, M, y, { width: W, align: "right", lineBreak: false });
-    y += 18;
-    const info = (label: string, value: string, x: number, w: number) => {
-      doc.font("Helvetica").fontSize(6.5).fillColor(BRAND.muted).text(label, x, y, { width: w, lineBreak: false });
-      doc.font("Helvetica-Bold").fontSize(9).fillColor(BRAND.ink).text(value || "—", x, y + 8, { width: w - 6, height: 11, ellipsis: true, lineBreak: false });
+    // título centralizado, número à direita
+    stroke().rect(M, y, W, TITLE_H).stroke();
+    text(supply ? "REQUISIÇÃO DE INSUMOS E FERRAGENS" : "REQUISIÇÃO DE PEÇAS", M, y, W, TITLE_H, { bold: true, size: 9, align: "center" });
+    text(r.number + (r.priority === "URGENT" ? " · URGENTE" : r.priority === "HIGH" ? " · ALTA" : ""), M, y, W, TITLE_H, { size: 7, align: "right" });
+    y += TITLE_H;
+    const left = W * 0.6;
+    field("CLIENTE", [r.clientName, r.projectReference].filter(Boolean).join(" — "), M, y, left);
+    field("DATA PEDIDO", brDate(r.orderedAt), M + left, y, W - left);
+    y += BOX_H;
+    field("MONTADOR", r.fitter ?? "", M, y, left);
+    field("DATA ENTREGA", brDate(r.neededAt), M + left, y, W - left);
+    y += BOX_H;
+    const head = (yy: number) => {
+      stroke().rect(M, yy, W, ROW_H).stroke();
+      cols.forEach((c, i) => {
+        if (i) doc.moveTo(xs[i], yy).lineTo(xs[i], yy + ROW_H).stroke();
+        text(c.label, xs[i], yy, c.w * W, ROW_H, { bold: true, size: 7, align: i === 0 ? "left" : "center" });
+      });
+      return yy + ROW_H;
     };
-    const q = W / 4;
-    info("SOLICITANTE", r.requester, M, q);
-    info("CLIENTE / PROJETO", [r.clientName, r.projectReference].filter(Boolean).join(" — "), M + q, q * 2);
-    info("PRIORIDADE", PRIORITY[r.priority] ?? r.priority, M + 3 * q, q);
-    y += 22;
-    info("DATA DO PEDIDO", brDate(r.orderedAt), M, q);
-    info("DATA DE ENTREGA", brDate(r.neededAt), M + q, q);
-    info(supply ? "ENTREGUE POR" : "RESPONSÁVEL PELO CORTE", r.cutter ?? "", M + 2 * q, q * 2);
-    y += 26;
-    y = tableHead(y);
-    const lines: (RequisitionPrint["items"][number] | null)[] = [...r.items];
-    while (lines.length < 3) lines.push(null); // linhas em branco para completar à mão
+    y = head(y);
+    const lines: (Item | null)[] = [...r.items];
+    while (lines.length < MIN_ROWS) lines.push(null);
     for (const it of lines) {
-      if (y + ROW_H > doc.page.height - M - 20) {
+      if (y + ROW_H > doc.page.height - M - BOX_H) {
         doc.addPage();
-        y = tableHead(M);
+        y = head(M);
       }
-      y = row(y, it);
+      doc.lineWidth(0.4).strokeColor(BRAND.muted).rect(M, y, W, ROW_H).stroke();
+      cols.forEach((_, i) => i && doc.moveTo(xs[i], y).lineTo(xs[i], y + ROW_H).stroke());
+      if (it) {
+        const desc = supply ? [it.description, it.unit && UNIT[it.unit] ? UNIT[it.unit] : ""].filter(Boolean).join(" · ") : pieceText(it);
+        const cells = [it.room ?? "", supply ? it.kindLabel ?? "" : it.material ?? "", String(it.quantity), desc, supply ? "" : it.edgeFinish ?? "", it.note ?? ""];
+        cells.forEach((c, i) => text(c, xs[i], y, cols[i].w * W, ROW_H, { size: i === 3 ? 7 : 7.5, bold: i === 2, align: i === 2 ? "center" : "left" }));
+      }
+      y += ROW_H;
     }
     if (r.note) {
-      doc.font("Helvetica").fontSize(7.5).fillColor(BRAND.ink).text(`Observações: ${r.note}`, M, y + 5, { width: W, height: 20, ellipsis: true });
-      y += 26;
+      field("OBS", r.note, M, y, W);
+      y += BOX_H;
     }
-    doc.font("Helvetica").fontSize(7).fillColor(BRAND.muted).text("Conferido por: ______________________________     Data: ____/____/______", M, y + 8, { width: W, lineBreak: false });
-    y += 22;
+    field("SOLICITADO POR", r.requester, M, y, left);
+    field(supply ? "ENTREGUE" : "PRODUZIDO POR", r.cutter ?? "", M + left, y, W - left);
+    y += BOX_H + 4;
     const end = M + (slot + 1) * part;
     if (fits && y <= end) {
       // linha de corte entre uma requisição e a próxima
-      if (slot + 1 < perPage) doc.moveTo(M, end + 1).lineTo(M + W, end + 1).dash(3, { space: 3 }).lineWidth(0.4).strokeColor(BRAND.muted).stroke().undash();
+      if (slot + 1 < perPage) doc.moveTo(M, end).lineTo(M + W, end).dash(3, { space: 3 }).lineWidth(0.4).strokeColor(BRAND.muted).stroke().undash();
       slot += 1;
     } else slot = perPage;
   });

@@ -85,7 +85,7 @@ router.get(
 // POST /api/templates  (multipart: file + campos)
 router.post(
   "/",
-  requirePermission("documents.manage"),
+  requirePermission("templates.manage"),
   uploadDocument.single("file"),
   asyncHandler(async (req, res) => {
     const input = z
@@ -136,7 +136,7 @@ router.post(
 // PATCH /api/templates/:id
 router.patch(
   "/:id",
-  requirePermission("documents.manage"),
+  requirePermission("templates.manage"),
   asyncHandler(async (req, res) => {
     const current = await prisma.documentTemplate.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
     if (!current) throw new NotFoundError("Modelo não encontrado");
@@ -173,7 +173,7 @@ router.patch(
 // DELETE /api/templates/:id
 router.delete(
   "/:id",
-  requirePermission("documents.manage"),
+  requirePermission("templates.manage"),
   asyncHandler(async (req, res) => {
     const current = await prisma.documentTemplate.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
     if (!current) throw new NotFoundError("Modelo não encontrado");
@@ -263,7 +263,7 @@ router.get(
 );
 router.put(
   "/contract-numbering",
-  requirePermission("documents.manage"),
+  requirePermission("templates.manage"),
   asyncHandler(async (req, res) => {
     const { next } = z.object({ next: z.coerce.number().int().min(1).max(99_999_999) }).parse(req.body);
     await setNextContractNumber(next);
@@ -340,7 +340,7 @@ router.post(
     const input = contractInput.parse(req.body);
     const order = await orderFor(input, req.user!.organizationId);
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
-    const numero = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId) : "";
+    const numero = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId, order?.number) : "";
     ctx.values["contrato.numero"] = numero;
     const rendered = renderTemplate(t.bodyHtml!, ctx.values);
     // na prévia em texto, o quadro vira um resumo
@@ -363,7 +363,7 @@ router.post(
     const order = await orderFor(input, req.user!.organizationId);
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
     // contrato da loja: número na sequência dos contratos antigos
-    const numero = t.type === "CONTRATO" ? (await contractNumberFor(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId)).number : null;
+    const numero = t.type === "CONTRATO" ? (await contractNumberFor(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId, order?.number)).number : null;
     ctx.values["contrato.numero"] = numero ?? "";
     const { text, missing } = renderTemplate(t.bodyHtml!, ctx.values);
 

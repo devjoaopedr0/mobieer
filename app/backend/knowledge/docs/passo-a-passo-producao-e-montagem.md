@@ -48,7 +48,12 @@ No fim da semana, o **fechamento** mostra o que foi feito e os motivos mais freq
 2. Para uma só: clique na requisição e em **Imprimir**.
 3. Para todas as que estão em aberto: clique em **Imprimir em aberto**.
 
-Saem três requisições por folha, com quadradinho de "produzido" para marcar à mão. A requisição enviada fica na lista com o status Solicitada e vai para o Painel de corte depois de liberada.
+Saem três requisições por folha, no formato da planilha da loja (cliente, montador, ambiente, cor, fita, motivo, solicitado por e produzido por), com linhas em branco para completar à mão. A requisição enviada fica na lista com o status Solicitada e vai para o Painel de corte depois de liberada.
+
+## Como marcar uma requisição como concluída
+1. Abra a requisição.
+2. Clique em **Marcar como concluída** e, se quiser, escreva uma observação.
+3. Confirme. Serve para o que já foi feito ou entregue por fora; o estoque não é mexido.
 
 ## Como pedir insumos ao almoxarifado
 1. Abra **Requisições (peças e insumos)**.

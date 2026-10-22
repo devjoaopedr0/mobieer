@@ -9,7 +9,7 @@ const base: RequisitionPrint = { number: "REQ-00001", requester: "DAVID BRUNO", 
 const peca = { quantity: 1, description: "PEÇA ACABAMENTO", material: "MDF BRANCO", thickness: 6, length: 2119, width: 181, edgeFinish: "SEM FITA", note: null };
 
 test("peça impressa com material, espessura e medidas", () => {
-  assert.equal(pieceText(peca), "PEÇA ACABAMENTO · MDF BRANCO · 6 mm · 2119 × 181 mm");
+  assert.equal(pieceText(peca), "PEÇA ACABAMENTO · 6 mm · 2119 × 181 mm"); // a cor vai na coluna COR
   assert.equal(pieceText({ ...peca, material: null, thickness: null, width: null }), "PEÇA ACABAMENTO · 2119 mm");
 });
 
