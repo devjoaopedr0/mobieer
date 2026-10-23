@@ -1,7 +1,9 @@
 /**
  * Requisição impressa no formato da planilha da loja ("REQUISICOES PEÇAS
- * ASSISTENCIA.xlsx"): três por folha A4 (dá para pedir duas), sem fundo nem
- * faixas escuras, com linhas em branco para completar à mão.
+ * ASSISTENCIA.xlsx"), sem fundo nem faixas escuras. Por padrão as linhas
+ * acompanham os itens (mais uma em branco para completar à mão) e cabem
+ * quantas requisições der na folha A4; dá para pedir duas ou três por folha,
+ * com as 10 linhas da planilha.
  *
  * Peças:   CLIENTE / MONTADOR · DATA PEDIDO / DATA ENTREGA
  *          AMBIENTE | COR | QTD | DESCRIÇÃO | FITA | MOTIVO
@@ -51,8 +53,12 @@ const M = 28;
 const TITLE_H = 16;
 const BOX_H = 13;
 const ROW_H = 14;
-/** linhas da tabela mesmo sem itens, para escrever à mão (a planilha tem 10) */
-const MIN_ROWS = 10;
+/** folha dividida em partes iguais: linhas da planilha, mesmo sem itens, para escrever à mão */
+const SLOT_ROWS = 10;
+/** folha corrida: o mínimo de linhas, e uma em branco depois dos itens */
+const AUTO_MIN_ROWS = 3;
+export type PerPage = 2 | 3 | "auto";
+const rowsFor = (r: RequisitionPrint, perPage: PerPage) => (perPage === "auto" ? Math.max(r.items.length + 1, AUTO_MIN_ROWS) : Math.max(r.items.length, SLOT_ROWS));
 const brDate = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" }) : "");
 const n = (v: number | null) => (v == null ? "" : String(Number(v)).replace(".", ","));
 
@@ -63,17 +69,20 @@ export function pieceText(i: Item): string {
 }
 
 /** Altura que a requisição ocupa (para saber se cabe na sua parte da folha). */
-export function blockHeight(r: RequisitionPrint) {
-  return TITLE_H + 2 * BOX_H + ROW_H + Math.max(r.items.length, MIN_ROWS) * ROW_H + BOX_H + (r.note ? BOX_H : 0) + 4;
+export function blockHeight(r: RequisitionPrint, perPage: PerPage = 3) {
+  return TITLE_H + 2 * BOX_H + ROW_H + rowsFor(r, perPage) * ROW_H + BOX_H + (r.note ? BOX_H : 0) + 4;
 }
 
-export function requisitionsPdf(reqs: RequisitionPrint[], perPage: 2 | 3 = 3): Promise<Buffer> {
+export function requisitionsPdf(reqs: RequisitionPrint[], perPage: PerPage = "auto"): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", margin: M, info: { Title: "Requisições" } });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
   const W = doc.page.width - 2 * M;
-  const part = (doc.page.height - 2 * M) / perPage;
+  const bottom = doc.page.height - M;
+  const part = perPage === "auto" ? bottom - M : (bottom - M) / perPage;
+  /** espaço entre uma requisição e a próxima, com a linha de corte no meio */
+  const GAP = 12;
   // larguras como na planilha
   const colsFor = (supply: boolean) => [
     { label: "AMBIENTE", w: 0.15 },
@@ -104,9 +113,18 @@ export function requisitionsPdf(reqs: RequisitionPrint[], perPage: 2 | 3 = 3): P
     const supply = r.kind === "INSUMOS";
     const cols = colsFor(supply);
     const xs = cols.reduce<number[]>((acc, c, i) => [...acc, i === 0 ? M : acc[i - 1] + cols[i - 1].w * W], []);
-    const fits = blockHeight(r) <= part - 6;
+    const fits = blockHeight(r, perPage) <= part - 6;
     if (idx > 0) {
-      if (fits && slot < perPage) top = M + slot * part + 4;
+      if (perPage === "auto") {
+        // folha corrida: a próxima vem logo abaixo, se couber inteira
+        if (top + GAP + blockHeight(r, perPage) <= bottom) {
+          doc.moveTo(M, top + GAP / 2).lineTo(M + W, top + GAP / 2).dash(3, { space: 3 }).lineWidth(0.4).strokeColor(BRAND.muted).stroke().undash();
+          top += GAP;
+        } else {
+          doc.addPage();
+          top = M;
+        }
+      } else if (fits && slot < perPage) top = M + slot * part + 4;
       else {
         doc.addPage();
         top = M;
@@ -136,7 +154,7 @@ export function requisitionsPdf(reqs: RequisitionPrint[], perPage: 2 | 3 = 3): P
     };
     y = head(y);
     const lines: (Item | null)[] = [...r.items];
-    while (lines.length < MIN_ROWS) lines.push(null);
+    while (lines.length < rowsFor(r, perPage)) lines.push(null);
     for (const it of lines) {
       if (y + ROW_H > doc.page.height - M - BOX_H) {
         doc.addPage();
@@ -158,6 +176,10 @@ export function requisitionsPdf(reqs: RequisitionPrint[], perPage: 2 | 3 = 3): P
     field("SOLICITADO POR", r.requester, M, y, left);
     field(supply ? "ENTREGUE" : "PRODUZIDO POR", r.cutter ?? "", M + left, y, W - left);
     y += BOX_H + 4;
+    if (perPage === "auto") {
+      top = y;
+      return;
+    }
     const end = M + (slot + 1) * part;
     if (fits && y <= end) {
       // linha de corte entre uma requisição e a próxima

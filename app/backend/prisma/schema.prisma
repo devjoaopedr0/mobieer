@@ -801,6 +801,9 @@ model Requisition {
   note             String?
   clientName       String?
   projectReference String?
+  /// DATA PEDIDO da folha (sem ela, vale o envio ou a criação)
+  orderedAt        DateTime?
+  /// DATA ENTREGA da folha
   neededAt         DateTime?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
@@ -855,6 +858,8 @@ model RequisitionItem {
   id          String                @id @default(cuid())
   /// ambiente (cozinha, quarto…), como na planilha da loja
   room        String?
+  /// insumo: INSUMO, FERRAGEM ou OUTRO (coluna TIPO da folha)
+  supplyType  String?
   quantity    Int
   status      RequisitionItemStatus @default(PENDING)
   description String

@@ -27,7 +27,8 @@ export const inspect = asyncHandler(async (req: Request, res: Response) => { con
 export const reserve = asyncHandler(async (req: Request, res: Response) => ok(res, await service.reserveMaterials(req.params.id, reservationSchema.parse(req.body), req.user!.id), "Materiais reservados"));
 export const print = asyncHandler(async (req: Request, res: Response) => {
   const ids = String(req.query.ids ?? "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200);
-  const perPage = req.query.porFolha === "2" ? 2 : 3;
+  // sem porFolha: quantas couberem, com as linhas que os itens pedem
+  const perPage = req.query.porFolha === "2" ? 2 : req.query.porFolha === "3" ? 3 : "auto";
   const pdf = await service.printRequisitions(ids, req.user!.permissions.includes("requisitions.read.all") ? undefined : req.user!.id, perPage);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="requisicoes.pdf"`);

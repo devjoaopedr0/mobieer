@@ -17,7 +17,7 @@ import { notifyUser, notifyUsersWithPermission } from "../../lib/notify";
 import { storeGeneratedPdf } from "../docgen/docgen.service";
 import { brl } from "../templates/contract.service";
 import { PAYMENT_METHODS, QuoteRuleError, computeQuote, normalizePricing, type PricingConfig } from "./quote.rules";
-import { CATEGORY_SALE, FinanceAdjustError, applyAdjustments, planFinance, type FinanceAdjustment } from "./quote.finance";
+import { CATEGORY_COMMISSION, CATEGORY_SALE, CATEGORY_TECHNICAL_RESERVE, FinanceAdjustError, applyAdjustments, planCommissions, planFinance, type FinanceAdjustment } from "./quote.finance";
 import { hasBudgetValues, roomsFromParsed } from "./quote.promob";
 import { PRICING_SETTING, calcToData, loadPricing, nextQuoteNumber, quoteInclude, quotePdf, serializeQuote } from "./quote.service";
 
@@ -29,6 +29,10 @@ const DAY = 86400000;
 const todayDay = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
 const money = z.coerce.number().min(0).max(100_000_000);
 const text = (max: number) => z.string().trim().max(max).optional().nullable();
+const commissionsSchema = z
+  .array(z.object({ userId: z.string().optional().nullable(), referrerId: z.string().optional().nullable(), name: z.string().trim().min(1).max(120), role: z.string().trim().min(1).max(40), percent: z.coerce.number().min(0).max(50) }))
+  .max(10)
+  .default([]);
 
 const calcSchema = z.object({
   items: z
@@ -48,10 +52,7 @@ const calcSchema = z.object({
     .min(1, "Inclua pelo menos um ambiente ou item")
     .max(200),
   markup: z.coerce.number().positive().max(20),
-  commissions: z
-    .array(z.object({ userId: z.string().optional().nullable(), referrerId: z.string().optional().nullable(), name: z.string().trim().min(1).max(120), role: z.string().trim().min(1).max(40), percent: z.coerce.number().min(0).max(50) }))
-    .max(10)
-    .default([]),
+  commissions: commissionsSchema,
   discount: money.optional(),
   // alternativas ao desconto em R$: percentual sobre o preço, ou o valor final combinado
   discountPercent: z.coerce.number().min(0).max(100).optional().nullable(),
@@ -648,6 +649,84 @@ router.post(
     ]);
     await audit(req.user!.id, "QUOTE_COMPETENCE_TRANSFERRED", cur.id, { from: cur.competenceDate ?? cur.approvedAt, to: date });
     return ok(res, { competenceDate: when, moved: moved.count }, `Venda transferida para ${date.split("-").reverse().join("/")} — ${moved.count} lançamento(s) na nova competência`);
+  })
+);
+
+/**
+ * PUT /api/commercial/quotes/:id/commissions { commissions } — acerta quem recebe
+ * comissão e o % de orçamento enviado ou contrato aceito. O preço do cliente não
+ * muda: o que muda é o resultado da loja e, no contrato aceito, as comissões a
+ * pagar no financeiro (recalculadas sobre os recebíveis que já estão lá).
+ */
+router.put(
+  "/:id/commissions",
+  requirePermission("commercial.manage"),
+  asyncHandler(async (req, res) => {
+    const { commissions } = z.object({ commissions: commissionsSchema }).parse(req.body);
+    const cur = await findQuote(req, req.params.id);
+    if (EDITABLE.includes(cur.status)) throw new BadRequestError("Orçamento em rascunho ou negociação: ajuste a comissão editando o orçamento");
+    if (!["SENT", "VIEWED", "APPROVED"].includes(cur.status)) throw new BadRequestError("Orçamento recusado ou cancelado não tem comissão a acertar");
+    await checkRefs(req.user!.organizationId, { clientId: cur.clientId, commissions });
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const total = Number(cur.total);
+    const list = commissions
+      .filter((c) => c.percent > 0)
+      .map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name, role: c.role, percent: r2(c.percent), amount: r2((total * c.percent) / 100) }));
+    const before = r2(cur.commissions.reduce((s, c) => s + Number(c.amount), 0));
+    const after = r2(list.reduce((s, c) => s + c.amount, 0));
+    const delta = before - after;
+    const costTotal = Number(cur.costTotal);
+    const updated = await prisma.$transaction(async (tx) => {
+      let finance = 0;
+      if (cur.status === "APPROVED") {
+        const rows = await tx.financeTransaction.findMany({ where: { originQuoteId: cur.id }, orderBy: { dueDate: "asc" } });
+        const paid = rows.filter((r) => (r.category === CATEGORY_COMMISSION || r.category === CATEGORY_TECHNICAL_RESERVE) && (r.status === "PAGO" || Number(r.paidAmount) > 0));
+        if (paid.length) throw new BadRequestError("Já há comissão paga deste contrato — acerte o restante no financeiro");
+        if (rows.length) {
+          const old = rows.filter((r) => r.category === CATEGORY_COMMISSION || r.category === CATEGORY_TECHNICAL_RESERVE);
+          const sale = rows.filter((r) => r.type === "RECEITA" && r.category === CATEGORY_SALE).map((r) => ({ amount: Number(r.amount), dueDay: r.dueDate!.toISOString().slice(0, 10) }));
+          const ref = `Orçamento ${cur.number}${cur.version > 1 ? ` v${cur.version}` : ""}`;
+          const plan = planCommissions(list, sale, ref, todayDay());
+          const base = rows[0];
+          await tx.financeTransaction.deleteMany({ where: { id: { in: old.map((r) => r.id) } } });
+          await tx.financeTransaction.createMany({
+            data: plan.map((e) => ({
+              organizationId: cur.organizationId,
+              type: e.type,
+              category: e.category,
+              amount: D2(e.amount),
+              date: base.date,
+              dueDate: dayToDate(e.dueDay),
+              description: e.description,
+              status: "PENDENTE" as const,
+              method: e.method,
+              originQuoteId: cur.id,
+              referrerId: e.referrerId ?? null,
+              originOpportunityId: base.originOpportunityId,
+              clientId: base.clientId,
+              projectId: base.projectId,
+              purchaseRef: base.purchaseRef,
+              createdById: req.user!.id,
+            })),
+          });
+          finance = plan.length;
+        }
+      }
+      await tx.commercialQuoteCommission.deleteMany({ where: { quoteId: cur.id } });
+      const q = await tx.commercialQuote.update({
+        where: { id: cur.id },
+        data: {
+          commissionPercent: r2(list.reduce((s, c) => s + c.percent, 0)),
+          result: r2(Number(cur.result) + delta),
+          score: cur.score != null && costTotal > 0 ? Math.round((Number(cur.score) + delta / costTotal) * 10000) / 10000 : cur.score,
+          commissions: { create: list },
+        },
+        include: quoteInclude,
+      });
+      return { q, finance };
+    });
+    await audit(req.user!.id, "QUOTE_COMMISSIONS_ADJUSTED", cur.id, { before: cur.commissions.map((c) => ({ name: c.name, role: c.role, percent: Number(c.percent) })), after: list, finance: updated.finance });
+    return ok(res, serializeQuote(updated.q), updated.finance ? `Comissões acertadas — ${updated.finance} lançamento(s) de comissão no financeiro` : "Comissões acertadas");
   })
 );
 

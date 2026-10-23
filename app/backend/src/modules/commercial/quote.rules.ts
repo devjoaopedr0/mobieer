@@ -114,9 +114,9 @@ export const DEFAULT_PRICING: PricingConfig = {
   // mark-up efetivo (o que sobra sobre o custo): de 2 para cima fecha direto, abaixo precisa de liberação
   minScore: 2,
   validityDays: 10,
-  // tabela de comissões da loja (planilha de orçamento): soma 7%; os de 0% aparecem para escolher
+  // tabela de comissões da loja (planilha de orçamento): soma 6,5%; os de 0% aparecem para escolher
   commissionRoles: [
-    { role: "PROJETISTA", label: "Projetista", defaultPercent: 1 },
+    { role: "PROJETISTA", label: "Projetista", defaultPercent: 0.5 },
     { role: "VENDEDOR", label: "Consultor", defaultPercent: 3 },
     { role: "TECNICO", label: "Técnico", defaultPercent: 0 },
     { role: "CONFERENCIA", label: "Conferência", defaultPercent: 0 },

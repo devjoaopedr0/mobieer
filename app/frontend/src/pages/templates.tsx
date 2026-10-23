@@ -392,8 +392,46 @@ function ContractNumbering() {
     },
     onError: (e) => toast.error(errorMessage(e, "Falha ao salvar a numeração")),
   });
+  // orçamentos de antes do ponto de partida entram na sequência (ORC-00002 → ORC-00377…)
+  type Renumbering = { from: string; to: string; client: string; versions: number };
+  const [preview, setPreview] = useState<Renumbering[] | null>(null);
+  const renumber = useMutation({
+    mutationFn: (dryRun: boolean) => apiPost<{ data: { changes: Renumbering[]; next: number }; message: string }>("/templates/contract-numbering/renumber-quotes", { dryRun }),
+    onSuccess: (r, dryRun) => {
+      if (dryRun) {
+        if (!r.data.changes.length) toast.info(r.message);
+        else setPreview(r.data.changes);
+        return;
+      }
+      toast.success(r.message);
+      setPreview(null);
+      qc.invalidateQueries({ queryKey: ["templates", "contract-numbering"] });
+      qc.invalidateQueries({ queryKey: ["quotes"] });
+    },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao renumerar os orçamentos")),
+  });
   return (
     <Card>
+      <Dialog open={preview !== null} onOpenChange={(o) => !o && setPreview(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Colocar orçamentos antigos na sequência</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Na ordem em que foram feitos. Versões, adendos e lançamentos do financeiro acompanham. PDFs já gerados continuam com o número antigo: gere de novo se precisar.</p>
+          <ul className="max-h-72 divide-y overflow-y-auto rounded-md border text-sm">
+            {preview?.map((c) => (
+              <li key={c.from} className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="min-w-0 truncate">{c.client}{c.versions > 1 ? ` · ${c.versions} versões` : ""}</span>
+                <span className="shrink-0 tabular-nums">{c.from} → <strong>{c.to}</strong></span>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreview(null)}>Cancelar</Button>
+            <Button disabled={renumber.isPending} onClick={() => renumber.mutate(false)}>
+              {renumber.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Renumerar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <CardContent className="flex flex-wrap items-end gap-3 pt-6">
         <div className="space-y-1">
           <Label htmlFor="contract-next">Próximo número (orçamento e contrato)</Label>
@@ -401,6 +439,9 @@ function ContractNumbering() {
         </div>
         <Button size="sm" variant="outline" disabled={!value || save.isPending || String(current.data?.data.next ?? "") === value} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Salvar
+        </Button>
+        <Button size="sm" variant="outline" disabled={renumber.isPending} onClick={() => renumber.mutate(true)}>
+          Orçamentos antigos na sequência
         </Button>
         <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
           Orçamentos e contratos seguem uma numeração só, continuando a dos contratos antigos: o contrato fica com o número do orçamento (ORC-00376 → contrato 376) e o próximo orçamento recebe o número seguinte. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Use {"{{contrato.numero}}"} no texto do modelo.
