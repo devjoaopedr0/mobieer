@@ -509,6 +509,9 @@ export type Requisition = {
   clientName: string | null;
   projectReference: string | null;
   priority: RequisitionPriority;
+  /** DATA PEDIDO da folha (sem ela, vale a criação) */
+  orderedAt?: string | null;
+  /** DATA ENTREGA da folha */
   neededAt: string | null;
   inspectionResult: "APPROVED" | "NEEDS_CORRECTION" | null;
   inspectionNote: string | null;
@@ -532,6 +535,8 @@ export type Requisition = {
     id: string;
     /** ambiente (cozinha, quarto…) */
     room?: string | null;
+    /** insumo: INSUMO, FERRAGEM ou OUTRO */
+    supplyType?: string | null;
     description: string;
     material: string | null;
     productId: string | null;

@@ -1,4 +1,4 @@
-import { requisitionsPdf } from "./requisitions.pdf";
+import { requisitionsPdf, type PerPage } from "./requisitions.pdf";
 import { InspectionResult, MovementType, Prisma, RequisitionItemStatus, RequisitionStatus, ReservationStatus } from "@prisma/client";
 import { prisma } from "../../prisma";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/ApiError";
@@ -74,14 +74,13 @@ export async function getIndicators(userId?: string) {
   return { open: Object.entries(count).filter(([status]) => !["COMPLETED", "CANCELLED"].includes(status)).reduce((sum, [, value]) => sum + value, 0), inReview: count.IN_REVIEW ?? 0, waitingMaterial: count.WAITING_MATERIAL ?? 0, released: count.RELEASED ?? 0, inCutting: count.IN_CUTTING ?? 0, inspection: count.INSPECTION ?? 0, completed: count.COMPLETED ?? 0, overdue };
 }
 
-function itemData(item: CreateRequisitionInput["items"][number]) { return { room: item.room ?? null, description: item.description, material: item.material ?? null, productId: item.productId ?? null, thickness: item.thickness ?? null, length: item.length ?? null, width: item.width ?? null, quantity: item.quantity, unit: item.unit, edgeFinish: item.edgeFinish ?? null, note: item.note ?? null }; }
+function itemData(item: CreateRequisitionInput["items"][number]) { return { room: item.room ?? null, supplyType: item.supplyType ?? null, description: item.description, material: item.material ?? null, productId: item.productId ?? null, thickness: item.thickness ?? null, length: item.length ?? null, width: item.width ?? null, quantity: item.quantity, unit: item.unit, edgeFinish: item.edgeFinish ?? null, note: item.note ?? null }; }
 
 export async function createRequisition(input: CreateRequisitionInput, requesterId: string) {
-  // insumo sai do estoque: cada item precisa ser um produto cadastrado
-  if (input.kind === "INSUMOS" && input.items.some((i) => !i.productId)) throw new BadRequestError("Na requisição de insumos, escolha o produto do estoque em cada item");
+  // insumo sem produto do estoque vale (o estoque pode não estar cadastrado): só não dá baixa na entrega
   const number = await nextCode("requisition", "REQ");
   const created = await prisma.$transaction(async (tx) => {
-    const req = await tx.requisition.create({ data: { number, kind: input.kind, sector: input.sector ?? null, destination: input.destination ?? null, clientName: input.clientName ?? null, projectReference: input.projectReference ?? null, priority: input.priority, neededAt: input.neededAt ? new Date(input.neededAt) : null, responsibleId: input.responsibleId ?? null, note: input.note ?? null, requesterId, status: input.submit ? RequisitionStatus.REQUESTED : RequisitionStatus.DRAFT, submittedAt: input.submit ? new Date() : null, items: { create: input.items.map(itemData) }, attachments: { create: input.attachments.map((a) => ({ name: a.name, url: a.url, mimeType: a.mimeType ?? null, size: a.size ?? null })) } }, include });
+    const req = await tx.requisition.create({ data: { number, kind: input.kind, sector: input.sector ?? null, destination: input.destination ?? null, clientName: input.clientName ?? null, projectReference: input.projectReference ?? null, priority: input.priority, orderedAt: input.orderedAt ? new Date(input.orderedAt) : null, neededAt: input.neededAt ? new Date(input.neededAt) : null, responsibleId: input.responsibleId ?? null, note: input.note ?? null, requesterId, status: input.submit ? RequisitionStatus.REQUESTED : RequisitionStatus.DRAFT, submittedAt: input.submit ? new Date() : null, items: { create: input.items.map(itemData) }, attachments: { create: input.attachments.map((a) => ({ name: a.name, url: a.url, mimeType: a.mimeType ?? null, size: a.size ?? null })) } }, include });
     await logHistory(tx, req.id, requesterId, input.submit ? "REQUISITION_SUBMITTED" : "REQUISITION_CREATED", undefined, { number, itemCount: input.items.length });
     return req;
   });
@@ -94,7 +93,7 @@ export async function updateRequisition(id: string, input: UpdateRequisitionInpu
   if (current.requesterId !== actorId && !permissions.includes("requisitions.edit.all")) throw new ForbiddenError("Você só pode editar seus próprios rascunhos");
   const updated = await prisma.$transaction(async (tx) => {
     if (input.items) { await tx.requisitionItem.deleteMany({ where: { requisitionId: id } }); await tx.requisitionItem.createMany({ data: input.items.map((item) => ({ ...itemData(item), requisitionId: id })) }); }
-    const req = await tx.requisition.update({ where: { id }, data: { sector: input.sector, destination: input.destination, clientName: input.clientName, projectReference: input.projectReference, priority: input.priority, neededAt: input.neededAt === undefined ? undefined : input.neededAt ? new Date(input.neededAt) : null, responsibleId: input.responsibleId, note: input.note }, include });
+    const req = await tx.requisition.update({ where: { id }, data: { sector: input.sector, destination: input.destination, clientName: input.clientName, projectReference: input.projectReference, priority: input.priority, orderedAt: input.orderedAt === undefined ? undefined : input.orderedAt ? new Date(input.orderedAt) : null, neededAt: input.neededAt === undefined ? undefined : input.neededAt ? new Date(input.neededAt) : null, responsibleId: input.responsibleId, note: input.note }, include });
     await logHistory(tx, id, actorId, "REQUISITION_UPDATED", { updatedAt: current.updatedAt.toISOString() }, { items: input.items?.length });
     return req;
   });
@@ -196,7 +195,9 @@ export async function listCuttingBoard() {
 }
 
 /** Requisições para imprimir (três por folha): as escolhidas, ou as em aberto. */
-export async function printRequisitions(ids: string[], userId?: string, perPage: 2 | 3 = 3) {
+const SUPPLY_TYPE_LABEL: Record<string, string> = { INSUMO: "Insumo", FERRAGEM: "Ferragem", OUTRO: "Outro" };
+
+export async function printRequisitions(ids: string[], userId?: string, perPage: PerPage = "auto") {
   const rows = await prisma.requisition.findMany({
     where: {
       ...(ids.length ? { id: { in: ids } } : { status: { notIn: [RequisitionStatus.DRAFT, RequisitionStatus.COMPLETED, RequisitionStatus.CANCELLED] } }),
@@ -215,11 +216,11 @@ export async function printRequisitions(ids: string[], userId?: string, perPage:
       clientName: r.clientName,
       projectReference: r.projectReference,
       priority: r.priority,
-      orderedAt: r.submittedAt ?? r.createdAt,
+      orderedAt: r.orderedAt ?? r.submittedAt ?? r.createdAt,
       neededAt: r.neededAt,
       cutter: r.cutter?.name ?? null,
       note: r.note,
-      items: r.items.map((i) => ({ room: i.room, kindLabel: i.product?.category?.name ?? null, quantity: i.quantity, unit: i.unit, description: i.description, material: i.material, thickness: i.thickness == null ? null : Number(i.thickness), length: i.length == null ? null : Number(i.length), width: i.width == null ? null : Number(i.width), edgeFinish: i.edgeFinish, note: i.note })),
+      items: r.items.map((i) => ({ room: i.room, kindLabel: (i.supplyType && SUPPLY_TYPE_LABEL[i.supplyType]) ?? i.product?.category?.name ?? null, quantity: i.quantity, unit: i.unit, description: i.description, material: i.material, thickness: i.thickness == null ? null : Number(i.thickness), length: i.length == null ? null : Number(i.length), width: i.width == null ? null : Number(i.width), edgeFinish: i.edgeFinish, note: i.note })),
     })),
     perPage
   );

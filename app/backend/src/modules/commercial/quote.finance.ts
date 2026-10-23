@@ -115,10 +115,25 @@ export function planFinance(q: QuoteForFinance, today: string): PlannedEntry[] {
     }
   }
 
-  // Comissão conforme recebe: uma fatia por recebível, na proporção do valor dele.
-  const receivables = out.map((e, index) => ({ e, index })).filter((x) => x.e.type === "RECEITA");
-  const received = receivables.reduce((s, x) => s + x.e.amount, 0);
-  for (const c of q.commissions) {
+  const receivables = out.map((e, index) => ({ amount: e.amount, dueDay: e.dueDay, index, type: e.type })).filter((x) => x.type === "RECEITA");
+  out.push(...planCommissions(q.commissions, receivables, ref, today));
+  return out;
+}
+
+/**
+ * Comissão conforme recebe: uma fatia por recebível, na proporção do valor dele.
+ * Serve ao aceite e ao ajuste de comissão de contrato já aceito (aí os
+ * recebíveis são os que já estão no financeiro).
+ */
+export function planCommissions(
+  commissions: QuoteForFinance["commissions"],
+  receivables: { amount: number; dueDay: string; index?: number }[],
+  ref: string,
+  today: string
+): PlannedEntry[] {
+  const out: PlannedEntry[] = [];
+  const received = receivables.reduce((s, x) => s + x.amount, 0);
+  for (const c of commissions) {
     if (!(c.amount > 0)) continue;
     const rt = c.role === "INDICADOR";
     const label = `${ref} — ${rt ? "reserva técnica" : "comissão"} ${c.name} (${String(c.percent).replace(".", ",")}%)`;
@@ -126,7 +141,7 @@ export function planFinance(q: QuoteForFinance, today: string): PlannedEntry[] {
     let used = 0;
     const slices = (receivables.length ? receivables : [null]).map((x, i, all) => {
       // a última fatia leva o arredondamento, para a soma fechar no valor da comissão
-      const part = i === all.length - 1 ? cents - used : Math.floor((cents * (x ? x.e.amount : 1)) / (received || 1));
+      const part = i === all.length - 1 ? cents - used : Math.floor((cents * (x ? x.amount : 1)) / (received || 1));
       used += part;
       return { x, part };
     });
@@ -136,7 +151,7 @@ export function planFinance(q: QuoteForFinance, today: string): PlannedEntry[] {
         type: "DESPESA",
         category: rt ? CATEGORY_TECHNICAL_RESERVE : CATEGORY_COMMISSION,
         amount: s.part / 100,
-        dueDay: s.x ? s.x.e.dueDay : today,
+        dueDay: s.x ? s.x.dueDay : today,
         description: parts.length > 1 ? `${label} — ${i + 1}/${parts.length}` : label,
         method: rt ? "Reserva técnica" : "Comissão",
         installmentNumber: null,

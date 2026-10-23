@@ -2,11 +2,14 @@ import { InspectionResult, RequisitionItemStatus, RequisitionPriority, Requisiti
 import { z } from "zod";
 
 const nullableText = (max = 500) => z.string().trim().max(max).optional().nullable();
+/** tipo do insumo, na coluna TIPO da folha */
+export const SUPPLY_TYPES = ["INSUMO", "FERRAGEM", "OUTRO"] as const;
 
 export const requisitionItemSchema = z.object({
   id: z.string().optional(),
   description: z.string().trim().min(2, "Descrição obrigatória").max(200),
   room: nullableText(120),
+  supplyType: z.enum(SUPPLY_TYPES).optional().nullable(),
   material: nullableText(150),
   productId: z.string().optional().nullable(),
   thickness: z.number().positive().max(10000).optional().nullable(),
@@ -24,7 +27,7 @@ export const createRequisitionSchema = z.object({
   kind: z.enum(REQUISITION_KINDS).default("PECAS"),
   sector: nullableText(100), destination: nullableText(200), clientName: nullableText(150), projectReference: nullableText(150),
   priority: z.nativeEnum(RequisitionPriority).default(RequisitionPriority.NORMAL),
-  neededAt: z.string().datetime().optional().nullable(), responsibleId: z.string().optional().nullable(), note: nullableText(3000),
+  orderedAt: z.string().datetime().optional().nullable(), neededAt: z.string().datetime().optional().nullable(), responsibleId: z.string().optional().nullable(), note: nullableText(3000),
   submit: z.boolean().default(false),
   attachments: z.array(z.object({ name: z.string().trim().min(1).max(255), url: z.string().url(), mimeType: nullableText(100), size: z.number().int().nonnegative().optional().nullable() })).max(20).default([]),
   items: z.array(requisitionItemSchema).min(1, "Adicione ao menos uma peça").max(200),

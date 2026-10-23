@@ -3,7 +3,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FinanceAdjustError, addDaysDay, addMonthsDay, applyAdjustments, planFinance, splitAmount, type QuoteForFinance } from "../src/modules/commercial/quote.finance";
+import { FinanceAdjustError, addDaysDay, addMonthsDay, applyAdjustments, planCommissions, planFinance, splitAmount, type QuoteForFinance } from "../src/modules/commercial/quote.finance";
 
 const q = (payment: Partial<QuoteForFinance["payment"]>, over: Partial<QuoteForFinance> = {}): QuoteForFinance => ({
   number: "ORC-00007",
@@ -137,4 +137,16 @@ test("reserva técnica do indicador vira conta a pagar própria, ligada ao indic
 test("DRE classifica a reserva técnica como despesa de vendas", async () => {
   const { classifyDreLine } = await import("../src/modules/finance/dre.service");
   assert.equal(classifyDreLine("DESPESA", "Reserva técnica"), "DESPESA_VENDAS");
+});
+
+test("acerto de comissão do contrato aceito: refeita sobre os recebíveis que já existem", () => {
+  const receivables = [
+    { amount: 3000, dueDay: "2026-10-23" },
+    { amount: 7000, dueDay: "2026-11-23" },
+  ];
+  const plan = planCommissions([{ name: "Projetista", role: "PROJETISTA", percent: 0.5, amount: 50 }], receivables, "Orçamento ORC-00376", "2026-10-23");
+  assert.deepEqual(plan.map((e) => [e.amount, e.dueDay]), [[15, "2026-10-23"], [35, "2026-11-23"]]);
+  assert.match(plan[0].description, /comissão Projetista \(0,5%\) — 1\/2/);
+  // zerar tira a comissão
+  assert.equal(planCommissions([{ name: "X", percent: 0, amount: 0 }], receivables, "Orçamento ORC-00376", "2026-10-23").length, 0);
 });

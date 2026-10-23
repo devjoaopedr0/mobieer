@@ -58,6 +58,8 @@ O contrato sai com o título "Contrato Nº" e o número da sequência da loja. G
 
 Orçamentos e contratos seguem uma numeração só: o contrato fica com o número do orçamento (ORC-00376 vira o contrato 376) e o próximo orçamento recebe o número seguinte (ORC-00377). Contrato de um orçamento antigo, de antes da numeração, recebe o próximo número livre.
 
+Orçamento feito antes do ponto de partida (ORC-00002, ORC-00005…) entra na sequência pelo botão **Orçamentos antigos na sequência**: a janela mostra quem fica com qual número (na ordem em que foram feitos) e só muda ao clicar em **Renumerar**. Versões, adendos e lançamentos do financeiro acompanham; PDF já gerado continua com o número antigo.
+
 Só o administrativo (Administrador e Gestor) edita o texto dos modelos (as cláusulas) e a numeração; o comercial gera o contrato. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Um número já usado não volta. No texto do modelo, o marcador {{contrato.numero}} mostra o número.
 
 ## Como acrescentar ambientes a um contrato já fechado (adendo)

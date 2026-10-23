@@ -366,6 +366,10 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
   const [params] = useSearchParams();
   const editable = !quote || EDITABLE.includes(quote.status);
   const canEdit = editable && can("commercial.quotes.manage");
+  // orçamento enviado ou contrato aceito: só o quadro de comissões se acerta (o preço fica)
+  const canFixCommissions = !!quote && ["SENT", "VIEWED", "APPROVED"].includes(quote.status) && can("commercial.manage");
+  const [fixingCommissions, setFixingCommissions] = useState(false);
+  const editCommissions = canEdit || fixingCommissions;
 
   const [form, setForm] = useState<Form>(() =>
     quote
@@ -479,8 +483,24 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
     },
     onError: (e) => toast.error(errorMessage(e, "Falha ao salvar o orçamento")),
   });
+  const saveCommissions = useMutation({
+    mutationFn: () => apiPut<{ data: Quote; message: string }>(`/commercial/quotes/${quote!.id}/commissions`, { commissions: payload.commissions }),
+    onSuccess: (r) => {
+      toast.success(r.message);
+      setFixingCommissions(false);
+      setForm((f) => ({ ...f, commissions: fromQuote(r.data).commissions }));
+      invalidate();
+    },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao acertar as comissões")),
+  });
+  const cancelCommissions = () => {
+    setFixingCommissions(false);
+    if (quote) setForm((f) => ({ ...f, commissions: fromQuote(quote).commissions }));
+  };
+  // valor de cada comissão sobre o preço final (o do cálculo ao vivo ou o já gravado)
+  const commissionBase = calc?.total ?? quote?.total ?? 0;
 
-  const plans = config.financingPlans.filter((p) => p.method === form.method);
+  const plans =config.financingPlans.filter((p) => p.method === form.method);
   const pickMethod = (m: PaymentMethod) => setForm((f) => ({ ...f, method: m, planId: "", installments: m === "AVISTA" || m === "PIX" ? "1" : f.installments }));
   const settle = settlementOf(form.method);
 
@@ -646,19 +666,35 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
             </Card>
 
             <Card>
-              <CardHeader className="py-3"><CardTitle className="text-base">Comissões</CardTitle></CardHeader>
+              <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
+                <CardTitle className="text-base">Comissões</CardTitle>
+                {canFixCommissions && !fixingCommissions && (
+                  <Button variant="outline" size="sm" onClick={() => setFixingCommissions(true)}>Acertar comissões</Button>
+                )}
+              </CardHeader>
               <CardContent className="space-y-2">
+                {fixingCommissions && (
+                  <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                    O preço do cliente não muda. {quote?.status === "APPROVED" ? "As comissões a pagar no financeiro são refeitas com os novos valores." : "Muda só o resultado da loja."}
+                  </p>
+                )}
+                {form.commissions.length > 0 && (
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px_84px_32px] gap-2 text-xs text-muted-foreground">
+                    <span>Pessoa</span><span>Papel</span><span>%</span><span className="text-right">Valor</span><span />
+                  </div>
+                )}
                 {form.commissions.map((c, i) => c.role === RT_ROLE ? (
-                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_60px_32px] items-center gap-2">
+                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px_84px_32px] items-center gap-2">
                     <span className="truncate text-sm">{c.name}</span>
                     <span className="text-xs text-muted-foreground">Reserva técnica</span>
-                    <Input disabled={!canEdit} inputMode="decimal" aria-label="% RT" value={c.percent} onChange={(e) => set("commissions", form.commissions.map((x, k) => (k === i ? { ...x, percent: e.target.value } : x)))} />
-                    {canEdit ? <Button variant="ghost" size="icon" aria-label="Remover" onClick={() => pickReferrer("")}><Trash2 className="h-4 w-4" /></Button> : <span />}
+                    <Input disabled={!editCommissions} inputMode="decimal" aria-label="% RT" value={c.percent} onChange={(e) => set("commissions", form.commissions.map((x, k) => (k === i ? { ...x, percent: e.target.value } : x)))} />
+                    <span className="text-right text-xs tabular-nums">{formatCurrency((commissionBase * parse(c.percent)) / 100)}</span>
+                    {editCommissions ? <Button variant="ghost" size="icon" aria-label="Remover" onClick={() => (canEdit ? pickReferrer("") : set("commissions", form.commissions.filter((_, k) => k !== i)))}><Trash2 className="h-4 w-4" /></Button> : <span />}
                   </div>
                 ) : (
-                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_60px_32px] items-center gap-2">
+                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_64px_84px_32px] items-center gap-2">
                     <Select
-                      disabled={!canEdit}
+                      disabled={!editCommissions}
                       value={c.userId || "NONE"}
                       onValueChange={(v) => {
                         const p = (people.data?.data ?? []).find((x) => x.id === v);
@@ -671,20 +707,27 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
                         {(people.data?.data ?? []).map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Select disabled={!canEdit} value={c.role} onValueChange={(v) => set("commissions", form.commissions.map((x, k) => (k === i ? { ...x, role: v } : x)))}>
+                    <Select disabled={!editCommissions} value={c.role} onValueChange={(v) => set("commissions", form.commissions.map((x, k) => (k === i ? { ...x, role: v } : x)))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {config.commissionRoles.map((r) => <SelectItem key={r.role} value={r.role}>{r.label}</SelectItem>)}
                         {!config.commissionRoles.some((r) => r.role === c.role) && <SelectItem value={c.role}>{c.role}</SelectItem>}
                       </SelectContent>
                     </Select>
-                    <Input disabled={!canEdit} inputMode="decimal" aria-label="%" value={c.percent} onChange={(e) => set("commissions", form.commissions.map((x, k) => (k === i ? { ...x, percent: e.target.value } : x)))} />
-                    {canEdit ? (
+                    <Input disabled={!editCommissions} inputMode="decimal" aria-label="%" placeholder="0,5" value={c.percent} onChange={(e) => set("commissions", form.commissions.map((x, k) => (k === i ? { ...x, percent: e.target.value } : x)))} />
+                    <span className="text-right text-xs tabular-nums">{formatCurrency((commissionBase * parse(c.percent)) / 100)}</span>
+                    {editCommissions ? (
                       <Button variant="ghost" size="icon" aria-label="Remover" onClick={() => set("commissions", form.commissions.filter((_, k) => k !== i))}><Trash2 className="h-4 w-4" /></Button>
                     ) : <span />}
                   </div>
                 ))}
-                {canEdit && (
+                {fixingCommissions && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" disabled={saveCommissions.isPending} onClick={() => saveCommissions.mutate()}>Salvar comissões</Button>
+                    <Button size="sm" variant="ghost" onClick={cancelCommissions}>Cancelar</Button>
+                  </div>
+                )}
+                {editCommissions && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -1203,6 +1246,8 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
 
             <div className="space-y-2">
               <p className="font-medium">Comissões padrão</p>
+              <p className="text-xs text-muted-foreground">O % entra sozinho em cada orçamento novo e pode ser trocado no orçamento. Aceita decimal: 0,5 = meio por cento.</p>
+              <div className="grid grid-cols-[1fr_1fr_80px_32px] gap-2 text-xs text-muted-foreground"><span>Código</span><span>Nome</span><span>% padrão</span><span /></div>
               {c.commissionRoles.map((r, i) => (
                 <div key={i} className="grid grid-cols-[1fr_1fr_80px_32px] gap-2">
                   <Input placeholder="Código" value={r.role} onChange={(e) => setC({ ...c, commissionRoles: c.commissionRoles.map((x, k) => (k === i ? { ...x, role: e.target.value.toUpperCase() } : x)) })} />

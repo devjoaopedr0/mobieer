@@ -18,7 +18,7 @@ import {
   contractPdf,
 } from "./contract.service";
 import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder, mergeOrders, quotesForProjects } from "./contract-order";
-import { contractNumberFor, nextContractNumber, peekContractNumber, setNextContractNumber } from "./contract-number";
+import { contractNumberFor, nextContractNumber, peekContractNumber, renumberOldQuotes, setNextContractNumber } from "./contract-number";
 import { pipeToResponse } from "../../utils/stream";
 
 const router = Router();
@@ -269,6 +269,19 @@ router.put(
     await setNextContractNumber(next);
     // nunca volta para um número já usado
     return ok(res, { next: await nextContractNumber() }, "Numeração dos contratos salva");
+  })
+);
+
+// POST /api/templates/contract-numbering/renumber-quotes { dryRun } -> orçamentos antigos entram na sequência
+router.post(
+  "/contract-numbering/renumber-quotes",
+  requirePermission("templates.manage"),
+  asyncHandler(async (req, res) => {
+    const { dryRun } = z.object({ dryRun: z.boolean().default(true) }).parse(req.body ?? {});
+    const changes = await renumberOldQuotes(req.user!.organizationId, dryRun);
+    if (!dryRun && changes.length) await prisma.auditLog.create({ data: { userId: req.user!.id, action: "QUOTES_RENUMBERED", entity: "CommercialQuote", entityId: "-", details: { changes } } });
+    const message = !changes.length ? "Nenhum orçamento antigo fora da sequência" : dryRun ? `${changes.length} orçamento(s) entram na sequência` : `${changes.length} orçamento(s) renumerados`;
+    return ok(res, { changes, next: await nextContractNumber() }, message);
   })
 );
 
