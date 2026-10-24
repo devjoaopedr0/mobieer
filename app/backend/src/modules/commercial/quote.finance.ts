@@ -40,6 +40,8 @@ export type PlannedEntry = {
   referrerId?: string | null;
   /** comissão paga conforme recebe: posição, na lista, do recebível que ela acompanha */
   follows?: number;
+  /** linha de comissão: posição da comissão na lista do orçamento */
+  commission?: number;
 };
 
 export type FinanceAdjustment = { index: number; dueDay?: string; amount?: number };
@@ -133,7 +135,7 @@ export function planCommissions(
 ): PlannedEntry[] {
   const out: PlannedEntry[] = [];
   const received = receivables.reduce((s, x) => s + x.amount, 0);
-  for (const c of commissions) {
+  for (const [k, c] of commissions.entries()) {
     if (!(c.amount > 0)) continue;
     const rt = c.role === "INDICADOR";
     const label = `${ref} — ${rt ? "reserva técnica" : "comissão"} ${c.name} (${String(c.percent).replace(".", ",")}%)`;
@@ -158,6 +160,7 @@ export function planCommissions(
         installmentTotal: null,
         referrerId: rt ? c.referrerId ?? null : null,
         follows: s.x?.index,
+        commission: k,
       })
     );
   }

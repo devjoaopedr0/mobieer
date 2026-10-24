@@ -494,7 +494,7 @@ type FinanceResult = { created: number; receivable: number; replacedOpportunityE
  * por orçamento. O recebível único criado quando a oportunidade foi ganha é
  * trocado pelas parcelas se ainda não teve pagamento.
  */
-async function generateFinance(tx: Tx, q: ReturnType<typeof serializeQuote> & { organizationId: string }, userId: string, adjust?: { adjustments: FinanceAdjustment[]; expected?: number }): Promise<FinanceResult> {
+async function generateFinance(tx: Tx, q: ReturnType<typeof serializeQuote> & { organizationId: string }, userId: string, adjust?: { adjustments: FinanceAdjustment[]; expected?: number; commissionsChanged?: boolean }): Promise<FinanceResult> {
   if (await tx.financeTransaction.findFirst({ where: { originQuoteId: q.id }, select: { id: true } })) {
     return { created: 0, receivable: 0, replacedOpportunityEntry: false, skipped: "o financeiro deste orçamento já foi gerado" };
   }
@@ -515,7 +515,15 @@ async function generateFinance(tx: Tx, q: ReturnType<typeof serializeQuote> & { 
   let plan = planFinance(q, todayDay());
   if (adjust) {
     try {
-      plan = applyAdjustments(plan, adjust.adjustments, todayDay(), adjust.expected);
+      if (adjust.commissionsChanged) {
+        // comissões acertadas na janela: os ajustes valem para parcelas e taxas (as
+        // linhas antes das comissões) e as comissões são refeitas sobre as parcelas,
+        // já com as datas novas
+        const head = plan.filter((e) => e.commission === undefined);
+        const adjusted = applyAdjustments(head, adjust.adjustments, todayDay(), adjust.expected);
+        const receivables = adjusted.map((e, index) => ({ amount: e.amount, dueDay: e.dueDay, index, type: e.type })).filter((x) => x.type === "RECEITA");
+        plan = [...adjusted, ...planCommissions(q.commissions, receivables, `Orçamento ${q.number}${q.version > 1 ? ` v${q.version}` : ""}`, todayDay())];
+      } else plan = applyAdjustments(plan, adjust.adjustments, todayDay(), adjust.expected);
     } catch (e) {
       if (e instanceof FinanceAdjustError) throw new BadRequestError(e.message);
       throw e;
@@ -564,13 +572,15 @@ router.patch(
   "/:id/status",
   requirePermission("commercial.quotes.manage"),
   asyncHandler(async (req, res) => {
-    const { status, generateFinance: wantsFinance, reason, financeAdjustments, financeRows } = z
+    const { status, generateFinance: wantsFinance, reason, financeAdjustments, financeRows, commissions } = z
       .object({
         status: z.enum(["DRAFT", "SENT", "NEGOTIATION", "APPROVED", "REJECTED", "CANCELLED"]),
         generateFinance: z.boolean().default(true),
         // ajustes da janela de aceite: vencimentos e valor das comissões
         financeAdjustments: z.array(z.object({ index: z.number().int().min(0).max(500), dueDay: z.string().max(10).optional(), amount: z.number().min(0).max(100_000_000).optional() })).max(500).optional(),
         financeRows: z.number().int().min(0).max(500).optional(),
+        // comissões acertadas na janela de aceite (o preço não muda)
+        commissions: commissionsSchema.optional(),
         reason: z.string().trim().max(500).optional().nullable(),
       })
       .parse(req.body);
@@ -579,7 +589,9 @@ router.patch(
     const accepting = status === "APPROVED" && cur.status !== "APPROVED";
     const leaving = cur.status === "APPROVED" && status !== "APPROVED";
     if (leaving && status === "CANCELLED" && !reason) throw new BadRequestError("Diga o motivo do cancelamento do contrato");
-    const data: Prisma.CommercialQuoteUpdateInput = { status };
+    const fixing = accepting && commissions !== undefined;
+    if (fixing) await checkRefs(req.user!.organizationId, { clientId: cur.clientId, commissions });
+    const data: Prisma.CommercialQuoteUpdateInput = { status, ...(fixing ? commissionUpdate(cur, commissions).data : {}) };
     if (status === "SENT" && !cur.sentAt) data.sentAt = new Date();
     if (accepting) {
       data.approvedAt = new Date();
@@ -608,6 +620,7 @@ router.patch(
         }
         superseded = older.map((o) => `v${o.version}`);
       }
+      if (fixing) await tx.commercialQuoteCommission.deleteMany({ where: { quoteId: cur.id } });
       const q = await tx.commercialQuote.update({ where: { id: cur.id }, data, include: quoteInclude });
       if (accepting) {
         // Venda futura: o projeto fica segurado até a nova medição e a liberação.
@@ -616,7 +629,7 @@ router.patch(
         }
         // Cliente aceitou: a oportunidade passa a valer o total fechado.
         if (cur.opportunityId) await tx.commercialOpportunity.update({ where: { id: cur.opportunityId }, data: { estimatedValue: cur.total } });
-        if (wantsFinance) finance = await generateFinance(tx, { ...serializeQuote(q), organizationId: cur.organizationId }, req.user!.id, financeAdjustments?.length ? { adjustments: financeAdjustments as FinanceAdjustment[], expected: financeRows } : undefined);
+        if (wantsFinance) finance = await generateFinance(tx, { ...serializeQuote(q), organizationId: cur.organizationId }, req.user!.id, fixing || financeAdjustments?.length ? { adjustments: (financeAdjustments ?? []) as FinanceAdjustment[], expected: financeRows, commissionsChanged: fixing } : undefined);
       }
       return q;
     });
@@ -653,6 +666,28 @@ router.post(
 );
 
 /**
+ * Novas comissões sobre o total já fechado: o preço não muda, mudam o resultado
+ * e a pontuação. Devolve a lista com os valores e o que gravar no orçamento
+ * (as comissões antigas são apagadas antes).
+ */
+function commissionUpdate(cur: Awaited<ReturnType<typeof findQuote>>, commissions: z.infer<typeof commissionsSchema>) {
+  const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const total = Number(cur.total);
+  const list = commissions
+    .filter((c) => c.percent > 0)
+    .map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name, role: c.role, percent: r2(c.percent), amount: r2((total * c.percent) / 100) }));
+  const delta = r2(cur.commissions.reduce((s, c) => s + Number(c.amount), 0)) - r2(list.reduce((s, c) => s + c.amount, 0));
+  const costTotal = Number(cur.costTotal);
+  const data = {
+    commissionPercent: r2(list.reduce((s, c) => s + c.percent, 0)),
+    result: r2(Number(cur.result) + delta),
+    score: cur.score != null && costTotal > 0 ? Math.round((Number(cur.score) + delta / costTotal) * 10000) / 10000 : cur.score,
+    commissions: { create: list },
+  };
+  return { list, data };
+}
+
+/**
  * PUT /api/commercial/quotes/:id/commissions { commissions } — acerta quem recebe
  * comissão e o % de orçamento enviado ou contrato aceito. O preço do cliente não
  * muda: o que muda é o resultado da loja e, no contrato aceito, as comissões a
@@ -667,15 +702,7 @@ router.put(
     if (EDITABLE.includes(cur.status)) throw new BadRequestError("Orçamento em rascunho ou negociação: ajuste a comissão editando o orçamento");
     if (!["SENT", "VIEWED", "APPROVED"].includes(cur.status)) throw new BadRequestError("Orçamento recusado ou cancelado não tem comissão a acertar");
     await checkRefs(req.user!.organizationId, { clientId: cur.clientId, commissions });
-    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-    const total = Number(cur.total);
-    const list = commissions
-      .filter((c) => c.percent > 0)
-      .map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name, role: c.role, percent: r2(c.percent), amount: r2((total * c.percent) / 100) }));
-    const before = r2(cur.commissions.reduce((s, c) => s + Number(c.amount), 0));
-    const after = r2(list.reduce((s, c) => s + c.amount, 0));
-    const delta = before - after;
-    const costTotal = Number(cur.costTotal);
+    const { list, data } = commissionUpdate(cur, commissions);
     const updated = await prisma.$transaction(async (tx) => {
       let finance = 0;
       if (cur.status === "APPROVED") {
@@ -713,16 +740,7 @@ router.put(
         }
       }
       await tx.commercialQuoteCommission.deleteMany({ where: { quoteId: cur.id } });
-      const q = await tx.commercialQuote.update({
-        where: { id: cur.id },
-        data: {
-          commissionPercent: r2(list.reduce((s, c) => s + c.percent, 0)),
-          result: r2(Number(cur.result) + delta),
-          score: cur.score != null && costTotal > 0 ? Math.round((Number(cur.score) + delta / costTotal) * 10000) / 10000 : cur.score,
-          commissions: { create: list },
-        },
-        include: quoteInclude,
-      });
+      const q = await tx.commercialQuote.update({ where: { id: cur.id }, data, include: quoteInclude });
       return { q, finance };
     });
     await audit(req.user!.id, "QUOTE_COMMISSIONS_ADJUSTED", cur.id, { before: cur.commissions.map((c) => ({ name: c.name, role: c.role, percent: Number(c.percent) })), after: list, finance: updated.finance });
