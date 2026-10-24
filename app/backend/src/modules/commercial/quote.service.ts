@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../prisma";
-import { nextSharedNumber } from "../templates/contract-number";
+import { nextQuoteSequence } from "../templates/contract-number";
 import { brl } from "../templates/contract.service";
 import { normalizePricing, paymentText, type PaymentMethod, type PricingConfig, type QuoteCalc } from "./quote.rules";
 import { quoteModelPdf } from "./quote.pdf";
@@ -166,11 +166,10 @@ export function calcToData(c: QuoteCalc) {
 
 /**
  * Próximo número de orçamento (as versões repetem o número; adendo usa o do
- * contrato com -A1). Segue a numeração da loja junto com os contratos: depois
- * do ORC-00376 vem o 377, e nenhum número já usado por contrato se repete.
+ * orçamento com -A1). Sequência própria, separada da dos contratos.
  */
 export async function nextQuoteNumber(_organizationId: string) {
-  return `ORC-${String(await nextSharedNumber()).padStart(5, "0")}`;
+  return `ORC-${String(await nextQuoteSequence()).padStart(5, "0")}`;
 }
 
 

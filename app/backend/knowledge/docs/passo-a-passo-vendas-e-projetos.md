@@ -46,26 +46,31 @@ Se a pontuação ficar abaixo do mínimo, o orçamento fica aguardando liberaç�
 1. Abra o orçamento já aceito.
 2. Clique em **Gerar contrato**.
 3. Escolha o modelo "Contrato de compra e venda (modelo da loja)".
-4. Clique em **Gerar e enviar ao cliente**. O contrato sai com o pedido, os acabamentos e as parcelas do orçamento e vai para o portal.
-5. A loja assina em **Documentos** do projeto; o cliente assina no portal.
+4. Clique em **Abrir no editor**. O contrato abre já preenchido com o pedido, os acabamentos e as parcelas do orçamento, como um documento de texto.
+5. Corrija o que precisar direto no texto: cláusulas, forma de pagamento, valores e datas das parcelas (a tabela de parcelas aceita linha nova e linha removida). Tem negrito, itálico, sublinhado, título, lista e alinhamento.
+6. Clique em **Gerar PDF e enviar ao cliente**. O PDF sai do texto editado, no padrão da loja, e vai para o portal.
+7. A loja assina em **Documentos** do projeto; o cliente assina no portal.
+
+Mudar a forma de pagamento no editor muda só o texto do contrato: as parcelas do financeiro continuam as do orçamento aceito.
 
 O contrato sai com o título "Contrato Nº" e o número da sequência da loja. Gerado pela tela **Modelos**, sem orçamento escolhido, vale o último orçamento do cliente.
 
-## Como continuar a numeração dos contratos antigos
+## Como continuar a numeração dos contratos e dos orçamentos
 1. Abra o menu **Modelos de documentos**.
-2. Em **Próximo número (orçamento e contrato)**, digite o número que deve vir agora (o último contrato antigo mais um).
-3. Clique em **Salvar**.
+2. Em **Próximo contrato**, digite o número que o próximo contrato deve receber (o último contrato antigo mais um).
+3. Em **Próximo orçamento**, digite o número do próximo orçamento.
+4. Clique em **Salvar**.
 
-Orçamentos e contratos seguem uma numeração só: o contrato fica com o número do orçamento (ORC-00376 vira o contrato 376) e o próximo orçamento recebe o número seguinte (ORC-00377). Contrato de um orçamento antigo, de antes da numeração, recebe o próximo número livre.
+Orçamento e contrato são coisas diferentes: cada um tem a sua numeração, e o contrato não precisa ter o número do orçamento.
 
-Orçamento feito antes do ponto de partida (ORC-00002, ORC-00005…) entra na sequência pelo botão **Orçamentos antigos na sequência**: a janela mostra quem fica com qual número (na ordem em que foram feitos) e só muda ao clicar em **Renumerar**. Versões, adendos e lançamentos do financeiro acompanham; PDF já gerado continua com o número antigo.
+Orçamento feito antes do ponto de partida dos orçamentos (ORC-00002, ORC-00005…) entra na sequência pelo botão **Orçamentos antigos na sequência**: a janela mostra quem fica com qual número (na ordem em que foram feitos) e só muda ao clicar em **Renumerar**. Versões, adendos e lançamentos do financeiro acompanham; PDF já gerado continua com o número antigo.
 
 Só o administrativo (Administrador e Gestor) edita o texto dos modelos (as cláusulas) e a numeração; o comercial gera o contrato. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Um número já usado não volta. No texto do modelo, o marcador {{contrato.numero}} mostra o número.
 
 ## Como acrescentar ambientes a um contrato já fechado (adendo)
 1. Abra o orçamento aceito do cliente.
 2. Clique em **Adendo**.
-3. Coloque só os ambientes novos e salve. O número fica com o do contrato mais -A1, -A2…
+3. Coloque só os ambientes novos e salve. O número fica com o do orçamento mais -A1, -A2…
 4. Quando o cliente aceitar, clique em **Cliente aceitou** no adendo: o financeiro lança só o valor do adendo.
 
 Os ambientes do adendo aceito entram na descritiva, no termo de entrega, na pasta técnica e no cronograma. Se os ambientes novos forem feitos em outro momento, crie um projeto novo para o mesmo cliente.

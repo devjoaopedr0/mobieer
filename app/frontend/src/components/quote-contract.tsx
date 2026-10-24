@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { FileSignature, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ContractEditor, type DocBlock } from "@/components/contract-editor";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { apiDownload, apiGet, apiPost } from "@/services/api";
@@ -23,7 +24,8 @@ type QuoteForContract = {
 
 /**
  * Contrato a partir do orçamento aceito, sem sair do comercial: escolhe o modelo,
- * o sistema preenche com os dados do orçamento e manda para o portal do cliente,
+ * o sistema preenche com os dados do orçamento, a pessoa corrige o texto no
+ * editor (cláusulas, pagamento, parcelas) e o PDF vai para o portal do cliente,
  * pedindo a assinatura da loja e do cliente.
  */
 export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
@@ -43,29 +45,40 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
   const list = templates.data ?? [];
   const chosen = list.find((t) => t.id === templateId) ?? (list.length === 1 ? list[0] : null);
 
-  const generate = useMutation({
-    mutationFn: () => {
-      const rest = Math.max(0, quote.total - quote.payment.downPayment);
-      return apiPost<{ data: { id: string; fileName: string; requiresSignature: boolean; missing: string[] }; message?: string }>(`/templates/${chosen!.id}/contract`, {
-        clientId: quote.client.id,
-        quoteId: quote.id,
-        projectId: quote.project?.id ?? null,
-        totalOverride: quote.total,
-        entrada: quote.payment.downPayment || null,
-        parcelas: quote.payment.installments || null,
-        valorParcela: quote.payment.installments > 0 ? Math.round((rest / quote.payment.installments) * 100) / 100 : null,
-        condicaoPagamento: quote.paymentTerms || null,
-        prazoEntregaDias: quote.deliveryDays ?? null,
-        title: `Contrato — ${quote.client.name} (${quote.number})`,
-        visibleToClient: true,
-      });
+  const [draft, setDraft] = useState<{ title: string; html: string } | null>(null);
+  const payload = () => {
+    const rest = Math.max(0, quote.total - quote.payment.downPayment);
+    return {
+      clientId: quote.client.id,
+      quoteId: quote.id,
+      projectId: quote.project?.id ?? null,
+      totalOverride: quote.total,
+      entrada: quote.payment.downPayment || null,
+      parcelas: quote.payment.installments || null,
+      valorParcela: quote.payment.installments > 0 ? Math.round((rest / quote.payment.installments) * 100) / 100 : null,
+      condicaoPagamento: quote.paymentTerms || null,
+      prazoEntregaDias: quote.deliveryDays ?? null,
+      title: `Contrato — ${quote.client.name} (${quote.number})`,
+      visibleToClient: true,
+    };
+  };
+  const openEditor = useMutation({
+    mutationFn: () => apiPost<{ data: { title: string; html: string } }>(`/templates/${chosen!.id}/contract/preview`, payload()),
+    onSuccess: (r) => {
+      setDraft({ title: r.data.title, html: r.data.html });
+      setOpen(false);
     },
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível montar o contrato")),
+  });
+  const generate = useMutation({
+    mutationFn: (doc: DocBlock[]) =>
+      apiPost<{ data: { id: string; fileName: string; requiresSignature: boolean; missing: string[] }; message?: string }>(`/templates/${chosen!.id}/contract`, { ...payload(), doc }),
     onSuccess: (r) => {
       const d = r.data;
       toast.success(d.requiresSignature ? "Contrato gerado e enviado ao portal do cliente. Falta a assinatura da loja e a do cliente." : "Contrato gerado e enviado ao portal do cliente.", { duration: 9000 });
       if (d.missing.length) toast.warning(`${d.missing.length} ${d.missing.length > 1 ? "campos do modelo ficaram" : "campo do modelo ficou"} sem valor: ${d.missing.slice(0, 6).join(", ")}. Confira o PDF.`, { duration: 14000 });
       void apiDownload(`/documents/${d.id}/download`, d.fileName).catch(() => undefined);
-      setOpen(false);
+      setDraft(null);
     },
     onError: (e) => toast.error(errorMessage(e, "Não foi possível gerar o contrato")),
   });
@@ -79,7 +92,7 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Gerar contrato — {quote.number}</DialogTitle>
-            <DialogDescription>O contrato sai do modelo escolhido, com o cliente, os ambientes e acabamentos, o valor e as parcelas com vencimento deste orçamento.</DialogDescription>
+            <DialogDescription>O contrato sai do modelo escolhido, com o cliente, os ambientes e acabamentos, o valor e as parcelas com vencimento deste orçamento. Ele abre no editor para você corrigir o que precisar antes de gerar o PDF.</DialogDescription>
           </DialogHeader>
           {templates.isLoading ? (
             <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -104,12 +117,23 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button disabled={!chosen || generate.isPending} onClick={() => generate.mutate()}>
-              {generate.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Gerar e enviar ao cliente
+            <Button disabled={!chosen || openEditor.isPending} onClick={() => openEditor.mutate()}>
+              {openEditor.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Abrir no editor
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {draft && (
+        <ContractEditor
+          title={draft.title}
+          html={draft.html}
+          description="Corrija o que precisar direto no texto: cláusulas, forma de pagamento, valores e datas das parcelas. O financeiro continua com as parcelas do orçamento; aqui muda só o contrato."
+          confirmLabel="Gerar PDF e enviar ao cliente"
+          pending={generate.isPending}
+          onConfirm={(doc) => generate.mutate(doc)}
+          onClose={() => setDraft(null)}
+        />
+      )}
     </>
   );
 }

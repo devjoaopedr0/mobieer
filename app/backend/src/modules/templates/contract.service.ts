@@ -320,6 +320,55 @@ export async function buildContractContext(
 // Substituição de marcadores compartilhada com as automações de mensagem.
 export { renderTemplate } from "../../utils/template";
 
+export type ContractLine =
+  | { kind: "gap" }
+  | { kind: "block"; key: string }
+  | { kind: "heading"; text: string }
+  | { kind: "field"; label: string; value: string }
+  | { kind: "bullet"; text: string }
+  | { kind: "lead"; label: string; text: string }
+  | { kind: "para"; text: string };
+
+/**
+ * Lê o corpo em texto puro linha a linha: linha curta em MAIÚSCULAS no começo
+ * de um bloco é título de seção, "Rótulo: valor" é campo, "• " é item de lista,
+ * a linha igual a um quadro (`blockKeys`) é o quadro e o resto é parágrafo.
+ * O PDF e o editor do contrato usam a mesma leitura.
+ */
+export function contractLines(body: string, blockKeys: string[] = []): ContractLine[] {
+  const out: ContractLine[] = [];
+  // título de seção só no começo de um bloco: "CONTRATANTE" sob a linha de assinatura é texto
+  let blockStart = true;
+  for (const rawLine of body.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      out.push({ kind: "gap" });
+      blockStart = true;
+      continue;
+    }
+    if (blockKeys.includes(line.trim())) {
+      out.push({ kind: "block", key: line.trim() });
+      blockStart = true;
+      continue;
+    }
+    const first = blockStart;
+    blockStart = false;
+    // "Rótulo: valor" nunca é título, mesmo com o valor em maiúsculas ("CONTRATANTE: MARIA")
+    const isHeading = first && line.length <= 90 && line === line.toUpperCase() && /[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(line) && !/:\s/.test(line);
+    // campo vazio ("CPF:" sem valor) sai com a linha para preencher à mão
+    const field = /^((?:(?!\. )[^:•\[]){2,70}):(?:\s+(.+))?$/.exec(line);
+    if (isHeading) out.push({ kind: "heading", text: line });
+    else if (field && line.length <= 160) out.push({ kind: "field", label: field[1], value: field[2] ?? "______________________________" });
+    else if (line.startsWith("• ")) out.push({ kind: "bullet", text: line.slice(2) });
+    else {
+      // parágrafo que começa com um rótulo curto ("Fabricação: …"): o rótulo sai em negrito
+      const lead = /^([A-ZÁÉÍÓÚÂÊÔÃÕÇ][^:•\[]{1,58}):\s+(.+)$/.exec(line);
+      out.push(lead && !/\. /.test(lead[1]) ? { kind: "lead", label: lead[1], text: lead[2] } : { kind: "para", text: line });
+    }
+  }
+  return out;
+}
+
 /**
  * Gera o PDF de um documento de texto (contrato, recibo, vistoria, certificado)
  * no padrão visual da loja. O corpo é texto puro: linha curta em MAIÚSCULAS
@@ -330,48 +379,25 @@ export function contractPdf(opts: { title: string; subtitle?: string; body: stri
   const { doc, done, width } = brandDocument({ contacts: opts.contacts });
   brandTitle(doc, opts.title, opts.subtitle);
 
-  // título de seção só no começo de um bloco: "CONTRATANTE" sob a linha de assinatura é texto
-  let blockStart = true;
-  for (const rawLine of opts.body.split(/\r?\n/)) {
-    const line = rawLine.trimEnd();
-    if (!line.trim()) {
-      doc.moveDown(0.35);
-      blockStart = true;
-      continue;
-    }
-    const draw = opts.blocks?.[line.trim()];
-    if (draw) {
-      draw(doc);
-      blockStart = true;
-      continue;
-    }
-    const first = blockStart;
-    blockStart = false;
-    // "Rótulo: valor" nunca é título, mesmo com o valor em maiúsculas ("CONTRATANTE: MARIA")
-    const isHeading = first && line.length <= 90 && line === line.toUpperCase() && /[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(line) && !/:\s/.test(line);
-    // campo vazio ("CPF:" sem valor) sai com a linha para preencher à mão
-    const field = /^((?:(?!\. )[^:•\[]){2,70}):(?:\s+(.+))?$/.exec(line);
-    if (isHeading) {
+  for (const l of contractLines(opts.body, Object.keys(opts.blocks ?? {}))) {
+    if (l.kind === "gap") doc.moveDown(0.35);
+    else if (l.kind === "block") opts.blocks![l.key](doc);
+    else if (l.kind === "heading") {
       // título não fica sozinho no pé da página
       ensureSpace(doc, 80);
       doc.moveDown(0.3);
-      brandSection(doc, line);
-    } else if (field && line.length <= 160) {
-      brandField(doc, field[1], field[2] ?? "______________________________");
-    } else if (line.startsWith("• ")) {
+      brandSection(doc, l.text);
+    } else if (l.kind === "field") brandField(doc, l.label, l.value);
+    else if (l.kind === "bullet") {
       const y = doc.y;
       doc.font("Helvetica").fontSize(10).fillColor(BRAND.orange).text("•", PAGE.left + 2, y, { lineBreak: false });
-      doc.fillColor(BRAND.ink).text(line.slice(2), PAGE.left + 14, y, { width: width - 14, lineGap: 2 });
+      doc.fillColor(BRAND.ink).text(l.text, PAGE.left + 14, y, { width: width - 14, lineGap: 2 });
       doc.x = PAGE.left;
+    } else if (l.kind === "lead") {
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(BRAND.ink).text(`${l.label}: `, PAGE.left, doc.y, { width, align: "justify", lineGap: 2.5, continued: true });
+      doc.font("Helvetica").text(l.text, { width, align: "justify", lineGap: 2.5 });
     } else {
-      // parágrafo que começa com um rótulo curto ("Fabricação: …"): o rótulo sai em negrito
-      const lead = /^([A-ZÁÉÍÓÚÂÊÔÃÕÇ][^:•\[]{1,58}):\s+(.+)$/.exec(line);
-      if (lead && !/\. /.test(lead[1])) {
-        doc.font("Helvetica-Bold").fontSize(10).fillColor(BRAND.ink).text(`${lead[1]}: `, PAGE.left, doc.y, { width, align: "justify", lineGap: 2.5, continued: true });
-        doc.font("Helvetica").text(lead[2], { width, align: "justify", lineGap: 2.5 });
-      } else {
-        doc.font("Helvetica").fontSize(10).fillColor(BRAND.ink).text(line, PAGE.left, doc.y, { width, align: "justify", lineGap: 2.5 });
-      }
+      doc.font("Helvetica").fontSize(10).fillColor(BRAND.ink).text(l.text, PAGE.left, doc.y, { width, align: "justify", lineGap: 2.5 });
     }
   }
 

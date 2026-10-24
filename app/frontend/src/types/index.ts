@@ -94,7 +94,7 @@ export type ContractMeta = {
   totalSource: "PROMOB" | "MANUAL" | "NENHUM";
 };
 
-export type ContractPreview = { title: string; text: string; missing: string[]; meta: ContractMeta };
+export type ContractPreview = { title: string; text: string; html: string; missing: string[]; meta: ContractMeta };
 
 export type MeasurementAttachment = {
   id: string;
