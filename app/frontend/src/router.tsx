@@ -113,7 +113,7 @@ export const router = createBrowserRouter([
           { path: "/pipeline", element: <PermissionGate permission="organization.read"><StorePipelinePage /></PermissionGate> },
           { path: "/painel-loja", element: <StoreDashboardPage /> },
           { path: "/entrada", element: <PermissionGate permission="stock.entry"><StockEntryPage /></PermissionGate> },
-          { path: "/saida", element: <PermissionGate permission="stock.exit"><StockExitPage /></PermissionGate> },
+          { path: "/saida", element: <PermissionGate permission="stock.exit.supplies"><StockExitPage /></PermissionGate> },
           { path: "/movimentacoes", element: <PermissionGate permission="stock.movements"><MovementsPage /></PermissionGate> },
           { path: "/produtos", element: <PermissionGate permission="products.read"><ProductsPage /></PermissionGate> },
           { path: "/produtos/:id", element: <PermissionGate permission="products.read"><ProductDetailPage /></PermissionGate> },

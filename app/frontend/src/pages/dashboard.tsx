@@ -104,7 +104,7 @@ function StockDashboard() {
               <ArrowDownToLine className="h-4 w-4" /> Registrar entrada
             </Button>
           )}
-          {can("stock.exit") && (
+          {can("stock.exit.supplies") && (
             <Button variant="outline" onClick={() => navigate("/saida")}>
               <ArrowUpFromLine className="h-4 w-4" /> Registrar saída
             </Button>

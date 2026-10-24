@@ -12,7 +12,8 @@ router.get("/alerts", requirePermission("stock.read"), stockController.listAlert
 router.get("/summary", requirePermission("stock.read"), stockController.stockSummary);
 
 router.post("/entries", requirePermission("stock.entry"), stockController.createEntry);
-router.post("/exits", requirePermission("stock.exit"), stockController.createExit);
+// retirar insumo do almoxarifado tem permissão própria, ligada por perfil
+router.post("/exits", requirePermission("stock.exit.supplies"), stockController.createExit);
 router.post("/adjust", requirePermission("stock.adjust"), stockController.adjustStock);
 
 export default router;

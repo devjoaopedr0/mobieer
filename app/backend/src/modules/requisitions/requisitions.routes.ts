@@ -20,7 +20,7 @@ router.patch("/:id/items/:itemId/status", requireAnyPermission(["requisitions.cu
 router.post("/:id/reservations", requirePermission("requisitions.reserve"), controller.reserve);
 router.post("/:id/inspection", requirePermission("requisitions.inspect"), controller.inspect);
 // almoxarifado entrega a requisição de insumos (baixa no estoque)
-router.post("/:id/deliver", requirePermission("stock.exit"), controller.deliver);
+router.post("/:id/deliver", requirePermission("stock.exit.supplies"), controller.deliver);
 // marcar como concluída de uma vez (feita por fora, já entregue)
 router.post("/:id/done", requireAnyPermission(["requisitions.inspect", "requisitions.release", "requisitions.read.all", "stock.exit"]), controller.markDone);
 
