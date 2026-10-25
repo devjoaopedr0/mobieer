@@ -9,7 +9,7 @@ import { BRAND, PAGE, brandOneLine, brandTable, ensureSpace } from "../../lib/br
 import { prisma } from "../../prisma";
 import { NotFoundError } from "../../utils/ApiError";
 import { CATEGORY_SALE, planFinance } from "../commercial/quote.finance";
-import { PAYMENT_LABEL, ambCode, paymentText, type PaymentMethod } from "../commercial/quote.rules";
+import { PAYMENT_LABEL, ambCode, obsLabel, paymentText, quoteObservations, type PaymentMethod } from "../commercial/quote.rules";
 import { loadPricing } from "../commercial/quote.service";
 
 type Doc = InstanceType<typeof PDFDocument>;
@@ -33,6 +33,8 @@ export type ContractOrder = {
   deliveryText: string;
   /** prazo de fabricação combinado no orçamento, em dias úteis */
   deliveryDays: number;
+  /** observações do orçamento (as que ficam sob o prazo): a garantia fixa e as escritas no orçamento */
+  notes: string[];
 };
 
 /** Sinal que o PDF troca pelo quadro: a linha precisa ficar sozinha no texto. */
@@ -109,6 +111,7 @@ export async function loadContractOrder(organizationId: string, quoteId: string)
     installments: plan.map((p, i) => ({ label: labels[i], due: p.due, amount: p.amount })),
     deliveryText: q.deliveryText?.trim() || doc.deliveryText,
     deliveryDays,
+    notes: quoteObservations(doc.mandatoryNote, q.notes),
   };
 }
 
@@ -159,6 +162,20 @@ export function drawOrderBlock(doc: Doc, o: ContractOrder) {
     true
   );
   doc.y += 8;
+  if (!o.notes.length) return;
+  ensureSpace(doc, 30);
+  brandOneLine(doc, "OBSERVAÇÕES", L, doc.y, W, { size: 7.5, bold: true, color: BRAND.muted });
+  doc.y += 12;
+  o.notes.forEach((n, i) => {
+    doc.font("Helvetica").fontSize(8.5);
+    ensureSpace(doc, doc.heightOfString(n, { width: W - 40 }) + 6);
+    const y = doc.y;
+    brandOneLine(doc, obsLabel(i), L, y, 36, { size: 8.5, bold: true, color: BRAND.orange });
+    doc.font("Helvetica").fontSize(8.5).fillColor(BRAND.ink).text(n, L + 40, y, { width: W - 40 });
+    doc.x = L;
+    doc.y += 4;
+  });
+  doc.y += 4;
 }
 
 /** Quadro de pagamento: condição, forma e as parcelas com vencimento (4 por linha). */
@@ -230,6 +247,8 @@ export function mergeOrders(orders: ContractOrder[]): ContractOrder {
     installments,
     deliveryText: orders[0].deliveryText,
     deliveryDays: Math.max(...orders.map((o) => o.deliveryDays)),
+    // a garantia repete em todos os orçamentos: entra uma vez só
+    notes: uniq(orders.flatMap((o) => o.notes)),
   };
 }
 
