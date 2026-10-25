@@ -7,7 +7,7 @@ import { mergeOrders, type ContractOrder } from "../src/modules/templates/contra
 
 const order = (o: Partial<ContractOrder>): ContractOrder => ({
   quoteId: "q", number: "ORC-1", clientId: "c", projectId: "p", seller: "Ana", soldAt: new Date("2026-10-01T12:00:00Z"),
-  items: [], subtotal: 0, discount: 0, total: 0, condition: "", method: "PIX", installments: [], deliveryText: "45 dias úteis", deliveryDays: 45, ...o,
+  items: [], subtotal: 0, discount: 0, total: 0, condition: "", method: "PIX", installments: [], deliveryText: "45 dias úteis", deliveryDays: 45, notes: [], ...o,
 });
 const item = (room: string, total: number) => ({ code: "AA", room, line: "RESIDENCIAL", deadline: "45 dias úteis", total, corpo: "", porta: "", puxador: "", obs: "" });
 const d = (s: string) => new Date(`${s}T12:00:00Z`);

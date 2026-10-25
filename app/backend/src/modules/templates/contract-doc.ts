@@ -11,6 +11,7 @@
 import { z } from "zod";
 import { BRAND, PAGE, brandDocument, brandSection, brandTitle, ensureSpace } from "../../lib/brand-pdf";
 import { BLOCK, type ContractOrder } from "./contract-order";
+import { obsLabel } from "../commercial/quote.rules";
 import { contractLines } from "./contract.service";
 
 /** Tamanho do título "Contrato Nº …": o mesmo do orçamento (o padrão, 23, saía grande demais). */
@@ -34,6 +35,7 @@ function orderHtml(o: ContractOrder) {
   if (o.discount > 0) parts.push(`<p style="text-align: right">Total dos ambientes: ${esc(brl(o.subtotal))}</p>`, `<p style="text-align: right">Desconto: - ${esc(brl(o.discount))}</p>`);
   parts.push(`<p style="text-align: right"><strong>VALOR TOTAL DO PEDIDO: ${esc(brl(o.total))}</strong></p>`, "<p><br></p>");
   parts.push(table(["ITEM", "CAIXARIA (CORPO)", "PORTA", "PUXADOR", "OBSERVAÇÃO"], o.items.map((it) => [it.code, it.corpo || "-", it.porta || "-", it.puxador || "-", it.obs || "-"])));
+  if (o.notes.length) parts.push("<p><strong>OBSERVAÇÕES</strong></p>", ...o.notes.map((n, i) => `<p><strong>${esc(obsLabel(i))}</strong> ${esc(n)}</p>`));
   return parts.join("");
 }
 

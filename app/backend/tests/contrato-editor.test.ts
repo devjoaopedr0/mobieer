@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { contractDocPdf, contractHtml, docBlocksSchema, docHasBlanks } from "../src/modules/templates/contract-doc";
-import { BLOCK, type ContractOrder } from "../src/modules/templates/contract-order";
+import { brandDocument } from "../src/lib/brand-pdf";
+import { BLOCK, drawOrderBlock, mergeOrders, type ContractOrder } from "../src/modules/templates/contract-order";
 
 const order: ContractOrder = {
   quoteId: "q1",
@@ -26,6 +27,7 @@ const order: ContractOrder = {
   ],
   deliveryText: "",
   deliveryDays: 45,
+  notes: ["5 ANOS DE GARANTIA", "Cliente fornece a pedra"],
 };
 
 test("o texto vira documento: título, campo em negrito, lista e os quadros em tabela", () => {
@@ -37,6 +39,8 @@ test("o texto vira documento: título, campo em negrito, lista e os quadros em t
   assert.match(html, /<th>PARCELA<\/th>/);
   assert.match(html, /<td>PARC 1<\/td><td>R\$ 3\.000,00<\/td><td>20\/11\/2026<\/td>/);
   assert.match(html, /Forma Pagto:<\/strong> PIX/);
+  assert.match(html, /<strong>OBS:<\/strong> 5 ANOS DE GARANTIA/);
+  assert.match(html, /<strong>OBS²:<\/strong> Cliente fornece a pedra/);
 });
 
 test("o documento editado gera PDF e acusa o que falta preencher", async () => {
@@ -51,4 +55,13 @@ test("o documento editado gera PDF e acusa o que falta preencher", async () => {
   const pdf = await contractDocPdf({ title: "Contrato Nº 378", subtitle: "Maria", blocks, footer: "teste" });
   assert.equal(pdf.subarray(0, 4).toString(), "%PDF");
   assert.throws(() => docBlocksSchema.parse([{ t: "script", runs: [] }]));
+});
+
+test("observações do orçamento entram no quadro do pedido, sem repetir a garantia ao juntar orçamentos", async () => {
+  const m = mergeOrders([order, { ...order, notes: ["5 ANOS DE GARANTIA", "Entrega no térreo"] }]);
+  assert.deepEqual(m.notes, ["5 ANOS DE GARANTIA", "Cliente fornece a pedra", "Entrega no térreo"]);
+  const { doc, done } = brandDocument();
+  drawOrderBlock(doc, m);
+  doc.end();
+  assert.equal((await done).subarray(0, 4).toString(), "%PDF");
 });
