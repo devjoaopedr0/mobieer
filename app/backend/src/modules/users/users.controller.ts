@@ -29,7 +29,8 @@ export const createUser = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const unlockUser = asyncHandler(async (req: Request, res: Response) => {
-  const user = await usersService.unlockUser(req.params.id, req.user!.id);
+  const note = typeof req.body?.note === "string" ? req.body.note.trim().slice(0, 300) : null;
+  const user = await usersService.unlockUser(req.params.id, req.user!.id, note);
   return ok(res, user, "Usuário desbloqueado");
 });
 

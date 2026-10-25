@@ -49,16 +49,16 @@ export function CommercialOverview() {
     <div className="space-y-4">
       {d.scope === "own" && <p className="text-xs text-muted-foreground">Mostrando a sua carteira.</p>}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <BigCard title="Novos projetos" line={plural(d.newProjects.count, "contrato fechado no mês", "contratos fechados no mês")} amount={d.newProjects.amount} foot={`${day(d.period.from)} a ${day(d.period.to)}`} to="/comercial" />
-        <BigCard title="Projetos quentes" line={plural(d.hot.count, "negociação para fechar", "negociações para fechar")} amount={d.hot.amount} foot={`Previstas até ${day(d.hot.until)}`} to="/comercial" />
-        <BigCard title="Projetos futuros" line={plural(d.future.count, "venda futura", "vendas futuras")} amount={d.future.amount} foot="Aceitas, aguardando liberação" to="/comercial" />
-        <BigCard title="Projetos em atraso" line={plural(d.late.count, "negociação atrasada", "negociações atrasadas")} amount={d.late.amount} foot={`Previsão de fechamento antes de ${day(d.period.today)}`} to="/comercial" tone={d.late.count ? "danger" : undefined} />
+        <BigCard title="Novos projetos" line={plural(d.newProjects.count, "contrato fechado no mês", "contratos fechados no mês")} amount={d.newProjects.amount} foot={`${day(d.period.from)} a ${day(d.period.to)}`} to="/comercial?aba=carteira" />
+        <BigCard title="Projetos quentes" line={plural(d.hot.count, "negociação para fechar", "negociações para fechar")} amount={d.hot.amount} foot={`Previstas até ${day(d.hot.until)}`} to="/comercial?aba=carteira" />
+        <BigCard title="Projetos futuros" line={plural(d.future.count, "venda futura", "vendas futuras")} amount={d.future.amount} foot="Aceitas, aguardando liberação" to="/comercial?aba=carteira" />
+        <BigCard title="Projetos em atraso" line={plural(d.late.count, "negociação atrasada", "negociações atrasadas")} amount={d.late.amount} foot={`Previsão de fechamento antes de ${day(d.period.today)}`} to="/comercial?aba=carteira" tone={d.late.count ? "danger" : undefined} />
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-base">Progresso de vendas</CardTitle>
-            <Button asChild size="sm" variant="outline"><Link to="/comercial">Ver carteira</Link></Button>
+            <Button asChild size="sm" variant="outline"><Link to="/comercial?aba=carteira">Ver carteira</Link></Button>
           </CardHeader>
           <CardContent className="h-64">
             <ResponsiveContainer width="100%" height="100%">

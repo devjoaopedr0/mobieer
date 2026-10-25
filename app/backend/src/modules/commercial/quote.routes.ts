@@ -247,6 +247,79 @@ router.get(
   })
 );
 
+/** Orçamento parado há mais que isso entra na lista de recontato. */
+const STALE_DAYS = 15;
+const OPEN_STATUSES: QuoteStatus[] = ["DRAFT", "SENT", "VIEWED", "NEGOTIATION"];
+
+// GET /api/commercial/quotes/portfolio — carteira: em aberto (possibilidade de venda), fechados e clientes para recontato
+router.get(
+  "/portfolio",
+  requirePermission("commercial.read"),
+  asyncHandler(async (req, res) => {
+    const orgId = req.user!.organizationId;
+    const own = canSeeAll(req) ? {} : { sellerId: req.user!.id };
+    const [quotes, opps] = await Promise.all([
+      prisma.commercialQuote.findMany({
+        where: { organizationId: orgId, ...own },
+        orderBy: [{ number: "asc" }, { version: "desc" }],
+        take: 2000,
+        select: {
+          id: true, number: true, version: true, kind: true, status: true, total: true, issuedAt: true, updatedAt: true, validUntil: true, approvedAt: true, sentAt: true, cancelReason: true,
+          client: { select: { id: true, name: true, phone: true, email: true } },
+          seller: { select: { id: true, name: true } },
+          project: { select: { id: true, code: true, name: true } },
+        },
+      }),
+      prisma.commercialOpportunity.findMany({
+        where: { organizationId: orgId, status: { notIn: ["WON", "LOST"] }, ...own },
+        select: { id: true, title: true, estimatedValue: true, probability: true, expectedCloseAt: true, nextAction: true, nextActionAt: true, updatedAt: true, client: { select: { id: true, name: true, phone: true, email: true } }, seller: { select: { id: true, name: true } } },
+      }),
+    ]);
+    // um orçamento por número: a versão aceita se houver, senão a mais recente
+    const byNumber = new Map<string, (typeof quotes)[number]>();
+    for (const q of quotes) {
+      const cur = byNumber.get(q.number);
+      if (!cur || (q.status === "APPROVED" && cur.status !== "APPROVED")) byNumber.set(q.number, q);
+    }
+    const now = Date.now();
+    const days = (d: Date) => Math.floor((now - d.getTime()) / DAY);
+    const row = (q: (typeof quotes)[number], reason: string | null = null) => ({
+      kind: "ORCAMENTO" as const,
+      id: q.id, number: q.number, version: q.version, status: q.status, total: Number(q.total),
+      client: q.client, seller: q.seller, project: q.project,
+      issuedAt: q.issuedAt, updatedAt: q.updatedAt, validUntil: q.validUntil, approvedAt: q.approvedAt,
+      idleDays: days(q.updatedAt), reason,
+    });
+    const open: ReturnType<typeof row>[] = [];
+    const won: ReturnType<typeof row>[] = [];
+    const recontact: ReturnType<typeof row>[] = [];
+    for (const q of byNumber.values()) {
+      if (q.status === "APPROVED") won.push(row(q));
+      else if (q.status === "REJECTED") recontact.push(row(q, "Cliente recusou"));
+      else if (q.status === "EXPIRED" || (OPEN_STATUSES.includes(q.status) && q.validUntil && q.validUntil.getTime() < now)) recontact.push(row(q, "Orçamento venceu"));
+      else if (OPEN_STATUSES.includes(q.status) && days(q.updatedAt) > STALE_DAYS) recontact.push(row(q, `Sem movimento há ${days(q.updatedAt)} dias`));
+      else if (OPEN_STATUSES.includes(q.status)) open.push(row(q));
+      // cancelado não é possibilidade de venda nem recontato
+    }
+    const opportunities = opps.map((o) => ({
+      kind: "OPORTUNIDADE" as const,
+      id: o.id, title: o.title, total: Number(o.estimatedValue), probability: o.probability, expectedCloseAt: o.expectedCloseAt,
+      nextAction: o.nextAction, nextActionAt: o.nextActionAt, client: o.client, seller: o.seller, idleDays: days(o.updatedAt),
+    }));
+    const sum = (l: { total: number }[]) => Math.round(l.reduce((s, x) => s + x.total, 0) * 100) / 100;
+    const byValue = <T extends { total: number }>(l: T[]) => l.sort((a, b) => b.total - a.total);
+    return ok(res, {
+      staleDays: STALE_DAYS,
+      scope: canSeeAll(req) ? "store" : "own",
+      totals: { open: sum(open) + sum(opportunities), openCount: open.length + opportunities.length, won: sum(won), wonCount: won.length, recontact: sum(recontact), recontactCount: recontact.length },
+      open: byValue(open),
+      opportunities: byValue(opportunities),
+      won: won.sort((a, b) => (b.approvedAt?.getTime() ?? 0) - (a.approvedAt?.getTime() ?? 0)),
+      recontact: byValue(recontact),
+    });
+  })
+);
+
 router.get(
   "/:id",
   requirePermission("commercial.read"),

@@ -638,6 +638,8 @@ export type User = {
   /** cargos além do principal; as permissões são a soma de todos */
   extraRoles?: { id: string; name: Role; label: string }[];
   locked?: boolean;
+  /** quando a conta foi bloqueada (senha errada muitas vezes) */
+  lockedAt?: string | null;
   failedLoginCount?: number;
   mustChangePassword?: boolean;
 };

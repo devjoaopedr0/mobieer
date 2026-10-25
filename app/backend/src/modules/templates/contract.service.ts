@@ -375,9 +375,9 @@ export function contractLines(body: string, blockKeys: string[] = []): ContractL
  * vira título de seção, "Rótulo: valor" sai com o rótulo em negrito, "• " vira
  * item de lista e o resto é parágrafo justificado.
  */
-export function contractPdf(opts: { title: string; subtitle?: string; body: string; footer?: string; contacts?: string[]; blocks?: Record<string, (doc: ReturnType<typeof brandDocument>["doc"]) => void> }): Promise<Buffer> {
+export function contractPdf(opts: { title: string; subtitle?: string; body: string; footer?: string; contacts?: string[]; titleSize?: number; blocks?: Record<string, (doc: ReturnType<typeof brandDocument>["doc"]) => void> }): Promise<Buffer> {
   const { doc, done, width } = brandDocument({ contacts: opts.contacts });
-  brandTitle(doc, opts.title, opts.subtitle);
+  brandTitle(doc, opts.title, opts.subtitle, { size: opts.titleSize });
 
   for (const l of contractLines(opts.body, Object.keys(opts.blocks ?? {}))) {
     if (l.kind === "gap") doc.moveDown(0.35);

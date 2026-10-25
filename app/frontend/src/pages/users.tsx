@@ -105,7 +105,14 @@ export function UsersPage() {
 
   const [tempPassword, setTempPassword] = useState<{ name: string; password: string } | null>(null);
   const unlock = useMutation({
-    mutationFn: (u: User) => apiPost<{ message: string }>(`/users/${u.id}/unlock`),
+    mutationFn: (u: User) => {
+      // o motivo fica no registro do desbloqueio, junto com quando e por que a conta foi bloqueada
+      const note = prompt(`Desbloquear ${u.name}? A conta foi bloqueada${u.lockedAt ? ` em ${formatDate(u.lockedAt, true)}` : ""} por ${u.failedLoginCount ?? "várias"} senhas erradas seguidas.
+
+Motivo do desbloqueio (opcional, fica registrado):`, "Confirmado com a própria pessoa");
+      if (note === null) return Promise.reject(new Error("Desbloqueio cancelado"));
+      return apiPost<{ message: string }>(`/users/${u.id}/unlock`, { note });
+    },
     onSuccess: (r) => { toast.success(r.message); queryClient.invalidateQueries({ queryKey: ["users"] }); },
     onError: (err) => toast.error((err as { message?: string }).message ?? "Erro ao desbloquear"),
   });
@@ -235,7 +242,7 @@ export function UsersPage() {
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
                           <Badge variant={u.status === "ACTIVE" ? "success" : "muted"}>{u.status === "ACTIVE" ? "Ativo" : "Inativo"}</Badge>
-                          {u.locked && <Badge variant="danger">Bloqueado</Badge>}
+                          {u.locked && <Badge variant="danger" title={`${u.failedLoginCount ?? 0} senhas erradas seguidas`}>Bloqueado{u.lockedAt ? ` desde ${formatDate(u.lockedAt, true)}` : ""}</Badge>}
                           {u.mustChangePassword && <Badge variant="warning">Troca a senha</Badge>}
                         </div>
                       </TableCell>
@@ -247,8 +254,8 @@ export function UsersPage() {
                                 <Pencil className="h-4 w-4" />
                               </Button>
                               {u.locked && (
-                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Desbloquear" disabled={unlock.isPending} onClick={() => unlock.mutate(u)}>
-                                  <LockOpen className="h-4 w-4" />
+                                <Button variant="outline" size="sm" className="h-8" title="Desbloquear (a conta foi bloqueada por senha errada muitas vezes)" disabled={unlock.isPending} onClick={() => unlock.mutate(u)}>
+                                  <LockOpen className="mr-1 h-4 w-4" /> Desbloquear
                                 </Button>
                               )}
                               {u.id !== me?.id && (

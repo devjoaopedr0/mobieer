@@ -37,9 +37,12 @@ export function readMfaToken(token: string): string {
 /** Conclui o login depois do segundo fator: registra o acesso e entrega a sessão. */
 export async function issueSession(userId: string, ip?: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: rolesInclude });
-  const policy = await loadSecurityPolicy();
-  await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date(), failedLoginCount: 0 } });
-  await prisma.auditLog.create({ data: { userId: user.id, action: "LOGIN", entity: "User", entityId: user.id, ip: ip ?? null, details: { mfa: true } } });
+  // as três coisas não dependem uma da outra: em paralelo, uma ida ao banco em vez de três
+  const [policy] = await Promise.all([
+    loadSecurityPolicy(),
+    prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date(), failedLoginCount: 0 } }),
+    prisma.auditLog.create({ data: { userId: user.id, action: "LOGIN", entity: "User", entityId: user.id, ip: ip ?? null, details: { mfa: true } } }),
+  ]);
   const passwordChangeRequired = user.mustChangePassword || passwordExpired(user.passwordChangedAt, policy);
   return { token: signToken(user.id), user: serializeUser({ ...user, passwordChangeRequired }) };
 }
@@ -95,8 +98,8 @@ export async function login(email: string, password: string, ip?: string) {
     throw new ApiError(423, "Usuário bloqueado por excesso de tentativas. Peça ao administrador para desbloquear ou use Esqueci minha senha.", undefined, "ACCOUNT_LOCKED");
   }
 
-  const policy = await loadSecurityPolicy();
-  const valid = await bcrypt.compare(password, user.password);
+  // a política (em cache) e a conferência da senha correm juntas
+  const [policy, valid] = await Promise.all([loadSecurityPolicy(), bcrypt.compare(password, user.password)]);
   if (!valid) {
     const attempts = user.failedLoginCount + 1;
     const lock = policy.maxAttempts > 0 && attempts >= policy.maxAttempts;
@@ -126,10 +129,10 @@ export async function login(email: string, password: string, ip?: string) {
     return { mfaRequired: true as const, mfaToken: signMfaToken(user.id) };
   }
 
-  await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date(), failedLoginCount: 0 } });
-  await prisma.auditLog.create({
-    data: { userId: user.id, action: "LOGIN", entity: "User", entityId: user.id, ip: ip ?? null },
-  });
+  await Promise.all([
+    prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date(), failedLoginCount: 0 } }),
+    prisma.auditLog.create({ data: { userId: user.id, action: "LOGIN", entity: "User", entityId: user.id, ip: ip ?? null } }),
+  ]);
 
   const passwordChangeRequired = user.mustChangePassword || passwordExpired(user.passwordChangedAt, policy);
   return { token: signToken(user.id), user: serializeUser({ ...user, passwordChangeRequired }) };

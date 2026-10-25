@@ -39,6 +39,18 @@ const FORTALEZA_OFFSET_HOURS = 3;
 export function fortalezaToUtc(y: number, mo: number, d: number, hh: number, mi: number, ss = 0): Date {
   return new Date(Date.UTC(y, mo - 1, d, hh + FORTALEZA_OFFSET_HOURS, mi, ss));
 }
+/**
+ * Hora da marcação manual. A tela manda "2026-10-13T17:00" (campo de data e
+ * hora, sem fuso): é a hora da loja. Lida como UTC, a batida ficava 3 horas
+ * antes e o par entrada/saída saía errado no espelho. Com fuso explícito
+ * ("…Z", "…-03:00") vale o que veio.
+ */
+export function parsePunchTime(raw: string): Date | null {
+  const local = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(raw.trim());
+  const d = local ? fortalezaToUtc(+local[1], +local[2], +local[3], +local[4], +local[5], +(local[6] ?? 0)) : new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** Dia no calendário da loja (aaaa-mm-dd). */
 export const fortalezaDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: FORTALEZA_TZ });
 /** Hora no relógio da loja (HH:MM). */

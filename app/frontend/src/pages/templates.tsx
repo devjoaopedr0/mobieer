@@ -18,7 +18,7 @@ import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm, apiPut 
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage } from "@/lib/utils";
 import type { ContractPreview, DocumentTemplate, MergeField } from "@/types";
-import { ContractEditor, type DocBlock } from "@/components/contract-editor";
+import { ContractEditor, blocksToHtml, type DocBlock } from "@/components/contract-editor";
 
 const DOC_TYPES = [
   ["MANUAL_GARANTIA", "Manual e Garantia"],
@@ -556,14 +556,24 @@ function ContractDialog({
     };
   }, [form, template.name, clients]);
 
+  // texto já corrigido para este cliente/projeto volta como ficou; `fresh` remonta pelo modelo
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const doPreview = useMutation({
-    mutationFn: () => apiPost<{ data: ContractPreview }>(`/templates/${template.id}/contract/preview`, payload),
+    mutationFn: async (fresh?: boolean) => {
+      const p = (await apiPost<{ data: ContractPreview }>(`/templates/${template.id}/contract/preview`, payload)).data;
+      const saved = fresh
+        ? null
+        : (await apiGet<{ data: { doc: DocBlock[]; savedAt: string } | null }>("/templates/contract-text", { clientId: p.meta.clientId, projectId: p.meta.projectId ?? undefined })).data;
+      return { preview: saved?.doc.length ? { ...p, html: blocksToHtml(saved.doc) } : p, savedAt: saved?.savedAt ?? null };
+    },
     onSuccess: (r) => {
-      setPreview(r.data);
+      setPreview(r.preview);
+      setSavedAt(r.savedAt);
       setEditing(true);
     },
     onError: (e) => toast.error(errorMessage(e, "Falha ao montar a prévia")),
   });
+  const textTarget = () => ({ clientId: preview!.meta.clientId, projectId: preview!.meta.projectId });
 
   const [editing, setEditing] = useState(false);
   const doGenerate = useMutation({
@@ -710,7 +720,14 @@ function ContractDialog({
             title={preview.title}
             html={preview.html}
             confirmLabel="Gerar PDF"
-            pending={doGenerate.isPending}
+            pending={doGenerate.isPending || doPreview.isPending}
+            savedAt={savedAt}
+            onAutosave={(doc) => apiPut("/templates/contract-text", { ...textTarget(), templateId: template.id, doc })}
+            onDiscard={() =>
+              void apiPost("/templates/contract-text/discard", textTarget())
+                .then(() => doPreview.mutate(true))
+                .catch((e) => toast.error(errorMessage(e, "Não foi possível descartar")))
+            }
             onConfirm={(doc) => doGenerate.mutate(doc)}
             onClose={(html) => {
               setPreview({ ...preview, html });
@@ -721,7 +738,7 @@ function ContractDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button variant="outline" disabled={!form.clientId || doPreview.isPending} onClick={() => doPreview.mutate()}>
+          <Button variant="outline" disabled={!form.clientId || doPreview.isPending} onClick={() => doPreview.mutate(false)}>
             {doPreview.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
             Abrir no editor
           </Button>

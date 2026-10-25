@@ -217,7 +217,8 @@ export function HrPage() {
       toast.success("Marcação registrada");
       setDialog(null);
       setPunch({ timestamp: "", kind: "IN" });
-      qc.invalidateQueries({ queryKey: ["hr", "mirror"] });
+      // a marcação muda o espelho, o resumo da equipe e o banco de horas
+      qc.invalidateQueries({ queryKey: ["hr"] });
     },
     onError: (e) => toast.error(errorMessage(e, "Falha ao registrar")),
   });
@@ -454,7 +455,7 @@ export function HrPage() {
 
         {/* ---- Ponto eletrônico ---- */}
         <TabsContent value="ponto" className="space-y-4">
-          <TeamHoursCard month={pontoMonth} canManage={canTimeclock} onPick={setPontoEmp} />
+          <TeamHoursCard month={pontoMonth} canManage={canTimeclock} canEmployees={canEmployees} onPick={setPontoEmp} />
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-2">
               <Label>Colaborador</Label>
