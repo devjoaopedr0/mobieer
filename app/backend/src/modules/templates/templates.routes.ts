@@ -18,7 +18,8 @@ import {
   contractPdf,
 } from "./contract.service";
 import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder, mergeOrders, quotesForProjects } from "./contract-order";
-import { contractDocPdf, contractHtml, docBlocksSchema, docHasBlanks } from "./contract-doc";
+import { CONTRACT_TITLE_SIZE, contractDocPdf, contractHtml, docBlocksSchema, docHasBlanks } from "./contract-doc";
+import { discardContractText, loadContractText, saveContractText } from "./contract-text";
 import { contractNumberFor, nextContractNumber, nextQuoteSequence, peekContractNumber, renumberOldQuotes, setNextContractNumber, setNextQuoteNumber } from "./contract-number";
 import { pipeToResponse } from "../../utils/stream";
 
@@ -68,6 +69,119 @@ const serialize = (t: {
   generatedCount: t._count?.documents ?? 0,
   downloadUrl: t.fileName ? `/api/templates/${t.id}/download` : null,
 });
+
+// ---------------- texto do contrato no editor (salvo enquanto a pessoa edita) ----------------
+
+const textTarget = z.object({ clientId: z.string().min(1), projectId: z.string().min(1).optional().nullable() });
+
+async function ensureTextTarget(organizationId: string, clientId: string, projectId?: string | null) {
+  const [client, project] = await Promise.all([
+    prisma.client.findFirst({ where: { id: clientId, organizationId }, select: { id: true } }),
+    projectId ? prisma.project.findFirst({ where: { id: projectId, organizationId, clientId }, select: { id: true } }) : null,
+  ]);
+  if (!client) throw new NotFoundError("Cliente não encontrado");
+  if (projectId && !project) throw new NotFoundError("Projeto não encontrado");
+}
+
+// GET /api/templates/contract-text?clientId&projectId -> texto salvo do contrato deste cliente/projeto (ou null)
+router.get(
+  "/contract-text",
+  requirePermission("documents.read"),
+  asyncHandler(async (req, res) => {
+    const t = textTarget.parse({ clientId: req.query.clientId, projectId: req.query.projectId || null });
+    await ensureTextTarget(req.user!.organizationId, t.clientId, t.projectId);
+    return ok(res, await loadContractText(t.clientId, t.projectId));
+  })
+);
+
+// PUT /api/templates/contract-text { clientId, projectId, templateId, doc } -> salva o que está no editor
+router.put(
+  "/contract-text",
+  requirePermission("documents.manage"),
+  asyncHandler(async (req, res) => {
+    const input = textTarget.extend({ templateId: z.string().min(1), doc: docBlocksSchema }).parse(req.body);
+    await ensureTextTarget(req.user!.organizationId, input.clientId, input.projectId);
+    const prev = await loadContractText(input.clientId, input.projectId);
+    const saved = await saveContractText(input.clientId, input.projectId, { templateId: input.templateId, doc: input.doc, savedBy: req.user!.name, documentId: prev?.documentId ?? null });
+    return ok(res, saved, "Texto do contrato salvo");
+  })
+);
+
+// POST /api/templates/contract-text/discard { clientId, projectId } -> volta a montar o contrato pelo modelo
+router.post(
+  "/contract-text/discard",
+  requirePermission("documents.manage"),
+  asyncHandler(async (req, res) => {
+    const t = textTarget.parse(req.body);
+    await ensureTextTarget(req.user!.organizationId, t.clientId, t.projectId);
+    await discardContractText(t.clientId, t.projectId);
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action: "CONTRACT_TEXT_DISCARDED", entity: "Client", entityId: t.clientId, details: { projectId: t.projectId ?? null } } });
+    return ok(res, { discarded: true }, "Texto descartado: o contrato volta a sair do modelo");
+  })
+);
+
+// GET /api/templates/contracts -> contratos gerados (a versão atual de cada um) e orçamentos aceitos ainda sem contrato
+router.get(
+  "/contracts",
+  requirePermission("documents.read"),
+  asyncHandler(async (req, res) => {
+    const orgId = req.user!.organizationId;
+    const all = await prisma.projectDocument.findMany({
+      where: { organizationId: orgId, type: "CONTRATO", supersededBy: { none: {} } },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+      select: {
+        id: true, number: true, title: true, version: true, createdAt: true, signatureStatus: true, visibleToClient: true, templateId: true,
+        client: { select: { id: true, name: true } },
+        project: { select: { id: true, code: true, name: true } },
+        _count: { select: { signatures: true } },
+      },
+    });
+    // gerado mais de uma vez antes de haver versões: fica o mais recente de cada cliente/projeto/número
+    const seen = new Set<string>();
+    const docs = all.filter((d) => {
+      const k = `${d.client.id}:${d.project?.id ?? "-"}:${d.number ?? d.id}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    // o orçamento de cada contrato fica no registro da geração
+    const logs = await prisma.auditLog.findMany({
+      where: { action: "CONTRACT_GENERATED", entityId: { in: docs.map((d) => d.id) } },
+      select: { entityId: true, details: true },
+    });
+    const quoteOf = new Map(logs.map((l) => [l.entityId, ((l.details ?? {}) as { quoteId?: string | null }).quoteId ?? null]));
+    const quoteIds = [...new Set([...quoteOf.values()].filter((x): x is string => !!x))];
+    const [quotes, approved] = await Promise.all([
+      prisma.commercialQuote.findMany({ where: { id: { in: quoteIds }, organizationId: orgId }, select: { id: true, number: true, version: true, status: true } }),
+      prisma.commercialQuote.findMany({
+        where: { organizationId: orgId, status: "APPROVED" },
+        orderBy: { approvedAt: "desc" },
+        take: 200,
+        select: { id: true, number: true, version: true, total: true, approvedAt: true, client: { select: { id: true, name: true } }, project: { select: { id: true, code: true, name: true } } },
+      }),
+    ]);
+    const quoteById = new Map(quotes.map((q) => [q.id, q]));
+    const texts = await Promise.all(docs.map((d) => loadContractText(d.client.id, d.project?.id ?? null)));
+    const withContract = new Set(docs.map((d) => `${d.client.id}:${d.project?.id ?? "-"}`));
+    return ok(res, {
+      contracts: docs.map((d, i) => {
+        const qid = quoteOf.get(d.id) ?? null;
+        const q = qid ? quoteById.get(qid) : null;
+        return {
+          id: d.id, number: d.number, title: d.title, version: d.version, createdAt: d.createdAt, signatureStatus: d.signatureStatus, signatures: d._count.signatures,
+          visibleToClient: d.visibleToClient, templateId: d.templateId, client: d.client, project: d.project,
+          quote: q ? { id: q.id, number: q.number, version: q.version, status: q.status } : null,
+          // há texto corrigido no editor guardado para este contrato
+          edited: Boolean(texts[i]),
+        };
+      }),
+      pending: approved
+        .filter((q) => !withContract.has(`${q.client.id}:${q.project?.id ?? "-"}`) && !(q.project && withContract.has(`${q.client.id}:-`)))
+        .map((q) => ({ id: q.id, number: q.number, version: q.version, total: Number(q.total), approvedAt: q.approvedAt, client: q.client, project: q.project })),
+    });
+  })
+);
 
 // GET /api/templates
 router.get(
@@ -399,6 +513,7 @@ router.post(
       ? await contractDocPdf({ ...heading, blocks: input.doc })
       : await contractPdf({
           ...heading,
+          titleSize: CONTRACT_TITLE_SIZE,
           body: text,
           blocks: order ? { [BLOCK.pedido]: (doc) => drawOrderBlock(doc, order), [BLOCK.pagamento]: (doc) => drawPaymentBlock(doc, order) } : undefined,
         });
@@ -407,8 +522,20 @@ router.post(
     const key = buildStorageKey(`clients/${ctx.meta.clientId}`, fileName);
     await storage.put(key, pdf, "application/pdf");
 
+    // contrato refeito (pagamento corrigido, cláusula mudada): vira a versão seguinte do anterior,
+    // com o mesmo número; o anterior que ninguém assinou sai do portal para o cliente não ver dois
+    const previous = numero
+      ? await prisma.projectDocument.findFirst({
+          where: { organizationId: req.user!.organizationId, type: "CONTRATO", clientId: ctx.meta.clientId, projectId: ctx.meta.projectId, number: numero, supersededBy: { none: {} } },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, version: true, _count: { select: { signatures: true } } },
+        })
+      : null;
+
     const doc = await prisma.projectDocument.create({
       data: {
+        version: previous ? previous.version + 1 : 1,
+        replacesId: previous?.id ?? null,
         organizationId: req.user!.organizationId,
         projectId: ctx.meta.projectId,
         clientId: ctx.meta.clientId,
@@ -429,13 +556,18 @@ router.post(
         uploadedById: req.user!.id,
       },
     });
+    if (previous && previous._count.signatures === 0) {
+      await prisma.projectDocument.update({ where: { id: previous.id }, data: { visibleToClient: false, signatureStatus: "NOT_REQUIRED" } });
+    }
+    // o texto do editor fica guardado: "Editar contrato" reabre exatamente o que gerou este PDF
+    if (input.doc) await saveContractText(ctx.meta.clientId, ctx.meta.projectId, { templateId: t.id, doc: input.doc, savedBy: req.user!.name, documentId: doc.id });
     await prisma.auditLog.create({
       data: {
         userId: req.user!.id,
         action: "CONTRACT_GENERATED",
         entity: "ProjectDocument",
         entityId: doc.id,
-        details: { templateId: t.id, clientId: ctx.meta.clientId, quoteId: order?.quoteId ?? null, total: ctx.meta.total, totalSource: ctx.meta.totalSource, edited: !!input.doc },
+        details: { templateId: t.id, clientId: ctx.meta.clientId, quoteId: order?.quoteId ?? null, total: ctx.meta.total, totalSource: ctx.meta.totalSource, edited: !!input.doc, replaces: previous?.id ?? null, version: doc.version },
       },
     });
 
@@ -447,6 +579,7 @@ router.post(
         fileName: doc.fileName,
         sizeBytes: doc.sizeBytes,
         requiresSignature: doc.requiresSignature,
+        version: doc.version,
         missing,
         meta: ctx.meta,
         downloadUrl: `/api/documents/${doc.id}/download`,

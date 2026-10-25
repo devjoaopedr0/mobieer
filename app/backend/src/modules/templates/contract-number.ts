@@ -117,6 +117,43 @@ export async function renumberOldQuotes(organizationId: string, dryRun: boolean)
   });
 }
 
+/**
+ * O caminho contrário: orçamentos que pegaram número da sequência dos contratos
+ * (no tempo em que orçamento e contrato dividiam a numeração, ORC-00376,
+ * ORC-00378…) voltam para a sequência dos orçamentos, logo depois do maior
+ * número abaixo de `threshold`, na ordem em que foram feitos. Versões, adendos
+ * e a descrição dos lançamentos do financeiro acompanham. Com `dryRun`, só mostra.
+ */
+export async function compactQuoteNumbers(organizationId: string, threshold: number, dryRun: boolean): Promise<Renumbering[]> {
+  const quotes = await prisma.commercialQuote.findMany({
+    where: { organizationId, number: { startsWith: "ORC-" }, kind: "PADRAO" },
+    select: { id: true, number: true, createdAt: true, client: { select: { name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const groups = new Map<string, typeof quotes>();
+  for (const q of quotes) if (digits(q.number) >= threshold) groups.set(q.number, [...(groups.get(q.number) ?? []), q]);
+  if (!groups.size) return [];
+  const below = quotes.map((q) => digits(q.number)).filter((n) => n < threshold);
+  let next = Math.max(0, ...below) + 1;
+
+  return prisma.$transaction(async (tx) => {
+    const out: Renumbering[] = [];
+    for (const [from, rows] of groups) {
+      if (next >= threshold) break;
+      const to = `ORC-${String(next++).padStart(5, "0")}`;
+      out.push({ from, to, client: rows[0].client.name, versions: rows.length });
+      if (dryRun) continue;
+      for (const q of rows) await tx.commercialQuote.update({ where: { id: q.id }, data: { number: to } });
+      const addenda = await tx.commercialQuote.findMany({ where: { organizationId, kind: "ADENDO", number: { startsWith: `${from}-A` } }, select: { id: true, number: true } });
+      for (const a of addenda) await tx.commercialQuote.update({ where: { id: a.id }, data: { number: to + a.number.slice(from.length) } });
+      const ids = [...rows.map((q) => q.id), ...addenda.map((a) => a.id)];
+      await tx.$executeRaw`UPDATE "FinanceTransaction" SET "description" = REPLACE("description", ${from}, ${to}), "purchaseRef" = REPLACE("purchaseRef", ${from}, ${to}) WHERE "originQuoteId" = ANY(${ids})`;
+    }
+    if (!dryRun) await writeNext(QUOTE_KEY, next);
+    return out;
+  });
+}
+
 async function previousNumber(organizationId: string, clientId: string, projectId: string | null) {
   const prev = await prisma.projectDocument.findFirst({
     where: { organizationId, clientId, projectId, type: "CONTRATO", number: { not: null } },

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CalendarClock, ClipboardList, Columns3, FileText, List, Loader2, Paperclip, Plus, Printer, Search, Trash2, UploadCloud } from "lucide-react";
-import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { RequisitionStatusBadge } from "@/components/badges";
 import { KpiCard } from "@/components/kpi-card";
@@ -20,11 +20,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { ProductPicker } from "@/features/stock/product-picker";
 import { useAuth } from "@/hooks/use-auth";
 import { formatDate } from "@/lib/utils";
-import { apiDownload, apiGet, apiPost, apiUpload } from "@/services/api";
+import { apiDownload, apiGet, apiPatch, apiPost, apiUpload } from "@/services/api";
 import type { Paginated, Product, Requisition, RequisitionPriority, RequisitionStatus, Unit } from "@/types";
 
 type Indicators = { open: number; inReview: number; waitingMaterial: number; released: number; inCutting: number; inspection: number; completed: number; overdue: number };
-type PieceForm = { room: string; supplyType: string; description: string; material: string; product: Product | null; thickness: string; length: string; width: string; quantity: string; unit: Unit; edgeFinish: string; note: string };
+type PieceForm = { room: string; supplyType: string; description: string; material: string; product: Pick<Product, "id" | "name" | "code" | "unit"> | null; thickness: string; length: string; width: string; quantity: string; unit: Unit; edgeFinish: string; note: string };
 type AttachmentForm = { name: string; url: string; mimeType?: string; size?: number };
 const emptyPiece = (): PieceForm => ({ room: "", supplyType: "INSUMO", description: "", material: "", product: null, thickness: "", length: "", width: "", quantity: "1", unit: "UNIT", edgeFinish: "", note: "" });
 const statuses: { value: string; label: string }[] = [{ value: "ALL", label: "Todos os status" }, { value: "DRAFT", label: "Rascunho" }, { value: "REQUESTED", label: "Solicitada" }, { value: "IN_REVIEW", label: "Em análise" }, { value: "WAITING_MATERIAL", label: "Aguardando material" }, { value: "RELEASED", label: "Liberada" }, { value: "IN_CUTTING", label: "Em corte" }, { value: "INSPECTION", label: "Conferência" }, { value: "COMPLETED", label: "Concluída" }, { value: "CANCELLED", label: "Cancelada" }];
@@ -51,8 +51,44 @@ export function RequisitionsPage() {
   const indicators = useQuery({ queryKey: ["requisition-indicators"], queryFn: () => apiGet<{ data: Indicators }>("/requisitions/indicators") });
   const board = useQuery({ queryKey: ["cutting-board"], enabled: can("requisitions.cut"), queryFn: () => apiGet<{ data: Requisition[] }>("/requisitions/cutting-board") });
 
+  // ?editar=<id>: o mesmo formulário abre com a requisição (rascunho ou enviada e ainda não analisada)
+  const [params, setParams] = useSearchParams();
+  const [editing, setEditing] = useState<Requisition | null>(null);
+  const editId = params.get("editar");
+  useEffect(() => {
+    if (!editId) return;
+    apiGet<{ data: Requisition }>(`/requisitions/${editId}`)
+      .then(({ data: r }) => {
+        const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString("en-CA") : "");
+        setEditing(r);
+        setFormKind(r.kind);
+        setSector(r.sector ?? ""); setClientName(r.clientName ?? ""); setProjectReference(r.projectReference ?? ""); setPriority(r.priority);
+        setOrderedAt(day(r.orderedAt)); setNeededAt(day(r.neededAt)); setNote(r.note ?? ""); setAttachments([]);
+        setPieces(r.items.map((i) => ({
+          room: i.room ?? "", supplyType: i.supplyType ?? "INSUMO", description: i.description, material: i.material ?? "", product: i.product,
+          thickness: i.thickness == null ? "" : String(i.thickness), length: i.length == null ? "" : String(i.length), width: i.width == null ? "" : String(i.width),
+          quantity: String(i.quantity), unit: i.unit, edgeFinish: i.edgeFinish ?? "", note: i.note ?? "",
+        })));
+        setDialogOpen(true);
+      })
+      .catch((e) => toast.error((e as Error).message || "Não foi possível abrir a requisição"));
+  }, [editId]);
+  const closeForm = (open: boolean) => {
+    setDialogOpen(open);
+    if (!open && editId) { setEditing(null); setParams({}, { replace: true }); }
+  };
   const resetForm = () => { setPieces([emptyPiece()]); setAttachments([]); setSector(""); setClientName(""); setProjectReference(""); setPriority("NORMAL"); setOrderedAt(todayField()); setNeededAt(""); setNote(""); };
-  const create = useMutation({ mutationFn: (submit: boolean) => apiPost<{ data: Requisition }>("/requisitions", { kind: formKind, sector: sector || null, clientName: clientName || null, projectReference: projectReference || null, priority, orderedAt: orderedAt ? new Date(`${orderedAt}T12:00:00`).toISOString() : null, neededAt: neededAt ? new Date(`${neededAt}T12:00:00`).toISOString() : null, note: note || null, submit, attachments: attachments.filter((item) => item.name && item.url), items: pieces.map((piece) => ({ room: piece.room || null, supplyType: supply ? piece.supplyType : null, description: piece.description.trim(), material: piece.material || null, productId: piece.product?.id ?? null, thickness: piece.thickness ? Number(piece.thickness) : null, length: piece.length ? Number(piece.length) : null, width: piece.width ? Number(piece.width) : null, quantity: Number(piece.quantity), unit: piece.unit, edgeFinish: piece.edgeFinish || null, note: piece.note || null })) }), onSuccess: (res) => { toast.success("Requisição criada"); void queryClient.invalidateQueries({ queryKey: ["requisitions"] }); void queryClient.invalidateQueries({ queryKey: ["requisition-indicators"] }); setDialogOpen(false); resetForm(); navigate(`/requisicoes/${res.data.id}`); }, onError: (error) => toast.error((error as Error).message) });
+  const formBody = () => ({ sector: sector || null, clientName: clientName || null, projectReference: projectReference || null, priority, orderedAt: orderedAt ? new Date(`${orderedAt}T12:00:00`).toISOString() : null, neededAt: neededAt ? new Date(`${neededAt}T12:00:00`).toISOString() : null, note: note || null, attachments: attachments.filter((item) => item.name && item.url), items: pieces.map((piece) => ({ room: piece.room || null, supplyType: supply ? piece.supplyType : null, description: piece.description.trim(), material: piece.material || null, productId: piece.product?.id ?? null, thickness: piece.thickness ? Number(piece.thickness) : null, length: piece.length ? Number(piece.length) : null, width: piece.width ? Number(piece.width) : null, quantity: Number(piece.quantity), unit: piece.unit, edgeFinish: piece.edgeFinish || null, note: piece.note || null })) });
+  const create = useMutation({
+    mutationFn: async (submit: boolean) => {
+      if (!editing) return apiPost<{ data: Requisition }>("/requisitions", { kind: formKind, ...formBody(), submit });
+      // anexos novos não entram na edição: os que já estão continuam na requisição
+      const { attachments: _novos, ...body } = formBody();
+      const saved = await apiPatch<{ data: Requisition }>(`/requisitions/${editing.id}`, body);
+      if (submit && editing.status === "DRAFT") return apiPatch<{ data: Requisition }>(`/requisitions/${editing.id}/status`, { status: "REQUESTED", note: null });
+      return saved;
+    },
+    onSuccess: (res) => { toast.success(editing ? "Requisição atualizada" : "Requisição criada"); void queryClient.invalidateQueries({ queryKey: ["requisition", res.data.id] }); void queryClient.invalidateQueries({ queryKey: ["requisitions"] }); void queryClient.invalidateQueries({ queryKey: ["requisition-indicators"] }); setDialogOpen(false); setEditing(null); resetForm(); navigate(`/requisicoes/${res.data.id}`); }, onError: (error) => toast.error((error as Error).message) });
   const submit = (send: boolean) => { if (pieces.some((piece) => piece.description.trim().length < 2 || !Number.isInteger(Number(piece.quantity)) || Number(piece.quantity) <= 0)) return toast.error(supply ? "Preencha a descrição e a quantidade de todos os insumos" : "Preencha a descrição e a quantidade de todas as peças"); create.mutate(send); };
   const patchPiece = (index: number, patch: Partial<PieceForm>) => setPieces((current) => current.map((piece, i) => i === index ? { ...piece, ...patch } : piece));
   const uploadAttachments = async (files: FileList | File[]) => {
@@ -95,7 +131,7 @@ export function RequisitionsPage() {
       <TabsContent value="board"><div className="grid gap-4 xl:grid-cols-4">{boardColumns.map((column) => <div key={column.status} className="rounded-xl bg-muted/40 p-3"><h3 className="mb-3 flex items-center justify-between font-semibold">{column.label}<span className="rounded-full bg-background px-2 py-0.5 text-xs">{board.data?.data.filter((req) => req.status === column.status).length ?? 0}</span></h3><div className="space-y-3">{board.data?.data.filter((req) => req.status === column.status).map((req) => <Card key={req.id} className="cursor-pointer hover:border-primary/50" onClick={() => navigate(`/requisicoes/${req.id}`)}><CardContent className="space-y-2 p-4"><div className="flex justify-between"><strong>{req.number}</strong><span className="text-xs">{priorityLabel[req.priority]}</span></div><p className="text-sm">{req.clientName || req.projectReference || "Sem cliente/projeto"}</p><p className="text-xs text-muted-foreground">{req.totalQty} peças · {req.neededAt ? formatDate(req.neededAt) : "Sem prazo"}</p><div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${req.progress}%` }} /></div><p className="text-xs">{req.responsible?.name || req.cutter?.name || "Sem responsável"}</p></CardContent></Card>)}</div></div>)}</div></TabsContent>
     </Tabs>
 
-    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto"><DialogHeader><DialogTitle>{supply ? "Requisição de insumos ao almoxarifado" : "Nova requisição de peças"}</DialogTitle></DialogHeader><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"><div><Label>Montador</Label><Input value={sector} onChange={(e) => setSector(e.target.value)} placeholder="Quem vai usar / pediu na obra" /></div><div><Label>Cliente</Label><Input value={clientName} onChange={(e) => setClientName(e.target.value)} /></div><div><Label>Projeto/pedido</Label><Input value={projectReference} onChange={(e) => setProjectReference(e.target.value)} /></div><div><Label>Data do pedido</Label><Input type="date" value={orderedAt} onChange={(e) => setOrderedAt(e.target.value)} /></div><div><Label>Data de entrega</Label><Input type="date" value={neededAt} onChange={(e) => setNeededAt(e.target.value)} /></div><div><Label>Prioridade</Label><Select value={priority} onValueChange={(value) => setPriority(value as RequisitionPriority)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{priorities.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div><div className="md:col-span-2 lg:col-span-2"><Label>Observações</Label><Textarea value={note} onChange={(e) => setNote(e.target.value)} /></div></div>
+    <Dialog open={dialogOpen} onOpenChange={closeForm}><DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto"><DialogHeader><DialogTitle>{editing ? `Editar ${editing.number}` : supply ? "Requisição de insumos ao almoxarifado" : "Nova requisição de peças"}</DialogTitle></DialogHeader><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"><div><Label>Montador</Label><Input value={sector} onChange={(e) => setSector(e.target.value)} placeholder="Quem vai usar / pediu na obra" /></div><div><Label>Cliente</Label><Input value={clientName} onChange={(e) => setClientName(e.target.value)} /></div><div><Label>Projeto/pedido</Label><Input value={projectReference} onChange={(e) => setProjectReference(e.target.value)} /></div><div><Label>Data do pedido</Label><Input type="date" value={orderedAt} onChange={(e) => setOrderedAt(e.target.value)} /></div><div><Label>Data de entrega</Label><Input type="date" value={neededAt} onChange={(e) => setNeededAt(e.target.value)} /></div><div><Label>Prioridade</Label><Select value={priority} onValueChange={(value) => setPriority(value as RequisitionPriority)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{priorities.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div><div className="md:col-span-2 lg:col-span-2"><Label>Observações</Label><Textarea value={note} onChange={(e) => setNote(e.target.value)} /></div></div>
       <div className="space-y-3"><div className="flex items-center justify-between"><h3 className="font-semibold">{supply ? "Insumos" : "Peças"}</h3><Button type="button" size="sm" variant="outline" onClick={() => setPieces((current) => [...current, emptyPiece()])}><Plus className="h-4 w-4" />{supply ? "Adicionar insumo" : "Adicionar peça"}</Button></div><p className="text-xs text-muted-foreground">{supply ? "Os campos seguem a folha impressa: ambiente, tipo, quantidade, descrição e motivo. Se o item estiver no estoque, associe o produto e a baixa sai sozinha quando o almoxarifado entregar." : "Os campos seguem a folha impressa: ambiente, cor, quantidade, descrição (com espessura, altura × largura), fita e motivo."}</p>{pieces.map((piece, index) => <Card key={index}><CardHeader className="flex-row items-center justify-between py-3"><CardTitle className="text-sm">{supply ? "Insumo" : "Peça"} {index + 1}</CardTitle><Button type="button" size="icon" variant="ghost" disabled={pieces.length === 1} onClick={() => setPieces((current) => current.filter((_, i) => i !== index))}><Trash2 className="h-4 w-4" /></Button></CardHeader>{supply ? <CardContent className="grid gap-3 md:grid-cols-6">
         <div className="md:col-span-2"><Label>Ambiente</Label><Input value={piece.room} onChange={(e) => patchPiece(index, { room: e.target.value })} placeholder="Cozinha, quarto…" /></div>
         <div className="md:col-span-2"><Label>Tipo</Label><Select value={piece.supplyType} onValueChange={(value) => patchPiece(index, { supplyType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{supplyTypes.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>
@@ -136,7 +172,7 @@ export function RequisitionsPage() {
         </button>
         {attachments.map((attachment, index) => <div key={`${attachment.url}-${index}`} className="flex items-center gap-3 rounded-md border p-3"><FileText className="h-5 w-5 shrink-0 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{attachment.name}</p>{attachment.size != null && <p className="text-xs text-muted-foreground">{(attachment.size / 1024 / 1024).toFixed(2)} MB</p>}</div><Button type="button" size="icon" variant="ghost" aria-label={`Remover ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((_, i) => i !== index))}><Trash2 className="h-4 w-4" /></Button></div>)}
       </div>
-      <DialogFooter><Button variant="outline" disabled={create.isPending} onClick={() => submit(false)}>Salvar rascunho</Button><Button disabled={create.isPending} onClick={() => submit(true)}>{create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Criar e enviar</Button></DialogFooter></DialogContent></Dialog>
+      <DialogFooter>{editing && editing.status !== "DRAFT" ? <Button disabled={create.isPending} onClick={() => submit(false)}>{create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Salvar alterações</Button> : <><Button variant="outline" disabled={create.isPending} onClick={() => submit(false)}>Salvar rascunho</Button><Button disabled={create.isPending} onClick={() => submit(true)}>{create.isPending && <Loader2 className="h-4 w-4 animate-spin" />}{editing ? "Salvar e enviar" : "Criar e enviar"}</Button></>}</DialogFooter></DialogContent></Dialog>
     <ProductPicker open={pickerIndex !== null} onOpenChange={(open) => { if (!open) setPickerIndex(null); }} onSelect={(product) => { if (pickerIndex !== null) patchPiece(pickerIndex, { product, material: pieces[pickerIndex].material || product.name, unit: product.unit, ...(supply ? { description: pieces[pickerIndex].description || product.name } : {}) }); setPickerIndex(null); }} />
   </div>;
 }

@@ -19,6 +19,28 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Quem estava logado neste navegador. Sair não apaga mais o que as telas já
+ * carregaram: entrando de novo a mesma pessoa, as telas aparecem na hora e se
+ * atualizam por trás. Entrando outra pessoa, o cache é apagado antes.
+ */
+const LAST_USER_KEY = "mobieer_last_user";
+const lastUser = () => {
+  try {
+    return localStorage.getItem(LAST_USER_KEY);
+  } catch {
+    return null;
+  }
+};
+const rememberUser = (id: string | null) => {
+  try {
+    if (id) localStorage.setItem(LAST_USER_KEY, id);
+    else localStorage.removeItem(LAST_USER_KEY);
+  } catch {
+    // sem armazenamento: só perde o reaproveitamento do cache
+  }
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [initialToken] = useState(() => getToken());
@@ -54,11 +76,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleUnauthorized = () => {
       setUser(null);
+      rememberUser(null);
       queryClient.clear();
     };
     window.addEventListener("mobieer:unauthorized", handleUnauthorized);
     return () => window.removeEventListener("mobieer:unauthorized", handleUnauthorized);
   }, [queryClient]);
+
+  const startSession = useCallback(
+    (token: string, next: AuthUser) => {
+      // outra pessoa neste navegador: nada do cache anterior pode aparecer para ela
+      if (lastUser() !== next.id) queryClient.clear();
+      else void queryClient.invalidateQueries();
+      rememberUser(next.id);
+      setToken(token);
+      setUser(next);
+    },
+    [queryClient]
+  );
 
   const loginMutation = useMutation({
     mutationFn: (credentials: { email: string; password: string }) =>
@@ -66,8 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     onSuccess: (data) => {
       // com verificação em duas etapas a sessão só vem depois do código
       if (!data.data.token || !data.data.user) return;
-      setToken(data.data.token);
-      setUser(data.data.user);
+      startSession(data.data.token, data.data.user);
     },
   });
 
@@ -81,19 +115,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyMfa = useCallback(async (mfaToken: string, code: string) => {
     const r = await api<{ data: { token: string; user: AuthUser } }>("/auth/mfa/verify", { method: "POST", body: { mfaToken, code } });
-    setToken(r.data.token);
-    setUser(r.data.user);
-  }, []);
+    startSession(r.data.token, r.data.user);
+  }, [startSession]);
 
   const logout = useCallback(async () => {
-    try {
-      await apiPost("/auth/logout");
-    } catch {
-      // ignore
-    }
+    // o aviso ao servidor (registro de saída) sai com o token de agora e não segura a tela:
+    // antes, sair esperava a resposta inteira para só então ir ao login
+    void apiPost("/auth/logout").catch(() => undefined);
     setToken(null);
     setUser(null);
-    queryClient.clear();
+    // param as atualizações automáticas (avisos, chat) até alguém entrar de novo
+    void queryClient.cancelQueries();
   }, [queryClient]);
 
   const can = useCallback(

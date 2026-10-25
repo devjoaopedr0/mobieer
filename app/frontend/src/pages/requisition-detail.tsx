@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Clock3, Loader2, PackageCheck, Play, Printer, RotateCcw, ShieldCheck, ShoppingCart, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, Loader2, PackageCheck, PencilLine, Play, Printer, RotateCcw, ShieldCheck, ShoppingCart, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -21,7 +21,7 @@ const supplyTypeLabel: Record<string, string> = { INSUMO: "Insumo", FERRAGEM: "F
 const historyLabel: Record<string, string> = { REQUISITION_MARKED_DONE: "Marcada como concluída", REQUISITION_SUPPLIES_DELIVERED: "Insumos entregues pelo almoxarifado", REQUISITION_CREATED: "Requisição criada", REQUISITION_SUBMITTED: "Requisição enviada", REQUISITION_UPDATED: "Requisição atualizada", REQUISITION_STATUS_CHANGED: "Status alterado", REQUISITION_ITEM_STATUS_CHANGED: "Andamento de peça alterado", REQUISITION_MATERIAL_RESERVED: "Material reservado", REQUISITION_INSPECTED: "Conferência realizada" };
 
 export function RequisitionDetailPage() {
-  const { id = "" } = useParams(); const { can } = useAuth(); const queryClient = useQueryClient(); const [confirm, setConfirm] = useState<{ kind: "status" | "inspection"; value: string; title: string } | null>(null); const [note, setNote] = useState("");
+  const { id = "" } = useParams(); const { can, user } = useAuth(); const queryClient = useQueryClient(); const [confirm, setConfirm] = useState<{ kind: "status" | "inspection"; value: string; title: string } | null>(null); const [note, setNote] = useState("");
   const query = useQuery({ queryKey: ["requisition", id], queryFn: () => apiGet<{ data: Requisition }>(`/requisitions/${id}`), enabled: Boolean(id) });
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["requisition", id] }); void queryClient.invalidateQueries({ queryKey: ["requisitions"] }); void queryClient.invalidateQueries({ queryKey: ["requisition-indicators"] }); void queryClient.invalidateQueries({ queryKey: ["cutting-board"] }); };
   const action = useMutation({ mutationFn: async () => { if (!confirm) return; return confirm.kind === "status" ? apiPatch(`/requisitions/${id}/status`, { status: confirm.value, note: note || null }) : apiPost(`/requisitions/${id}/inspection`, { result: confirm.value, note: note || null }); }, onSuccess: () => { toast.success("Requisição atualizada"); setConfirm(null); setNote(""); refresh(); }, onError: (error) => toast.error((error as Error).message) });
@@ -40,6 +40,7 @@ export function RequisitionDetailPage() {
   return <div className="space-y-6">
     <div><Button variant="ghost" asChild className="mb-2 px-0"><Link to="/requisicoes"><ArrowLeft className="h-4 w-4" />Voltar para requisições</Link></Button><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><h1 className="text-2xl font-bold">{req.number}</h1><RequisitionStatusBadge status={req.status} />{req.overdue && <span className="text-sm font-semibold text-destructive">Atrasada</span>}</div><p className="mt-1 text-sm text-muted-foreground">Solicitada por {req.requester.name} · {new Date(req.createdAt).toLocaleString("pt-BR")}</p></div><div className="flex flex-wrap gap-2">
       <Button variant="outline" onClick={() => apiDownload(`/requisitions/print?ids=${req.id}`, `${req.number}.pdf`).catch((e) => toast.error((e as Error).message))}><Printer className="h-4 w-4" />Imprimir</Button>
+      {(req.status === "DRAFT" || req.status === "REQUESTED") && (can("requisitions.edit.all") || (can("requisitions.edit") && req.requester.id === user?.id)) && <Button variant="outline" asChild><Link to={`/requisicoes?editar=${req.id}`}><PencilLine className="h-4 w-4" />Editar</Link></Button>}
       {req.status === "DRAFT" && <Button onClick={() => openAction("REQUESTED", "Enviar requisição")}>Enviar requisição</Button>}
       {req.kind === "INSUMOS" && (["REQUESTED", "IN_REVIEW", "WAITING_MATERIAL"] as string[]).includes(req.status) && can("stock.exit.supplies") && <Button onClick={() => deliver.mutate()} disabled={deliver.isPending}>{deliver.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}Entregar insumos</Button>}
       {req.status === "REQUESTED" && can("requisitions.analyze") && <Button onClick={() => openAction("IN_REVIEW", "Iniciar análise")}>Iniciar análise</Button>}

@@ -35,6 +35,8 @@ const employeeSchema = z.object({
   weeklyHours: z.coerce.number().int().min(1).max(60).default(44),
   status: z.enum(["ACTIVE", "ON_LEAVE", "TERMINATED"]).default("ACTIVE"),
   userId: z.string().min(1).optional().nullable().or(z.literal("")),
+  /** dia do desligamento (vazio = hoje); o ponto conta só até ele */
+  terminatedAt: z.coerce.date().optional().nullable(),
 });
 
 const periodSchema = z.object({
@@ -196,8 +198,8 @@ router.patch(
   "/employees/:id",
   requirePermission("hr.employees.manage"),
   asyncHandler(async (req, res) => {
-    await getEmployee(req.params.id, req.user!.organizationId);
-    const input = employeeSchema.partial().parse(req.body);
+    const before = await getEmployee(req.params.id, req.user!.organizationId);
+    const input = employeeSchema.partial().extend({ deactivateUser: z.boolean().optional() }).parse(req.body);
     const e = await prisma.employee.update({
       where: { id: req.params.id },
       data: {
@@ -212,11 +214,19 @@ router.patch(
         admittedAt: input.admittedAt,
         weeklyHours: input.weeklyHours,
         status: input.status,
-        terminatedAt: input.status === "TERMINATED" ? new Date() : input.status ? null : undefined,
+        terminatedAt: input.status === "TERMINATED" ? input.terminatedAt ?? new Date() : input.status ? null : undefined,
         userId: input.userId === undefined ? undefined : input.userId || null,
       },
     });
-    await audit(req.user!.id, "EMPLOYEE_UPDATED", "Employee", e.id);
+    // desligado: se pedirem, o acesso ao sistema do usuário ligado também é cortado
+    if (input.status === "TERMINATED" && input.deactivateUser && e.userId) {
+      await prisma.user.update({ where: { id: e.userId }, data: { status: "INACTIVE" } });
+    }
+    const changed = (["status", "weeklyHours", "terminatedAt"] as const).filter((k) => input[k] !== undefined && String(input[k]) !== String((before as Record<string, unknown>)[k]));
+    await audit(req.user!.id, input.status === "TERMINATED" && before.status !== "TERMINATED" ? "EMPLOYEE_TERMINATED" : "EMPLOYEE_UPDATED", "Employee", e.id, {
+      ...Object.fromEntries(changed.map((k) => [k, { from: (before as Record<string, unknown>)[k] ?? null, to: e[k] ?? null }])),
+      ...(input.deactivateUser ? { userDeactivated: Boolean(e.userId) } : {}),
+    });
     return ok(res, e, "Colaborador atualizado");
   })
 );

@@ -87,10 +87,13 @@ export async function createRequisition(input: CreateRequisitionInput, requester
   return serialize(created);
 }
 
+export const EDITABLE_STATUSES: RequisitionStatus[] = [RequisitionStatus.DRAFT, RequisitionStatus.REQUESTED];
+
 export async function updateRequisition(id: string, input: UpdateRequisitionInput, actorId: string, permissions: string[]) {
   const current = await requireRequisition(id);
-  if (current.status !== RequisitionStatus.DRAFT) throw new BadRequestError("Somente rascunhos podem ser editados");
-  if (current.requesterId !== actorId && !permissions.includes("requisitions.edit.all")) throw new ForbiddenError("Você só pode editar seus próprios rascunhos");
+  // rascunho, ou já enviada mas ainda sem ninguém ter começado a análise (não há reserva de material nessa fase)
+  if (!EDITABLE_STATUSES.includes(current.status)) throw new BadRequestError("A requisição já está em análise: só dá para editar o rascunho ou a enviada que ainda não foi analisada");
+  if (current.requesterId !== actorId && !permissions.includes("requisitions.edit.all")) throw new ForbiddenError("Você só pode editar as suas próprias requisições");
   const updated = await prisma.$transaction(async (tx) => {
     if (input.items) { await tx.requisitionItem.deleteMany({ where: { requisitionId: id } }); await tx.requisitionItem.createMany({ data: input.items.map((item) => ({ ...itemData(item), requisitionId: id })) }); }
     const req = await tx.requisition.update({ where: { id }, data: { sector: input.sector, destination: input.destination, clientName: input.clientName, projectReference: input.projectReference, priority: input.priority, orderedAt: input.orderedAt === undefined ? undefined : input.orderedAt ? new Date(input.orderedAt) : null, neededAt: input.neededAt === undefined ? undefined : input.neededAt ? new Date(input.neededAt) : null, responsibleId: input.responsibleId, note: input.note }, include });

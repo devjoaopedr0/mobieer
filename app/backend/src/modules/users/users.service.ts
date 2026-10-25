@@ -34,6 +34,7 @@ export function serializeUser(user: {
     role: { id: user.role.id, name: user.role.name, label: user.role.label },
     extraRoles: (user.extraRoles ?? []).filter((e) => e.role.id !== user.role.id).map((e) => ({ id: e.role.id, name: e.role.name, label: e.role.label })),
     locked: Boolean(user.lockedAt),
+    lockedAt: user.lockedAt ?? null,
     failedLoginCount: user.failedLoginCount ?? 0,
     mustChangePassword: Boolean(user.mustChangePassword),
   };
@@ -138,11 +139,13 @@ export async function createUser(input: CreateUserInput, actorId: string) {
 }
 
 /** Desbloqueia quem errou a senha demais. */
-export async function unlockUser(id: string, actorId: string) {
+export async function unlockUser(id: string, actorId: string, note?: string | null) {
   const user = await prisma.user.findUnique({ where: { id }, include: userInclude });
   if (!user) throw new NotFoundError("Usuário não encontrado");
+  if (!user.lockedAt) throw new BadRequestError("Este usuário não está bloqueado");
   const updated = await prisma.user.update({ where: { id }, data: { lockedAt: null, failedLoginCount: 0 }, include: userInclude });
-  await prisma.auditLog.create({ data: { userId: actorId, action: "USER_UNLOCKED", entity: "User", entityId: id } });
+  // o registro diz quando e por que estava bloqueado, além de quem desbloqueou
+  await prisma.auditLog.create({ data: { userId: actorId, action: "USER_UNLOCKED", entity: "User", entityId: id, details: { email: user.email, lockedAt: user.lockedAt.toISOString(), failedAttempts: user.failedLoginCount, reason: note || null } } });
   return serializeUser(updated);
 }
 

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { ContractsTab } from "@/components/contracts-tab";
+import { PortfolioTab } from "@/components/portfolio-tab";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Loader2, Plus, Target, TrendingUp, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -150,7 +152,7 @@ export function CommercialPage() {
             { n: 2, title: "Cliente e projeto", hint: "Converta o lead ou cadastre o cliente e o projeto", go: () => navigate("/clientes-projetos") },
             { n: 3, title: "Medição inicial", hint: "Agende e registre a medição, com fotos", go: () => navigate("/medicoes") },
             { n: 4, title: "Orçamento", hint: "Monte o orçamento e envie ao cliente", go: () => setParams({ aba: "orcamentos" }, { replace: true }) },
-            { n: 5, title: "Contrato", hint: "No orçamento aceito, use Gerar contrato", go: () => setParams({ aba: "orcamentos" }, { replace: true }) },
+            { n: 5, title: "Contrato", hint: "Ver, abrir e corrigir os contratos gerados", go: () => setParams({ aba: "contratos" }, { replace: true }) },
           ].map((s) => (
             <li key={s.n}>
               <button type="button" onClick={s.go} className="flex h-full w-full items-start gap-2 rounded-lg border p-2.5 text-left transition hover:border-primary/50 hover:bg-muted/50">
@@ -176,6 +178,8 @@ export function CommercialPage() {
           <TabsTrigger value="funil">Funil ({oppList.length})</TabsTrigger>
           <TabsTrigger value="lembretes">Lembretes{reminders.data?.data.total ? ` (${reminders.data.data.total})` : ""}</TabsTrigger>
           <TabsTrigger value="orcamentos">Orçamentos</TabsTrigger>
+          <TabsTrigger value="contratos">Contratos</TabsTrigger>
+          <TabsTrigger value="carteira">Carteira</TabsTrigger>
           <TabsTrigger value="indicadores">Indicadores e RT</TabsTrigger>
           <TabsTrigger value="equipes">Equipes e carteira</TabsTrigger>
           <TabsTrigger value="leads">Leads ({leadList.filter((l) => l.status !== "CONVERTED").length})</TabsTrigger>
@@ -234,6 +238,12 @@ export function CommercialPage() {
         </TabsContent>
         <TabsContent value="orcamentos">
           <QuotesTab />
+        </TabsContent>
+        <TabsContent value="contratos">
+          <ContractsTab />
+        </TabsContent>
+        <TabsContent value="carteira">
+          <PortfolioTab />
         </TabsContent>
         <TabsContent value="indicadores">
           <ReferrersTab />

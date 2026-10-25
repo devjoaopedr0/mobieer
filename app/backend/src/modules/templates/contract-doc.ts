@@ -13,6 +13,9 @@ import { BRAND, PAGE, brandDocument, brandSection, brandTitle, ensureSpace } fro
 import { BLOCK, type ContractOrder } from "./contract-order";
 import { contractLines } from "./contract.service";
 
+/** Tamanho do título "Contrato Nº …": o mesmo do orçamento (o padrão, 23, saía grande demais). */
+export const CONTRACT_TITLE_SIZE = 16;
+
 const brl = (n: number) => `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const brDate = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" }) : "");
 
@@ -146,7 +149,8 @@ function drawTable(doc: Doc, rows: string[][]) {
 /** PDF do contrato editado, com o mesmo cabeçalho, rodapé e estilo do contrato automático. */
 export function contractDocPdf(opts: { title: string; subtitle?: string; blocks: DocBlocks; footer?: string; contacts?: string[] }): Promise<Buffer> {
   const { doc, done, width } = brandDocument({ contacts: opts.contacts });
-  brandTitle(doc, opts.title, opts.subtitle);
+  // "Contrato Nº 377" no mesmo tamanho do título do orçamento
+  brandTitle(doc, opts.title, opts.subtitle, { size: CONTRACT_TITLE_SIZE });
 
   for (const b of opts.blocks) {
     if (b.t === "table") {

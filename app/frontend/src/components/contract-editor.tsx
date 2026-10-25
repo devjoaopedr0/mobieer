@@ -125,7 +125,63 @@ export function serializeContract(root: HTMLElement): DocBlock[] {
   return out;
 }
 
+const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+function runsHtml(runs: DocRun[]) {
+  return runs
+    .map((r) => {
+      let h = esc(r.text).replace(/\n/g, "<br>");
+      if (r.u) h = `<u>${h}</u>`;
+      if (r.i) h = `<em>${h}</em>`;
+      if (r.b) h = `<strong>${h}</strong>`;
+      return h;
+    })
+    .join("");
+}
+
+/**
+ * O caminho de volta: blocos salvos → texto do editor. É assim que o contrato
+ * reabre do jeito que a pessoa deixou (o servidor guarda os blocos, não HTML).
+ */
+export function blocksToHtml(blocks: DocBlock[]): string {
+  const out: string[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  const flush = () => {
+    if (list) out.push(`<${list.ordered ? "ol" : "ul"}>${list.items.join("")}</${list.ordered ? "ol" : "ul"}>`);
+    list = null;
+  };
+  const style = (a?: Align) => (a ? ` style="text-align: ${a}"` : "");
+  for (const b of blocks) {
+    if (b.t === "li") {
+      if (!list || list.ordered !== b.ordered || b.n === 1) {
+        flush();
+        list = { ordered: b.ordered, items: [] };
+      }
+      list.items.push(`<li>${runsHtml(b.runs) || "<br>"}</li>`);
+      continue;
+    }
+    flush();
+    if (b.t === "table") {
+      const [head, ...body] = b.rows;
+      const cells = (r: string[], tag: "th" | "td") => r.map((c) => `<${tag}>${esc(c) || "<br>"}</${tag}>`).join("");
+      out.push(`<table><thead><tr>${cells(head ?? [], "th")}</tr></thead><tbody>${body.map((r) => `<tr>${cells(r, "td")}</tr>`).join("")}</tbody></table>`);
+    } else if (b.t === "h") out.push(`<h3${style(b.align)}>${runsHtml(b.runs) || "<br>"}</h3>`);
+    else out.push(`<p${style(b.align)}>${runsHtml(b.runs) || "<br>"}</p>`);
+  }
+  flush();
+  return out.join("");
+}
+
 const BLANK = "____";
+const AUTOSAVE_MS = 1500;
+
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+function saveLabel(s: { state: string; at: string | null }) {
+  if (s.state === "saving") return "Salvando…";
+  if (s.state === "error") return "Não foi possível salvar agora. O texto continua aqui; tente de novo em instantes.";
+  if (s.state === "dirty") return "Alterações ainda não salvas…";
+  return s.at ? `Salvo às ${hhmm(s.at)}${s.state === "idle" ? " (texto que você deixou da última vez)" : ""}` : "As alterações são salvas sozinhas.";
+}
 
 export function ContractEditor(props: {
   title: string;
@@ -136,19 +192,59 @@ export function ContractEditor(props: {
   onConfirm: (doc: DocBlock[]) => void;
   /** recebe o texto como está, para reabrir sem perder a edição */
   onClose: (html: string) => void;
+  /** salva o texto enquanto a pessoa edita (e ao fechar): sair não perde nada */
+  onAutosave?: (doc: DocBlock[]) => Promise<unknown>;
+  /** quando o texto salvo foi gravado (para mostrar ao abrir) */
+  savedAt?: string | null;
+  /** joga fora o texto corrigido e remonta pelo modelo */
+  onDiscard?: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const close = () => props.onClose(ref.current?.innerHTML ?? props.html);
+  const ref = useRef<HTMLDivElement | null>(null);
   const [blanks, setBlanks] = useState(0);
   const [inTable, setInTable] = useState(false);
+  const [save, setSave] = useState<{ state: "idle" | "dirty" | "saving" | "saved" | "error"; at: string | null }>({ state: "idle", at: props.savedAt ?? null });
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosave = props.onAutosave;
+  const flushSave = async () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (!autosave || !ref.current) return;
+    setSave((s) => ({ ...s, state: "saving" }));
+    try {
+      await autosave(serializeContract(ref.current));
+      setSave({ state: "saved", at: new Date().toISOString() });
+    } catch {
+      setSave((s) => ({ ...s, state: "error" }));
+    }
+  };
+  const schedule = () => {
+    if (!autosave) return;
+    setSave((s) => ({ ...s, state: "dirty" }));
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flushSave(), AUTOSAVE_MS);
+  };
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const close = () => {
+    // o que ainda não foi salvo vai antes de fechar
+    if (timer.current) void flushSave();
+    props.onClose(ref.current?.innerHTML ?? props.html);
+  };
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+  // O texto entra quando a página do editor aparece. A janela monta o conteúdo
+  // um instante depois do primeiro render; um useEffect rodava com ref vazia e o
+  // editor abria em branco ("o contrato não abre"). A ref de callback pega o
+  // momento certo e só preenche de novo se o texto de entrada mudar.
+  const filled = useRef<string | null>(null);
+  const attach = (el: HTMLDivElement | null) => {
+    ref.current = el;
+    if (!el || filled.current === props.html) return;
+    filled.current = props.html;
     el.innerHTML = props.html;
     document.execCommand("defaultParagraphSeparator", false, "p");
     setBlanks(el.innerText.split(BLANK).length - 1);
-  }, [props.html]);
+  };
 
   // célula onde está o cursor (para os botões da tabela)
   const cell = (): HTMLTableCellElement | null => {
@@ -167,7 +263,10 @@ export function ContractEditor(props: {
     ref.current?.focus();
     document.execCommand(cmd, false, value);
   };
-  const changed = () => setBlanks((ref.current?.innerText ?? "").split(BLANK).length - 1);
+  const changed = () => {
+    setBlanks((ref.current?.innerText ?? "").split(BLANK).length - 1);
+    schedule();
+  };
 
   const emptyCell = (tag: "td" | "th") => {
     const c = document.createElement(tag);
@@ -205,6 +304,7 @@ export function ContractEditor(props: {
       if (ref0) ref0.after(n);
       else tr.appendChild(n);
     });
+    changed();
   };
   const removeColumn = () => {
     const c = cell();
@@ -273,7 +373,7 @@ export function ContractEditor(props: {
 
         <div className="min-h-0 flex-1 overflow-y-auto rounded-md bg-muted p-2 sm:p-6">
           <div
-            ref={ref}
+            ref={attach}
             contentEditable={!props.pending}
             suppressContentEditableWarning
             spellCheck
@@ -284,9 +384,25 @@ export function ContractEditor(props: {
         </div>
 
         <DialogFooter className="items-center gap-2">
-          {blanks > 0 && <p className="mr-auto text-xs text-warning">{blanks} {blanks > 1 ? "campos" : "campo"} ainda com "{BLANK}" para preencher.</p>}
+          <div className="mr-auto space-y-0.5 text-xs">
+            {blanks > 0 && <p className="text-warning">{blanks} {blanks > 1 ? "campos" : "campo"} ainda com "{BLANK}" para preencher.</p>}
+            {autosave && <p className={save.state === "error" ? "text-destructive" : "text-muted-foreground"}>{saveLabel(save)}</p>}
+          </div>
+          {props.onDiscard && (
+            <Button variant="ghost" disabled={props.pending} onClick={() => confirm("Descartar o texto corrigido e montar o contrato de novo pelo modelo?") && props.onDiscard!()}>
+              Voltar ao modelo
+            </Button>
+          )}
           <Button variant="outline" disabled={props.pending} onClick={close}>Fechar</Button>
-          <Button disabled={props.pending} onClick={() => ref.current && props.onConfirm(serializeContract(ref.current))}>
+          <Button
+            disabled={props.pending}
+            onClick={() => {
+              if (!ref.current) return;
+              if (timer.current) clearTimeout(timer.current);
+              timer.current = null;
+              props.onConfirm(serializeContract(ref.current));
+            }}
+          >
             {props.pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {props.confirmLabel}
           </Button>

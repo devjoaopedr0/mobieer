@@ -7,7 +7,7 @@ import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { DEFAULT_SCHEDULE, parseSchedule, summarizeTeamMonth, buildMirror, clockDisplayName, computeHourBank, fortalezaDay, inferKinds, looksLikeSamePerson, matchClockPeople, monthsBetween, parseTimeClockFile } from "./timeclock.service";
+import { DEFAULT_SCHEDULE, parseSchedule, summarizeTeamMonth, buildMirror, clockDisplayName, computeHourBank, fortalezaDay, parsePunchTime, inferKinds, looksLikeSamePerson, matchClockPeople, monthsBetween, parseTimeClockFile } from "./timeclock.service";
 import { nextRegistration } from "./hr.service";
 
 const router = Router();
@@ -48,13 +48,15 @@ router.get(
     if (!employeeId || !/^\d{4}-\d{2}$/.test(month)) throw new BadRequestError("Informe employeeId e month (YYYY-MM)");
     const employee = await ensureEmployee(employeeId, req.user!.organizationId);
     const [y, m] = month.split("-").map(Number);
-    const start = new Date(y, m - 1, 1);
-    const end = new Date(y, m, 1);
-    const entries = await prisma.timeEntry.findMany({
-      where: { employeeId, timestamp: { gte: start, lt: end } },
-      select: { timestamp: true, kind: true },
-      orderBy: { timestamp: "asc" },
-    });
+    // margem de um dia de cada lado e o mês pelo dia da loja: a batida das 22h do dia 31
+    // fica no dia 31 (em UTC ela já é do mês seguinte e sumia do espelho)
+    const entries = (
+      await prisma.timeEntry.findMany({
+        where: { employeeId, timestamp: { gte: new Date(Date.UTC(y, m - 1, 0)), lt: new Date(Date.UTC(y, m, 2)) } },
+        select: { timestamp: true, kind: true },
+        orderBy: { timestamp: "asc" },
+      })
+    ).filter((e) => fortalezaDay(e.timestamp).startsWith(month));
     const mirror = buildMirror(entries, month, employee.weeklyHours);
     return ok(res, {
       employee: { id: employee.id, fullName: employee.fullName, registration: employee.registration, weeklyHours: employee.weeklyHours },
@@ -87,11 +89,23 @@ router.get(
       orderBy: { timestamp: "asc" },
     });
     const lastDay = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+    // lançamentos do banco de horas (ajuste, compensação, pagamento) do mês: entram no saldo,
+    // como no Banco de horas; antes o resumo da equipe ignorava o que o RH acertou à mão
+    const adjustments = await prisma.hourBankAdjustment.findMany({
+      where: { organizationId: req.user!.organizationId, date: { gte: new Date(`${month}-01T00:00:00Z`), lte: new Date(`${lastDay}T00:00:00Z`) } },
+      select: { employeeId: true, minutes: true },
+    });
     const rows = employees.map((e) => {
       const mine = entries.filter((x) => x.employeeId === e.id && fortalezaDay(x.timestamp).startsWith(month));
       const end = e.terminatedAt ? fortalezaDay(e.terminatedAt) : lastDay;
       const row = summarizeTeamMonth(buildMirror(mine, month, e.weeklyHours).days, { from: fortalezaDay(e.admittedAt), to: [today, lastDay, end].sort()[0], schedule });
-      return { employee: { id: e.id, fullName: e.fullName, registration: e.registration, status: e.status }, ...row };
+      const adjustmentMinutes = adjustments.filter((a) => a.employeeId === e.id).reduce((sum, a) => sum + a.minutes, 0);
+      return {
+        employee: { id: e.id, fullName: e.fullName, registration: e.registration, status: e.status, weeklyHours: e.weeklyHours, terminatedAt: e.terminatedAt },
+        ...row,
+        adjustmentMinutes,
+        balanceMinutes: row.balanceMinutes + adjustmentMinutes,
+      };
     });
     return ok(res, { month, today, schedule, rows });
   })
@@ -125,7 +139,8 @@ router.get(
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) throw new BadRequestError("Intervalo inválido");
 
     const entries = await prisma.timeEntry.findMany({
-      where: { employeeId, timestamp: { gte: new Date(from.getFullYear(), from.getMonth(), 1), lt: new Date(to.getFullYear(), to.getMonth() + 1, 1) } },
+      // um dia de margem: o mês de cada batida é decidido pelo dia da loja, logo abaixo
+      where: { employeeId, timestamp: { gte: new Date(Date.UTC(from.getFullYear(), from.getMonth(), 0)), lt: new Date(Date.UTC(to.getFullYear(), to.getMonth() + 1, 2)) } },
       select: { timestamp: true, kind: true },
       orderBy: { timestamp: "asc" },
     });
@@ -134,7 +149,7 @@ router.get(
     const toKey = to.toISOString().slice(0, 10);
     const days = monthsBetween(from, to)
       .flatMap((month) => {
-        const monthEntries = entries.filter((e) => e.timestamp.toISOString().slice(0, 7) === month);
+        const monthEntries = entries.filter((e) => fortalezaDay(e.timestamp).startsWith(month));
         return buildMirror(monthEntries, month, employee.weeklyHours).days;
       })
       .filter((d) => d.date >= fromKey && d.date <= toKey);
@@ -207,6 +222,15 @@ router.delete(
   })
 );
 
+function punchTime(raw: string, ctx: z.RefinementCtx): Date {
+  const d = parsePunchTime(raw);
+  if (!d) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Data e hora inválidas" });
+    return z.NEVER;
+  }
+  return d;
+}
+
 // POST /api/hr/timeclock/entries  (manual)
 router.post(
   "/entries",
@@ -215,7 +239,7 @@ router.post(
     const input = z
       .object({
         employeeId: z.string().min(1),
-        timestamp: z.coerce.date(),
+        timestamp: z.string().trim().min(10).max(40).transform(punchTime),
         kind: z.enum(["IN", "OUT", "BREAK_OUT", "BREAK_IN"]),
         note: z.string().trim().max(500).optional().nullable(),
       })

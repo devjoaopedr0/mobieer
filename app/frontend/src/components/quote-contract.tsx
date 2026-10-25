@@ -1,17 +1,15 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { FileSignature, Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ContractEditor, type DocBlock } from "@/components/contract-editor";
+import { useContractFlow, type ContractPayload } from "@/components/contract-flow";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { apiDownload, apiGet, apiPost } from "@/services/api";
-import { errorMessage } from "@/lib/errors";
+import { apiGet } from "@/services/api";
 
 type Template = { id: string; name: string; type: string; hasBody: boolean; active: boolean; requiresSignature: boolean };
-type QuoteForContract = {
+export type QuoteForContract = {
   id: string;
   number: string;
   total: number;
@@ -21,6 +19,24 @@ type QuoteForContract = {
   project: { id: string; code: string; name: string } | null;
   payment: { installments: number; downPayment: number };
 };
+
+/** O que o contrato do orçamento leva: cliente, projeto, total e o pagamento combinado. */
+export function quoteContractPayload(quote: QuoteForContract): ContractPayload {
+  const rest = Math.max(0, quote.total - quote.payment.downPayment);
+  return {
+    clientId: quote.client.id,
+    quoteId: quote.id,
+    projectId: quote.project?.id ?? null,
+    totalOverride: quote.total,
+    entrada: quote.payment.downPayment || null,
+    parcelas: quote.payment.installments || null,
+    valorParcela: quote.payment.installments > 0 ? Math.round((rest / quote.payment.installments) * 100) / 100 : null,
+    condicaoPagamento: quote.paymentTerms || null,
+    prazoEntregaDias: quote.deliveryDays ?? null,
+    title: `Contrato — ${quote.client.name} (${quote.number})`,
+    visibleToClient: true,
+  };
+}
 
 /**
  * Contrato a partir do orçamento aceito, sem sair do comercial: escolhe o modelo,
@@ -45,54 +61,18 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
   const list = templates.data ?? [];
   const chosen = list.find((t) => t.id === templateId) ?? (list.length === 1 ? list[0] : null);
 
-  const [draft, setDraft] = useState<{ title: string; html: string } | null>(null);
-  const payload = () => {
-    const rest = Math.max(0, quote.total - quote.payment.downPayment);
-    return {
-      clientId: quote.client.id,
-      quoteId: quote.id,
-      projectId: quote.project?.id ?? null,
-      totalOverride: quote.total,
-      entrada: quote.payment.downPayment || null,
-      parcelas: quote.payment.installments || null,
-      valorParcela: quote.payment.installments > 0 ? Math.round((rest / quote.payment.installments) * 100) / 100 : null,
-      condicaoPagamento: quote.paymentTerms || null,
-      prazoEntregaDias: quote.deliveryDays ?? null,
-      title: `Contrato — ${quote.client.name} (${quote.number})`,
-      visibleToClient: true,
-    };
-  };
-  const openEditor = useMutation({
-    mutationFn: () => apiPost<{ data: { title: string; html: string } }>(`/templates/${chosen!.id}/contract/preview`, payload()),
-    onSuccess: (r) => {
-      setDraft({ title: r.data.title, html: r.data.html });
-      setOpen(false);
-    },
-    onError: (e) => toast.error(errorMessage(e, "Não foi possível montar o contrato")),
-  });
-  const generate = useMutation({
-    mutationFn: (doc: DocBlock[]) =>
-      apiPost<{ data: { id: string; fileName: string; requiresSignature: boolean; missing: string[] }; message?: string }>(`/templates/${chosen!.id}/contract`, { ...payload(), doc }),
-    onSuccess: (r) => {
-      const d = r.data;
-      toast.success(d.requiresSignature ? "Contrato gerado e enviado ao portal do cliente. Falta a assinatura da loja e a do cliente." : "Contrato gerado e enviado ao portal do cliente.", { duration: 9000 });
-      if (d.missing.length) toast.warning(`${d.missing.length} ${d.missing.length > 1 ? "campos do modelo ficaram" : "campo do modelo ficou"} sem valor: ${d.missing.slice(0, 6).join(", ")}. Confira o PDF.`, { duration: 14000 });
-      void apiDownload(`/documents/${d.id}/download`, d.fileName).catch(() => undefined);
-      setDraft(null);
-    },
-    onError: (e) => toast.error(errorMessage(e, "Não foi possível gerar o contrato")),
-  });
+  const flow = useContractFlow({ templateId: chosen?.id ?? null, payload: () => quoteContractPayload(quote) });
 
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <FileSignature className="mr-1 h-4 w-4" /> Gerar contrato
+      <Button size="sm" variant="outline" disabled={flow.opening} onClick={() => setOpen(true)}>
+        {flow.opening ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileSignature className="mr-1 h-4 w-4" />} Gerar ou editar contrato
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Gerar contrato — {quote.number}</DialogTitle>
-            <DialogDescription>O contrato sai do modelo escolhido, com o cliente, os ambientes e acabamentos, o valor e as parcelas com vencimento deste orçamento. Ele abre no editor para você corrigir o que precisar antes de gerar o PDF.</DialogDescription>
+            <DialogDescription>O contrato sai do modelo escolhido, com o cliente, os ambientes e acabamentos, o valor e as parcelas com vencimento deste orçamento. Ele abre no editor para você corrigir o que precisar (inclusive a forma de pagamento) antes de gerar o PDF. Se já foi corrigido antes, abre do jeito que ficou; gerar de novo mantém o número e substitui o anterior.</DialogDescription>
           </DialogHeader>
           {templates.isLoading ? (
             <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -117,23 +97,19 @@ export function QuoteContractButton({ quote }: { quote: QuoteForContract }) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button disabled={!chosen || openEditor.isPending} onClick={() => openEditor.mutate()}>
-              {openEditor.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Abrir no editor
+            <Button
+              disabled={!chosen || flow.opening}
+              onClick={() => {
+                flow.start();
+                setOpen(false);
+              }}
+            >
+              {flow.opening && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Abrir no editor
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {draft && (
-        <ContractEditor
-          title={draft.title}
-          html={draft.html}
-          description="Corrija o que precisar direto no texto: cláusulas, forma de pagamento, valores e datas das parcelas. O financeiro continua com as parcelas do orçamento; aqui muda só o contrato."
-          confirmLabel="Gerar PDF e enviar ao cliente"
-          pending={generate.isPending}
-          onConfirm={(doc) => generate.mutate(doc)}
-          onClose={() => setDraft(null)}
-        />
-      )}
+      {flow.editor}
     </>
   );
 }

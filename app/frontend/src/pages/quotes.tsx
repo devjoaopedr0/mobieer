@@ -946,7 +946,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
   const manage = can("commercial.quotes.manage");
 
   const run = useMutation({
-    mutationFn: async (action: "pdf" | "sent" | "accepted" | "rejected" | "version" | "delete" | "decide" | "cancelContract" | "reactivate" | "competence") => {
+    mutationFn: async (action: "pdf" | "sent" | "accepted" | "rejected" | "version" | "delete" | "decide" | "cancelContract" | "cancelQuote" | "reactivate" | "competence") => {
       const base = `/commercial/quotes/${quote.id}`;
       if (action === "pdf") {
         const r = await apiPost<{ data: { downloadUrl: string }; message: string }>(`${base}/pdf`);
@@ -970,6 +970,11 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
         const reason = prompt("Motivo do cancelamento do contrato:");
         if (!reason?.trim()) throw new Error("Cancelamento não feito: informe o motivo");
         return (await apiPatch<{ message: string }>(`${base}/status`, { status: "CANCELLED", reason: reason.trim() })).message;
+      }
+      if (action === "cancelQuote") {
+        const reason = prompt("Por que este orçamento foi cancelado? (fica registrado)");
+        if (reason === null) throw new Error("Cancelamento não feito");
+        return (await apiPatch<{ message: string }>(`${base}/status`, { status: "CANCELLED", reason: reason.trim() || null })).message;
       }
       if (action === "reactivate") return (await apiPatch<{ message: string }>(`${base}/status`, { status: "DRAFT" })).message;
       if (action === "competence") {
@@ -1025,8 +1030,13 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
               </div>
             )}
             <Button size="sm" variant="outline" disabled={run.isPending} onClick={() => run.mutate("version")}>
-              <Copy className="mr-1 h-4 w-4" /> {quote.status === "APPROVED" ? "Alterar contrato (nova versão)" : "Nova versão"}
+              <Copy className="mr-1 h-4 w-4" /> {quote.status === "APPROVED" ? "Mudar valores da venda (nova versão)" : "Nova versão"}
             </Button>
+            {quote.status === "APPROVED" && (
+              <p className="text-xs text-muted-foreground">
+                Nova versão é para mudar ambientes, preço ou parcelas: ela precisa ser aceita de novo e refaz o financeiro. Para corrigir só o texto do contrato (forma de pagamento escrita, cláusulas), use "Gerar ou editar contrato".
+              </p>
+            )}
             {/* contrato sem sair do comercial: gera do modelo e manda para a assinatura */}
             {quote.status === "APPROVED" && can("documents.manage") && <QuoteContractButton quote={quote} />}
             {quote.status === "APPROVED" && quote.kind !== "ADENDO" && (
@@ -1039,6 +1049,12 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
             )}
             {quote.status === "APPROVED" && (
               <Button size="sm" variant="ghost" className="text-destructive" disabled={run.isPending} onClick={() => run.mutate("cancelContract")}>Cancelar contrato</Button>
+            )}
+            {/* orçamento que não vai sair: fica no sistema (com o número) e sai das possibilidades de venda */}
+            {["SENT", "VIEWED", "NEGOTIATION", "REJECTED", "EXPIRED"].includes(quote.status) && (
+              <Button size="sm" variant="ghost" className="text-destructive" disabled={run.isPending} onClick={() => run.mutate("cancelQuote")}>
+                <XCircle className="mr-1 h-4 w-4" /> Cancelar orçamento
+              </Button>
             )}
             {quote.status === "CANCELLED" && (
               <Button size="sm" variant="outline" disabled={run.isPending} onClick={() => run.mutate("reactivate")}>Reativar (volta a rascunho)</Button>
