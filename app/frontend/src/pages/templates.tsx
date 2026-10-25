@@ -18,6 +18,7 @@ import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm, apiPut 
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage } from "@/lib/utils";
 import type { ContractPreview, DocumentTemplate, MergeField } from "@/types";
+import { ContractEditor, type DocBlock } from "@/components/contract-editor";
 
 const DOC_TYPES = [
   ["MANUAL_GARANTIA", "Manual e Garantia"],
@@ -375,20 +376,27 @@ export function TemplatesPage() {
 }
 
 /** Lista de marcadores disponíveis; clicar insere no fim do texto. */
-/** Próximo número de contrato: continua a sequência dos contratos que a loja já fazia. */
+/** Próximo número de contrato e de orçamento: cada um com a sua sequência. */
 function ContractNumbering() {
   const qc = useQueryClient();
-  const current = useQuery({ queryKey: ["templates", "contract-numbering"], queryFn: () => apiGet<{ data: { next: number } }>("/templates/contract-numbering") });
+  type Numbering = { next: number; quoteNext: number };
+  const current = useQuery({ queryKey: ["templates", "contract-numbering"], queryFn: () => apiGet<{ data: Numbering }>("/templates/contract-numbering") });
   const [value, setValue] = useState("");
+  const [quoteValue, setQuoteValue] = useState("");
   useEffect(() => {
-    if (current.data) setValue(String(current.data.data.next));
+    if (current.data) {
+      setValue(String(current.data.data.next));
+      setQuoteValue(String(current.data.data.quoteNext));
+    }
   }, [current.data]);
+  const changed = String(current.data?.data.next ?? "") !== value || String(current.data?.data.quoteNext ?? "") !== quoteValue;
   const save = useMutation({
-    mutationFn: () => apiPut<{ data: { next: number } }>("/templates/contract-numbering", { next: Number(value) }),
+    mutationFn: () => apiPut<{ data: Numbering }>("/templates/contract-numbering", { next: Number(value), quoteNext: Number(quoteValue) }),
     onSuccess: (r) => {
       setValue(String(r.data.next));
+      setQuoteValue(String(r.data.quoteNext));
       qc.invalidateQueries({ queryKey: ["templates", "contract-numbering"] });
-      toast.success(Number(value) === r.data.next ? "Numeração dos contratos salva" : `Esse número já foi usado. O próximo fica ${r.data.next}.`);
+      toast.success(Number(value) === r.data.next && Number(quoteValue) === r.data.quoteNext ? "Numeração salva" : `Número já usado. Ficou: contrato ${r.data.next}, orçamento ${r.data.quoteNext}.`);
     },
     onError: (e) => toast.error(errorMessage(e, "Falha ao salvar a numeração")),
   });
@@ -434,17 +442,21 @@ function ContractNumbering() {
       </Dialog>
       <CardContent className="flex flex-wrap items-end gap-3 pt-6">
         <div className="space-y-1">
-          <Label htmlFor="contract-next">Próximo número (orçamento e contrato)</Label>
-          <Input id="contract-next" className="w-36" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ""))} />
+          <Label htmlFor="contract-next">Próximo contrato</Label>
+          <Input id="contract-next" className="w-32" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ""))} />
         </div>
-        <Button size="sm" variant="outline" disabled={!value || save.isPending || String(current.data?.data.next ?? "") === value} onClick={() => save.mutate()}>
+        <div className="space-y-1">
+          <Label htmlFor="quote-next">Próximo orçamento</Label>
+          <Input id="quote-next" className="w-32" inputMode="numeric" value={quoteValue} onChange={(e) => setQuoteValue(e.target.value.replace(/\D/g, ""))} />
+        </div>
+        <Button size="sm" variant="outline" disabled={!value || !quoteValue || save.isPending || !changed} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Salvar
         </Button>
         <Button size="sm" variant="outline" disabled={renumber.isPending} onClick={() => renumber.mutate(true)}>
           Orçamentos antigos na sequência
         </Button>
         <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
-          Orçamentos e contratos seguem uma numeração só, continuando a dos contratos antigos: o contrato fica com o número do orçamento (ORC-00376 → contrato 376) e o próximo orçamento recebe o número seguinte. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Use {"{{contrato.numero}}"} no texto do modelo.
+          Orçamento e contrato têm numerações separadas: o contrato continua a sequência dos contratos antigos e não precisa ter o número do orçamento. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Use {"{{contrato.numero}}"} no texto do modelo.
         </p>
       </CardContent>
     </Card>
@@ -481,7 +493,7 @@ function MergeFieldHelp({ fields, onInsert }: { fields: MergeField[]; onInsert: 
 
 /**
  * Geração do contrato: escolhe cliente/projeto, puxa o orçamento do Promob,
- * mostra o texto já substituído e só então gera o PDF.
+ * abre o texto já substituído no editor para corrigir e só então gera o PDF.
  */
 function ContractDialog({
   template,
@@ -546,12 +558,16 @@ function ContractDialog({
 
   const doPreview = useMutation({
     mutationFn: () => apiPost<{ data: ContractPreview }>(`/templates/${template.id}/contract/preview`, payload),
-    onSuccess: (r) => setPreview(r.data),
+    onSuccess: (r) => {
+      setPreview(r.data);
+      setEditing(true);
+    },
     onError: (e) => toast.error(errorMessage(e, "Falha ao montar a prévia")),
   });
 
+  const [editing, setEditing] = useState(false);
   const doGenerate = useMutation({
-    mutationFn: () => apiPost<{ data: { id: string; fileName: string; missing: string[] } }>(`/templates/${template.id}/contract`, payload),
+    mutationFn: (doc?: DocBlock[]) => apiPost<{ data: { id: string; fileName: string; missing: string[] } }>(`/templates/${template.id}/contract`, { ...payload, doc: doc ?? null }),
     onSuccess: (r) => {
       toast.success(r.data.missing.length ? `Contrato gerado — ${r.data.missing.length} campo(s) em branco` : "Contrato gerado");
       onDone();
@@ -684,19 +700,32 @@ function ContractDialog({
               <span className="font-medium text-foreground">{preview.meta.total != null ? brl(preview.meta.total) : "—"}</span>{" "}
               ({preview.meta.totalSource === "PROMOB" ? "do Promob" : preview.meta.totalSource === "MANUAL" ? "informado manualmente" : "não definido"})
             </p>
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-muted/40 p-3">
-              <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed">{preview.text}</pre>
-            </div>
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              <FileText className="mr-2 h-4 w-4" /> Voltar ao editor
+            </Button>
           </div>
+        )}
+        {preview && editing && (
+          <ContractEditor
+            title={preview.title}
+            html={preview.html}
+            confirmLabel="Gerar PDF"
+            pending={doGenerate.isPending}
+            onConfirm={(doc) => doGenerate.mutate(doc)}
+            onClose={(html) => {
+              setPreview({ ...preview, html });
+              setEditing(false);
+            }}
+          />
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button variant="outline" disabled={!form.clientId || doPreview.isPending} onClick={() => doPreview.mutate()}>
             {doPreview.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-            Ver prévia
+            Abrir no editor
           </Button>
-          <Button disabled={!form.clientId || doGenerate.isPending} onClick={() => doGenerate.mutate()}>
+          <Button disabled={!form.clientId || doGenerate.isPending} onClick={() => doGenerate.mutate(undefined)}>
             {doGenerate.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
             Gerar PDF
           </Button>

@@ -78,8 +78,9 @@ type Quote = {
   futureReleaseDate?: string | null;
 };
 type FinanceEntry = { id: string; type: "RECEITA" | "DESPESA"; category: string; amount: number; dueDate: string; status: string; description: string | null };
-type PlannedEntry = { type: "RECEITA" | "DESPESA"; category: string; amount: number; dueDay: string; description: string; follows?: number };
-type FinanceAdjust = { adjustments: { index: number; dueDay?: string; amount?: number }[]; rows: number };
+type PlannedEntry = { type: "RECEITA" | "DESPESA"; category: string; amount: number; dueDay: string; description: string; follows?: number; commission?: number };
+type CommissionPayload = { userId: string | null; referrerId: string | null; name: string; role: string; percent: number };
+type FinanceAdjust = { adjustments: { index: number; dueDay?: string; amount?: number }[]; rows: number; commissions?: CommissionPayload[] };
 // vencimento é data de calendário (meia-noite UTC): mostra o dia sem converter fuso
 const dayBR = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 
@@ -954,7 +955,13 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
       }
       if (action === "sent") return (await apiPatch<{ message: string }>(`${base}/status`, { status: "SENT" })).message;
       if (action === "accepted") {
-        const r = await apiPatch<{ message: string }>(`${base}/status`, { status: "APPROVED", generateFinance: withFinance, ...(withFinance && acceptAdjust.current?.adjustments.length ? { financeAdjustments: acceptAdjust.current.adjustments, financeRows: acceptAdjust.current.rows } : {}) });
+        const adj = acceptAdjust.current;
+        const r = await apiPatch<{ message: string }>(`${base}/status`, {
+          status: "APPROVED",
+          generateFinance: withFinance,
+          ...(withFinance && adj && (adj.adjustments.length || adj.commissions) ? { financeAdjustments: adj.adjustments, financeRows: adj.rows } : {}),
+          ...(adj?.commissions ? { commissions: adj.commissions } : {}),
+        });
         setAccepting(false);
         return r.message;
       }
@@ -1059,7 +1066,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
         </Dialog>
       )}
       {accepting && (
-        <AcceptDialog quoteId={quote.id} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={(adjust) => { acceptAdjust.current = adjust; run.mutate("accepted"); }} onClose={() => setAccepting(false)} />
+        <AcceptDialog quoteId={quote.id} commissions={quote.commissions} total={quote.total} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={(adjust) => { acceptAdjust.current = adjust; run.mutate("accepted"); }} onClose={() => setAccepting(false)} />
       )}
 
       <Dialog open={deciding !== null} onOpenChange={(o) => !o && setDeciding(null)}>
@@ -1080,9 +1087,28 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
 const COMMISSION_CATEGORIES = ["Comissão de venda", "Reserva técnica"];
 const parseMoney = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
 
-export function AcceptDialog(props: { quoteId: string; withFinance: boolean; setWithFinance: (v: boolean) => void; pending: boolean; onConfirm: (adjust: FinanceAdjust) => void; onClose: () => void }) {
+export function AcceptDialog(props: { quoteId: string; commissions: Quote["commissions"]; total: number; withFinance: boolean; setWithFinance: (v: boolean) => void; pending: boolean; onConfirm: (adjust: FinanceAdjust) => void; onClose: () => void }) {
   const plan = useQuery({ queryKey: ["quote-finance-preview", props.quoteId], queryFn: () => apiGet<{ data: PlannedEntry[] }>(`/commercial/quotes/${props.quoteId}/finance-preview`), staleTime: 0 });
-  const rows = plan.data?.data ?? [];
+  // % de cada comissão, que dá para acertar aqui antes de lançar
+  const [percents, setPercents] = useState<Record<number, string>>({});
+  const percentOf = (k: number) => (percents[k] !== undefined ? parse(percents[k]) : props.commissions[k].percent);
+  const commissionsChanged = props.commissions.some((c, k) => percentOf(k) !== c.percent);
+  const rows = useMemo(() => {
+    const planned = plan.data?.data ?? [];
+    if (!commissionsChanged) return planned;
+    // comissão com % novo: as fatias mudam na mesma proporção (a última fecha a soma)
+    return planned.flatMap((r) => {
+      if (r.commission === undefined) return [r];
+      const c = props.commissions[r.commission];
+      const target = Math.round(props.total * percentOf(r.commission)) / 100;
+      const own = planned.filter((x) => x.commission === r.commission);
+      const isLast = own[own.length - 1] === r;
+      const before = own.slice(0, own.indexOf(r)).reduce((s, x) => s + Math.round((x.amount * target * 100) / (c.amount || 1)) / 100, 0);
+      const amount = isLast ? Math.round((target - before) * 100) / 100 : Math.round((r.amount * target * 100) / (c.amount || 1)) / 100;
+      return amount > 0 ? [{ ...r, amount, description: r.description.replace(/\([\d,]+%\)/, `(${String(percentOf(r.commission)).replace(".", ",")}%)`) }] : [];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan.data, percents, commissionsChanged]);
   // o que a pessoa mudou: data de qualquer linha, valor só de comissão
   const [days, setDays] = useState<Record<number, string>>({});
   const [amounts, setAmounts] = useState<Record<number, string>>({});
@@ -1096,7 +1122,14 @@ export function AcceptDialog(props: { quoteId: string; withFinance: boolean; set
     const adjustments = rows
       .map((r, index) => ({ index, ...(dayOf(index) !== r.dueDay ? { dueDay: dayOf(index) } : {}), ...(amounts[index] !== undefined && amountOf(index) !== r.amount ? { amount: amountOf(index) } : {}) }))
       .filter((a) => a.dueDay !== undefined || a.amount !== undefined);
-    props.onConfirm({ adjustments, rows: rows.length });
+    if (!commissionsChanged) return props.onConfirm({ adjustments, rows: rows.length });
+    // comissões acertadas: o sistema refaz as linhas de comissão; vão só os ajustes de parcelas e taxas
+    const head = rows.filter((r) => r.commission === undefined).length;
+    props.onConfirm({
+      adjustments: adjustments.filter((a) => a.index < head),
+      rows: head,
+      commissions: props.commissions.map((c, k) => ({ userId: c.userId ?? null, referrerId: c.referrerId ?? null, name: c.name, role: c.role, percent: percentOf(k) })),
+    });
   };
   return (
     <Dialog open onOpenChange={(o) => !o && props.onClose()}>
@@ -1106,6 +1139,21 @@ export function AcceptDialog(props: { quoteId: string; withFinance: boolean; set
           <input type="checkbox" checked={props.withFinance} onChange={(e) => props.setWithFinance(e.target.checked)} />
           Lançar parcelas, taxas e comissões no financeiro
         </label>
+        {props.commissions.length > 0 && (
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">Comissões deste contrato</p>
+            {props.commissions.map((c, k) => (
+              <div key={k} className="grid grid-cols-[minmax(0,1fr)_72px_96px] items-center gap-2 text-sm">
+                <span className="truncate">{c.name}</span>
+                <span className="flex items-center gap-1">
+                  <Input inputMode="decimal" aria-label={`% de ${c.name}`} className="h-8 text-right" value={percents[k] ?? String(c.percent).replace(".", ",")} onChange={(e) => setPercents((p) => ({ ...p, [k]: e.target.value }))} />%
+                </span>
+                <span className="text-right tabular-nums">{formatCurrency((props.total * percentOf(k)) / 100)}</span>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">Mudar o % não muda o preço do cliente; as comissões a pagar saem com os valores novos.</p>
+          </div>
+        )}
         {props.withFinance && (plan.isLoading ? <p className="text-sm text-muted-foreground">Calculando…</p> : !rows.length ? <p className="text-sm text-muted-foreground">Nada a lançar.</p> : (
           <>
             <p className="text-xs text-muted-foreground">Ajuste o vencimento de cada linha e, se precisar, o valor das comissões. A comissão é repartida conforme a loja recebe.</p>
@@ -1119,7 +1167,7 @@ export function AcceptDialog(props: { quoteId: string; withFinance: boolean; set
                     {commission ? (
                       <span className="flex items-center gap-1 text-destructive">
                         - R$
-                        <Input inputMode="decimal" aria-label={`Valor de ${r.description}`} className="h-8 w-24 text-right" value={amounts[i] ?? r.amount.toFixed(2).replace(".", ",")} onChange={(e) => setAmounts((a) => ({ ...a, [i]: e.target.value }))} />
+                        <Input inputMode="decimal" disabled={commissionsChanged} aria-label={`Valor de ${r.description}`} className="h-8 w-24 text-right" value={amounts[i] ?? r.amount.toFixed(2).replace(".", ",")} onChange={(e) => setAmounts((a) => ({ ...a, [i]: e.target.value }))} />
                       </span>
                     ) : (
                       <span className={`w-32 shrink-0 text-right font-medium ${r.type === "RECEITA" ? "text-success" : "text-destructive"}`}>{r.type === "RECEITA" ? "+" : "-"} {formatCurrency(r.amount)}</span>

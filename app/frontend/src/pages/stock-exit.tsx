@@ -30,11 +30,11 @@ export function StockExitPage() {
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
-  if (!can("stock.exit")) {
+  if (!can("stock.exit.supplies")) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 text-center">
         <p className="text-lg font-medium">Sem permissão</p>
-        <p className="text-sm text-muted-foreground">Você não tem permissão para registrar saídas.</p>
+        <p className="text-sm text-muted-foreground">Você não tem a permissão "Retirar insumos do estoque". Peça ao administrador para liberar no seu perfil.</p>
       </div>
     );
   }

@@ -146,7 +146,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Almoxarifado",
     items: [
       { label: "Entrada de Materiais", to: "/entrada", icon: ArrowDownToLine, permission: "stock.entry" },
-      { label: "Saída de Materiais", to: "/saida", icon: ArrowUpFromLine, permission: "stock.exit" },
+      { label: "Saída de Materiais", to: "/saida", icon: ArrowUpFromLine, permission: "stock.exit.supplies" },
       { label: "Movimentações", to: "/movimentacoes", icon: ArrowLeftRight, permission: "stock.movements" },
       { label: "Produtos", to: "/produtos", icon: Package, permission: "products.read" },
       { label: "Categorias", to: "/categorias", icon: Tags, permission: "categories.read" },

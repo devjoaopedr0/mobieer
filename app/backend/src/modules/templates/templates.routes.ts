@@ -18,7 +18,8 @@ import {
   contractPdf,
 } from "./contract.service";
 import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder, mergeOrders, quotesForProjects } from "./contract-order";
-import { contractNumberFor, nextContractNumber, peekContractNumber, renumberOldQuotes, setNextContractNumber } from "./contract-number";
+import { contractDocPdf, contractHtml, docBlocksSchema, docHasBlanks } from "./contract-doc";
+import { contractNumberFor, nextContractNumber, nextQuoteSequence, peekContractNumber, renumberOldQuotes, setNextContractNumber, setNextQuoteNumber } from "./contract-number";
 import { pipeToResponse } from "../../utils/stream";
 
 const router = Router();
@@ -255,20 +256,23 @@ router.post(
 // Modelo de contrato (corpo de texto com {{marcadores}}) + dados do cliente +
 // valores do orçamento do Promob -> PDF anexado ao cliente/projeto.
 
-// GET/PUT /api/templates/contract-numbering  -> próximo número de contrato
+// GET/PUT /api/templates/contract-numbering  -> próximo número de contrato e de orçamento (sequências separadas)
+const numbering = async () => ({ next: await nextContractNumber(), quoteNext: await nextQuoteSequence() });
 router.get(
   "/contract-numbering",
   requirePermission("documents.read"),
-  asyncHandler(async (_req, res) => ok(res, { next: await nextContractNumber() }))
+  asyncHandler(async (_req, res) => ok(res, await numbering()))
 );
 router.put(
   "/contract-numbering",
   requirePermission("templates.manage"),
   asyncHandler(async (req, res) => {
-    const { next } = z.object({ next: z.coerce.number().int().min(1).max(99_999_999) }).parse(req.body);
-    await setNextContractNumber(next);
+    const n = z.coerce.number().int().min(1).max(99_999_999);
+    const { next, quoteNext } = z.object({ next: n.optional(), quoteNext: n.optional() }).parse(req.body);
+    if (next !== undefined) await setNextContractNumber(next);
+    if (quoteNext !== undefined) await setNextQuoteNumber(quoteNext);
     // nunca volta para um número já usado
-    return ok(res, { next: await nextContractNumber() }, "Numeração dos contratos salva");
+    return ok(res, await numbering(), "Numeração salva");
   })
 );
 
@@ -281,7 +285,7 @@ router.post(
     const changes = await renumberOldQuotes(req.user!.organizationId, dryRun);
     if (!dryRun && changes.length) await prisma.auditLog.create({ data: { userId: req.user!.id, action: "QUOTES_RENUMBERED", entity: "CommercialQuote", entityId: "-", details: { changes } } });
     const message = !changes.length ? "Nenhum orçamento antigo fora da sequência" : dryRun ? `${changes.length} orçamento(s) entram na sequência` : `${changes.length} orçamento(s) renumerados`;
-    return ok(res, { changes, next: await nextContractNumber() }, message);
+    return ok(res, { changes, ...(await numbering()) }, message);
   })
 );
 
@@ -309,6 +313,8 @@ const contractInput = z.object({
   totalOverride: z.coerce.number().min(0).optional().nullable(),
   title: z.string().trim().max(200).optional().nullable(),
   visibleToClient: z.boolean().optional(),
+  /** contrato corrigido no editor: o PDF sai deste documento, não do modelo */
+  doc: docBlocksSchema.optional().nullable(),
 });
 
 /** Orçamento do contrato, conferindo que é do mesmo cliente. */
@@ -353,7 +359,7 @@ router.post(
     const input = contractInput.parse(req.body);
     const order = await orderFor(input, req.user!.organizationId);
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
-    const numero = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId, order?.number) : "";
+    const numero = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId) : "";
     ctx.values["contrato.numero"] = numero;
     const rendered = renderTemplate(t.bodyHtml!, ctx.values);
     // na prévia em texto, o quadro vira um resumo
@@ -362,7 +368,8 @@ router.post(
           .replace(BLOCK.pedido, order.items.map((i) => `${i.code} — ${i.room} — ${i.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
           .replace(BLOCK.pagamento, order.installments.map((p) => `${p.label}: ${p.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
       : rendered.text;
-    return ok(res, { title: numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || t.name, text, missing: rendered.missing, meta: ctx.meta, values: ctx.values });
+    // `html`: o contrato inteiro, com os quadros como tabelas, para corrigir no editor
+    return ok(res, { title: numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || t.name, text, html: contractHtml(rendered.text, order), missing: rendered.missing, meta: ctx.meta, values: ctx.values });
   })
 );
 
@@ -376,22 +383,25 @@ router.post(
     const order = await orderFor(input, req.user!.organizationId);
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
     // contrato da loja: número na sequência dos contratos antigos
-    const numero = t.type === "CONTRATO" ? (await contractNumberFor(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId, order?.number)).number : null;
+    const numero = t.type === "CONTRATO" ? (await contractNumberFor(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId)).number : null;
     ctx.values["contrato.numero"] = numero ?? "";
-    const { text, missing } = renderTemplate(t.bodyHtml!, ctx.values);
+    const rendered = renderTemplate(t.bodyHtml!, ctx.values);
+    const { text } = rendered;
+    // editado: o que faltava pode ter sido preenchido à mão; sobra o que ainda tem "____"
+    const missing = input.doc ? (docHasBlanks(input.doc) ? rendered.missing : []) : rendered.missing;
 
     const title = numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || `${t.name} — ${ctx.meta.clientName}`;
     const footer = `Gerado pelo sistema MOBIEER em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })}${
       ctx.meta.promobImportId ? ` • orçamento Promob ${ctx.values["promob.arquivo"]}` : ""
     }`;
-    const pdf = await contractPdf({
-      title: numero ? contractHeading(numero) : title,
-      subtitle: numero ? ctx.meta.clientName : undefined,
-      body: text,
-      footer,
-      contacts: CONTRACT_CONTACTS,
-      blocks: order ? { [BLOCK.pedido]: (doc) => drawOrderBlock(doc, order), [BLOCK.pagamento]: (doc) => drawPaymentBlock(doc, order) } : undefined,
-    });
+    const heading = { title: numero ? contractHeading(numero) : title, subtitle: numero ? ctx.meta.clientName : undefined, footer, contacts: CONTRACT_CONTACTS };
+    const pdf = input.doc
+      ? await contractDocPdf({ ...heading, blocks: input.doc })
+      : await contractPdf({
+          ...heading,
+          body: text,
+          blocks: order ? { [BLOCK.pedido]: (doc) => drawOrderBlock(doc, order), [BLOCK.pagamento]: (doc) => drawPaymentBlock(doc, order) } : undefined,
+        });
 
     const fileName = `contrato-${(numero || ctx.meta.projectCode || ctx.meta.clientName).replace(/[^\w-]+/g, "-").toLowerCase()}.pdf`;
     const key = buildStorageKey(`clients/${ctx.meta.clientId}`, fileName);
@@ -425,7 +435,7 @@ router.post(
         action: "CONTRACT_GENERATED",
         entity: "ProjectDocument",
         entityId: doc.id,
-        details: { templateId: t.id, clientId: ctx.meta.clientId, quoteId: order?.quoteId ?? null, total: ctx.meta.total, totalSource: ctx.meta.totalSource },
+        details: { templateId: t.id, clientId: ctx.meta.clientId, quoteId: order?.quoteId ?? null, total: ctx.meta.total, totalSource: ctx.meta.totalSource, edited: !!input.doc },
       },
     });
 
