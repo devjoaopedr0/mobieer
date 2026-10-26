@@ -944,6 +944,14 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
   const [note, setNote] = useState("");
   const released = quote.approval.status === "NOT_REQUIRED" || quote.approval.status === "APPROVED";
   const manage = can("commercial.quotes.manage");
+  // liberar e registrar/desfazer o aceite: só o perfil "Liberação de orçamento"
+  const canAccept = can("commercial.quotes.accept");
+  const approvers = useQuery({
+    queryKey: ["quotes", "approvers"],
+    queryFn: () => apiGet<{ data: { id: string; name: string }[] }>("/commercial/quotes/approvers").then((r) => r.data),
+    staleTime: 5 * 60_000,
+  });
+  const approverNames = approvers.data?.map((u) => u.name).join(", ") || "o responsável pela liberação";
 
   const run = useMutation({
     mutationFn: async (action: "pdf" | "sent" | "accepted" | "rejected" | "version" | "delete" | "decide" | "cancelContract" | "cancelQuote" | "reactivate" | "competence") => {
@@ -1015,7 +1023,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
           </div>
         )}
         {quote.approval.status === "PENDING" && !can("commercial.quotes.approve") && (
-          <p className="text-xs text-muted-foreground">Pontuação abaixo do mínimo: a gestão foi avisada para liberar. Até lá, não sai PDF nem envio.</p>
+          <p className="text-xs text-muted-foreground">Aguardando liberação de {approverNames}: a pontuação ficou abaixo do mínimo. Até lá, não sai PDF nem envio.</p>
         )}
         {manage && (
           <>
@@ -1025,7 +1033,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
             )}
             {!["APPROVED", "REJECTED", "CANCELLED"].includes(quote.status) && (
               <div className="grid grid-cols-2 gap-2">
-                <Button size="sm" variant="outline" className="text-success" disabled={!released || run.isPending} onClick={() => setAccepting(true)}>Cliente aceitou</Button>
+                <Button size="sm" variant="outline" className="text-success" disabled={!released || !canAccept || run.isPending} title={canAccept ? undefined : `Só ${approverNames} registra o aceite`} onClick={() => setAccepting(true)}>Cliente aceitou</Button>
                 <Button size="sm" variant="outline" className="text-destructive" disabled={run.isPending} onClick={() => run.mutate("rejected")}>Cliente recusou</Button>
               </div>
             )}
@@ -1047,7 +1055,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
             {quote.status === "APPROVED" && can("commercial.manage") && (
               <Button size="sm" variant="outline" onClick={() => setCompetence((quote.competenceDate ?? new Date().toISOString()).slice(0, 10))}>Transferir competência</Button>
             )}
-            {quote.status === "APPROVED" && (
+            {quote.status === "APPROVED" && canAccept && (
               <Button size="sm" variant="ghost" className="text-destructive" disabled={run.isPending} onClick={() => run.mutate("cancelContract")}>Cancelar contrato</Button>
             )}
             {/* orçamento que não vai sair: fica no sistema (com o número) e sai das possibilidades de venda */}
