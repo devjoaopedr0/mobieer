@@ -14,6 +14,7 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { notifyUser, notifyUsersWithPermission } from "../../lib/notify";
+import { whereHasPermission } from "../../lib/user-roles";
 import { storeGeneratedPdf } from "../docgen/docgen.service";
 import { brl } from "../templates/contract.service";
 import { PAYMENT_METHODS, QuoteRuleError, computeQuote, normalizePricing, type PricingConfig } from "./quote.rules";
@@ -146,6 +147,20 @@ router.get(
   "/config",
   requirePermission("commercial.read"),
   asyncHandler(async (_req, res) => ok(res, await loadPricing()))
+);
+
+// GET /api/commercial/quotes/approvers — quem pode liberar e aceitar orçamento
+router.get(
+  "/approvers",
+  requirePermission("commercial.read"),
+  asyncHandler(async (req, res) => {
+    const users = await prisma.user.findMany({
+      where: { organizationId: req.user!.organizationId, status: "ACTIVE", ...whereHasPermission("commercial.quotes.approve") },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    return ok(res, users);
+  })
 );
 
 const planSchema = z.object({
@@ -661,6 +676,10 @@ router.patch(
     if (status === "SENT" || status === "APPROVED") assertReleased(cur);
     const accepting = status === "APPROVED" && cur.status !== "APPROVED";
     const leaving = cur.status === "APPROVED" && status !== "APPROVED";
+    // Registrar ou desfazer o aceite do cliente é só de quem tem o perfil de liberação.
+    if ((accepting || leaving) && !req.user!.permissions.includes("commercial.quotes.accept")) {
+      throw new ForbiddenError("Só o responsável pela liberação pode registrar ou desfazer o aceite do orçamento");
+    }
     if (leaving && status === "CANCELLED" && !reason) throw new BadRequestError("Diga o motivo do cancelamento do contrato");
     const fixing = accepting && commissions !== undefined;
     if (fixing) await checkRefs(req.user!.organizationId, { clientId: cur.clientId, commissions });

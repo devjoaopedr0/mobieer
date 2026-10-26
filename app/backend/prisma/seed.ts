@@ -89,6 +89,7 @@ const PERMISSIONS = [
   { code: "commercial.orders.manage", label: "Gerenciar pedidos e vendas", module: "Comercial" },
   { code: "commercial.commissions.manage", label: "Gerenciar comissões", module: "Comercial" },
   { code: "commercial.quotes.approve", label: "Liberar orçamento com pontuação abaixo do mínimo", module: "Comercial" },
+  { code: "commercial.quotes.accept", label: "Registrar e desfazer o aceite do orçamento pelo cliente", module: "Comercial" },
   { code: "documents.read", label: "Ver documentos de projeto", module: "Documentos" },
   { code: "documents.manage", label: "Enviar e gerenciar documentos", module: "Documentos" },
   { code: "templates.manage", label: "Editar modelos de documentos (cláusulas do contrato) e numeração", module: "Documentos" },
@@ -139,7 +140,8 @@ const ROLE_DEFS: { name: Role["name"]; label: string; description: string; perms
     name: "ADMIN",
     label: "Administrador",
     description: "Acesso total ao sistema",
-    perms: ALL_PERMISSIONS,
+    // liberar e aceitar orçamento ficam só no perfil "Liberação de orçamento"
+    perms: ALL_PERMISSIONS.filter((c) => c !== "commercial.quotes.approve" && c !== "commercial.quotes.accept"),
   },
   {
     name: "MANAGER",
@@ -191,7 +193,7 @@ const ROLE_DEFS: { name: Role["name"]; label: string; description: string; perms
       "users.read",
       "notifications.read",
       "organization.read", "organization.read.all", "organization.manage", "organization.tasks.create", "organization.tasks.edit", "organization.tasks.edit.all", "organization.tasks.comment",
-      "commercial.read", "commercial.read.all", "commercial.manage", "commercial.leads.manage", "commercial.quotes.manage", "commercial.quotes.approve", "commercial.orders.manage", "commercial.commissions.manage",
+      "commercial.read", "commercial.read.all", "commercial.manage", "commercial.leads.manage", "commercial.quotes.manage", "commercial.orders.manage", "commercial.commissions.manage",
       "documents.read", "documents.manage",
       "hr.read", "hr.vacations.approve", "hr.timeclock.manage",
       "finance.read", "finance.manage", "finance.documents.read",
@@ -321,6 +323,12 @@ const ROLE_DEFS: { name: Role["name"]; label: string; description: string; perms
     perms: ["contractors.self", "chat.use", "notifications.read", "parts.read", "parts.create"],
   },
   {
+    name: "LIBERACAO_ORCAMENTO",
+    label: "Liberação de orçamento",
+    description: "Único perfil que libera orçamento abaixo do mínimo e registra o aceite do cliente",
+    perms: ["commercial.quotes.approve", "commercial.quotes.accept"],
+  },
+  {
     name: "COMERCIAL",
     label: "Comercial",
     description: "Gestão comercial: funil de toda a equipe, metas, contratos",
@@ -329,7 +337,7 @@ const ROLE_DEFS: { name: Role["name"]; label: string; description: string; perms
       "organization.read", "organization.tasks.create", "organization.tasks.edit", "organization.tasks.comment",
       "clients.read.all", "timeline.read", "timeline.edit",
       "commercial.read", "commercial.read.all", "commercial.manage", "commercial.leads.manage",
-      "commercial.quotes.manage", "commercial.quotes.approve", "commercial.orders.manage", "commercial.commissions.manage", "commercial.goals.manage",
+      "commercial.quotes.manage", "commercial.orders.manage", "commercial.commissions.manage", "commercial.goals.manage",
       "documents.read", "documents.manage", "finance.read",
       "agenda.read", "agenda.read.all", "agenda.create", "agenda.edit", "agenda.cancel", "reports.read",
     ],
