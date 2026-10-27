@@ -229,7 +229,7 @@ export async function reviewTask(opts: {
     contractor?.userId,
     opts.decision === "APPROVED" ? "Cômodo aprovado" : "Cômodo precisa de ajuste",
     opts.decision === "APPROVED"
-      ? `${room} (${t.project.code}) aprovado.${bonus.amount > 0 ? ` Bônus de R$ ${bonus.amount.toFixed(2).replace(".", ",")} por superar sua meta.` : ""}`
+      ? `${room} (${t.project.code}) aprovado.` // bônus fica só com a gestão, por enquanto
       : `${room} (${t.project.code}) não foi aprovado.${opts.notes ? ` Observação: ${opts.notes}` : ""}`
   );
 

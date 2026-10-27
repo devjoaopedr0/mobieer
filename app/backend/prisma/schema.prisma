@@ -167,6 +167,7 @@ model User {
   @@index([roleId])
   @@index([organizationId])
   productionPlanTasks ProductionPlanTask[] @relation("ProductionPlanTaskCreator")
+  portalMessages PortalMessage[] @relation("PortalMessageAuthor")
 }
 
 enum EnterpriseStatus {
@@ -291,6 +292,7 @@ model Organization {
 
   @@index([enterpriseId])
   productionPlanTasks ProductionPlanTask[]
+  portalMessages PortalMessage[]
 }
 
 model Role {
@@ -1116,6 +1118,7 @@ model Client {
   @@index([organizationId, status, name])
   @@index([sellerId])
   @@index([attendantId])
+  portalMessages PortalMessage[]
 }
 
 model Project {
@@ -5021,4 +5024,39 @@ model ProductionRework {
 
   @@index([organizationId, createdAt])
   @@index([projectId])
+}
+
+// ============================================================
+// Conversa do cliente no portal: o cliente fala com a equipe responsável
+// e pode perguntar ao assistente virtual (IA), que responde só com os
+// dados do próprio cliente. Uma conversa por cliente.
+// ============================================================
+
+enum PortalMessageAuthor {
+  CLIENT
+  STAFF
+  AI
+}
+
+model PortalMessage {
+  id              String              @id @default(cuid())
+  organizationId  String
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorKind      PortalMessageAuthor
+  /// conta do portal que escreveu (quando authorKind = CLIENT)
+  clientAccountId String?
+  /// pessoa da equipe que respondeu (quando authorKind = STAFF)
+  userId          String?
+  user            User?               @relation("PortalMessageAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  /// mensagem do cliente endereçada à equipe (sem resposta da IA)
+  toTeam          Boolean             @default(false)
+  body            String              @db.Text
+  readByStaffAt   DateTime?
+  readByClientAt  DateTime?
+  createdAt       DateTime            @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([organizationId, createdAt])
 }
