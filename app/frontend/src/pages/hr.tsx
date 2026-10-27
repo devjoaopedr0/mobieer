@@ -18,7 +18,7 @@ import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm } from "
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage, localIsoDate } from "@/lib/utils";
 import { TeamHoursCard } from "@/components/team-hours";
-import { EmployeeMaintenanceDialog } from "@/components/hr-employee-maintenance";
+import { EmployeeManagementDialog } from "@/components/hr-employee-management";
 import type { Employee, EmployeeDocument, EmployeeDocumentType, HourBank, HrAlert, TimeMirror, User, VacationRequest } from "@/types";
 
 type PontoPreview = {
@@ -96,8 +96,8 @@ export function HrPage() {
   const [tab, setTab] = useState("employees");
   const [dialog, setDialog] = useState<"employee" | "period" | "request" | "manualPunch" | "adjust" | "docUpload" | null>(null);
   const [periodEmployeeId, setPeriodEmployeeId] = useState<string>("");
-  // manutenção do cadastro (editar dados, afastar, desligar/reativar)
-  const [maintenanceId, setMaintenanceId] = useState<string | null>(null);
+  // gestão do colaborador (editar dados, afastar, desligar/reativar)
+  const [managementId, setManagementId] = useState<string | null>(null);
   const [empForm, setEmpForm] = useState({ fullName: "", document: "", role: "", sector: "", phone: "", address: "", admittedAt: "", weeklyHours: "44", userId: "" });
 
   // Documentos do colaborador (contrato, rescisão, férias, ferramentas...)
@@ -354,8 +354,8 @@ export function HrPage() {
                   )}
                   <Badge variant={EMP_STATUS_VARIANT[e.status] ?? "secondary"}>{EMP_STATUS[e.status] ?? e.status}</Badge>
                   {canEmployees && (
-                    <Button size="sm" variant="outline" onClick={() => setMaintenanceId(e.id)}>
-                      <UserCog className="mr-2 h-4 w-4" /> Manutenção
+                    <Button size="sm" variant="outline" onClick={() => setManagementId(e.id)}>
+                      <UserCog className="mr-2 h-4 w-4" /> Gerenciar
                     </Button>
                   )}
                   <Button
@@ -715,8 +715,8 @@ export function HrPage() {
       </Tabs>
 
       {/* ---- Dialogs ---- */}
-      {maintenanceId && (
-        <EmployeeMaintenanceDialog employeeId={maintenanceId} users={users.data?.data ?? []} onClose={() => setMaintenanceId(null)} />
+      {managementId && (
+        <EmployeeManagementDialog employeeId={managementId} users={users.data?.data ?? []} onClose={() => setManagementId(null)} />
       )}
 
       <Dialog open={dialog === "employee"} onOpenChange={(v) => !v && setDialog(null)}>

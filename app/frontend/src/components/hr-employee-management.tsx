@@ -35,11 +35,11 @@ const dateField = (v: string | null) => (v ? v.slice(0, 10) : "");
 const noonUtc = (d: string) => `${d}T12:00:00.000Z`;
 
 /**
- * Manutenção do cadastro do colaborador: corrige os dados e muda a situação
+ * Gestão do colaborador: corrige os dados e muda a situação
  * (ativo, afastado ou desligado). Desligar guarda todo o histórico — o ponto
  * só passa a contar até a data do desligamento.
  */
-export function EmployeeMaintenanceDialog({ employeeId, users, onClose }: { employeeId: string; users: User[]; onClose: () => void }) {
+export function EmployeeManagementDialog({ employeeId, users, onClose }: { employeeId: string; users: User[]; onClose: () => void }) {
   const qc = useQueryClient();
   const detail = useQuery({
     queryKey: ["hr", "employee", employeeId],
@@ -118,7 +118,7 @@ export function EmployeeMaintenanceDialog({ employeeId, users, onClose }: { empl
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Manutenção — {e ? `${e.fullName} · ${e.registration}` : "colaborador"}</DialogTitle>
+          <DialogTitle>Gestão do colaborador — {e ? `${e.fullName} · ${e.registration}` : "colaborador"}</DialogTitle>
         </DialogHeader>
         {!e ? (
           <div className="flex justify-center py-8">
