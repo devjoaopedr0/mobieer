@@ -200,6 +200,12 @@ router.patch(
   asyncHandler(async (req, res) => {
     const before = await getEmployee(req.params.id, req.user!.organizationId);
     const input = employeeSchema.partial().extend({ deactivateUser: z.boolean().optional() }).parse(req.body);
+    if (input.userId && input.userId !== before.userId) {
+      const linked = await prisma.user.findFirst({ where: { id: input.userId, organizationId: req.user!.organizationId } });
+      if (!linked) throw new BadRequestError("Usuário inválido para vínculo");
+      const taken = await prisma.employee.findFirst({ where: { userId: input.userId, id: { not: before.id } }, select: { fullName: true } });
+      if (taken) throw new BadRequestError(`Este usuário já está vinculado a ${taken.fullName}`);
+    }
     const e = await prisma.employee.update({
       where: { id: req.params.id },
       data: {

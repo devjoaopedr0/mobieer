@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CalendarClock, Clock, Download, FileText, Loader2, Paperclip, Plus, Trash2, Upload, UserPlus } from "lucide-react";
+import { AlertTriangle, CalendarClock, Clock, Download, FileText, Loader2, Paperclip, Plus, Trash2, Upload, UserCog, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +18,7 @@ import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm } from "
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage, localIsoDate } from "@/lib/utils";
 import { TeamHoursCard } from "@/components/team-hours";
+import { EmployeeManagementDialog } from "@/components/hr-employee-management";
 import type { Employee, EmployeeDocument, EmployeeDocumentType, HourBank, HrAlert, TimeMirror, User, VacationRequest } from "@/types";
 
 type PontoPreview = {
@@ -70,6 +71,7 @@ const REQ_STATUS: Record<string, { label: string; variant: "secondary" | "outlin
   CANCELLED: { label: "Cancelada", variant: "danger" },
 };
 const EMP_STATUS: Record<string, string> = { ACTIVE: "Ativo", ON_LEAVE: "Afastado", TERMINATED: "Desligado" };
+const EMP_STATUS_VARIANT: Record<string, "secondary" | "warning" | "muted"> = { ACTIVE: "secondary", ON_LEAVE: "warning", TERMINATED: "muted" };
 
 const fmt = (v: string | null) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
 const daysBetween = (a: string, b: string) =>
@@ -94,6 +96,8 @@ export function HrPage() {
   const [tab, setTab] = useState("employees");
   const [dialog, setDialog] = useState<"employee" | "period" | "request" | "manualPunch" | "adjust" | "docUpload" | null>(null);
   const [periodEmployeeId, setPeriodEmployeeId] = useState<string>("");
+  // gestão do colaborador (editar dados, afastar, desligar/reativar)
+  const [managementId, setManagementId] = useState<string | null>(null);
   const [empForm, setEmpForm] = useState({ fullName: "", document: "", role: "", sector: "", phone: "", address: "", admittedAt: "", weeklyHours: "44", userId: "" });
 
   // Documentos do colaborador (contrato, rescisão, férias, ferramentas...)
@@ -296,7 +300,8 @@ export function HrPage() {
 
   if (employees.isLoading) return <PageSkeleton />;
 
-  const empList = employees.data?.data ?? [];
+  // desligados vão para o fim da lista, mas continuam aparecendo (histórico)
+  const empList = [...(employees.data?.data ?? [])].sort((a, b) => Number(a.status === "TERMINATED") - Number(b.status === "TERMINATED"));
   const vacList = vacations.data?.data ?? [];
   const alertList = alerts.data?.data ?? [];
 
@@ -331,7 +336,7 @@ export function HrPage() {
           ) : (
             <div className="space-y-2">
               {empList.map((e) => (
-                <div key={e.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+                <div key={e.id} className={`flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 ${e.status === "TERMINATED" ? "opacity-60" : ""}`}>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
                       {e.fullName} <span className="font-mono text-xs text-muted-foreground">· {e.registration}</span>
@@ -347,7 +352,12 @@ export function HrPage() {
                   ) : (
                     <span className="text-xs text-amber-600">sem período aquisitivo</span>
                   )}
-                  <Badge variant="secondary">{EMP_STATUS[e.status] ?? e.status}</Badge>
+                  <Badge variant={EMP_STATUS_VARIANT[e.status] ?? "secondary"}>{EMP_STATUS[e.status] ?? e.status}</Badge>
+                  {canEmployees && (
+                    <Button size="sm" variant="outline" onClick={() => setManagementId(e.id)}>
+                      <UserCog className="mr-2 h-4 w-4" /> Gerenciar
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -705,6 +715,10 @@ export function HrPage() {
       </Tabs>
 
       {/* ---- Dialogs ---- */}
+      {managementId && (
+        <EmployeeManagementDialog employeeId={managementId} users={users.data?.data ?? []} onClose={() => setManagementId(null)} />
+      )}
+
       <Dialog open={dialog === "employee"} onOpenChange={(v) => !v && setDialog(null)}>
         <DialogContent>
           <DialogHeader>
