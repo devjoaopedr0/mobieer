@@ -62,7 +62,7 @@ export const env = {
 
   mail: {
     driver: mailDriver as "console" | "resend",
-    from: process.env.MAIL_FROM || "MOBIEER <no-reply@mobieer.com.br>",
+    from: process.env.MAIL_FROM || "MOBIEER <no-reply@mobieerprojetos.com.br>",
     resendApiKey: process.env.RESEND_API_KEY || "",
   },
 
