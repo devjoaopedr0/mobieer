@@ -114,7 +114,7 @@ export function createApp() {
   app.use(
     cors({
       // domínio oficial fixo aqui também: se FRONTEND_URLS ficar desatualizado, o site não perde a API
-      origin: [...env.frontendUrls, "https://mobieerprojetos.com.br", "https://www.mobieerprojetos.com.br", "https://mobieer.vercel.app", "https://mobieer.com.br", "https://www.mobieer.com.br", /^http:\/\/localhost:\d+$/],
+      origin: [...env.frontendUrls, "https://mobieerprojetos.com.br", "https://www.mobieerprojetos.com.br", "https://mobieer.vercel.app", "https://mobieer.com.br", "https://www.mobieer.com.br", "https://mobieer-landing.contato-joaopedroprogram.workers.dev", /^http:\/\/localhost:\d+$/],
       credentials: true,
     })
   );
