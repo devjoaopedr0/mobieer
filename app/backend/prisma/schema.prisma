@@ -2768,6 +2768,8 @@ model ClientAccount {
   inviteExpiry      DateTime?
   resetToken        String?             @unique
   resetTokenExpiry  DateTime?
+  /// senha provisória enviada por e-mail: o portal pede a troca no primeiro acesso
+  mustChangePassword Boolean            @default(false)
   lastLogin         DateTime?
   createdById       String?
   createdBy         User?               @relation("ClientAccountInviter", fields: [createdById], references: [id], onDelete: SetNull)

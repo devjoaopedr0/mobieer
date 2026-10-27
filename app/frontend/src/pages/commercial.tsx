@@ -478,7 +478,7 @@ export function CommercialPage() {
             <div className="space-y-3 rounded-md border border-border p-3">
               <p className="text-sm font-medium">Cadastro do cliente</p>
               <p className="text-xs text-muted-foreground">
-                Confira e complete. Se ele se cadastrou pelo site, ao concluir o acesso dele passa do briefing para o portal completo.
+                Confira e complete. Ao concluir, o cliente recebe por e-mail o acesso ao portal: quem se cadastrou pelo site é avisado que o portal completo foi liberado; quem não tem acesso recebe o login (o e-mail) e uma senha provisória.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Nome"><Input value={convForm.name} onChange={(e) => setConvForm({ ...convForm, name: e.target.value })} /></Field>

@@ -72,6 +72,7 @@ type Account = {
   id: string;
   name: string;
   email: string;
+  mustChangePassword?: boolean;
   status: "INVITED" | "ACTIVE" | "DISABLED";
   lastLogin: string | null;
   inviteExpiry: string | null;
@@ -203,14 +204,19 @@ export function ProjectDetailPage() {
   });
 
   const sendInvite = useMutation({
-    mutationFn: () => apiPost(`/business/clients/${clientId}/accounts`, invite),
-    onSuccess: () => { toast.success("Convite enviado"); setInvite({ name: "", email: "" }); qc.invalidateQueries({ queryKey: ["client-accounts", clientId] }); },
+    mutationFn: () => apiPost<{ message?: string }>(`/business/clients/${clientId}/accounts`, invite),
+    onSuccess: (r) => { toast.success(r.message ?? "Acesso enviado"); setInvite({ name: "", email: "" }); qc.invalidateQueries({ queryKey: ["client-accounts", clientId] }); },
     onError: (e) => toast.error(errorMessage(e, "Falha ao convidar")),
   });
   const resendInvite = useMutation({
     mutationFn: (id: string) => apiPost(`/business/clients/${clientId}/accounts/${id}/resend`),
     onSuccess: () => toast.success("Convite reenviado"),
     onError: (e) => toast.error(errorMessage(e, "Falha ao reenviar")),
+  });
+  const newPassword = useMutation({
+    mutationFn: (id: string) => apiPost<{ message?: string }>(`/business/clients/${clientId}/accounts/${id}/new-password`),
+    onSuccess: (r) => { toast.success(r.message ?? "Nova senha enviada"); qc.invalidateQueries({ queryKey: ["client-accounts", clientId] }); },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao enviar nova senha")),
   });
   const setAccountStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: "ACTIVE" | "DISABLED" }) =>
@@ -444,9 +450,12 @@ export function ProjectDetailPage() {
                     </div>
                     <Button disabled={invite.name.length < 2 || !invite.email.includes("@") || sendInvite.isPending} onClick={() => sendInvite.mutate()}>
                       {sendInvite.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Convidar
+                      Criar acesso e enviar senha
                     </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    O cliente recebe por e-mail o endereço do portal, o login (o próprio e-mail) e uma senha provisória, que ele troca no primeiro acesso.
+                  </p>
 
                   {accounts.isLoading ? (
                     <PageSkeleton />
@@ -460,11 +469,17 @@ export function ProjectDetailPage() {
                             <p className="truncate text-sm font-medium">{a.name}</p>
                             <p className="truncate text-xs text-muted-foreground">
                               {a.email} · último acesso {fmtDate(a.lastLogin)}
+                              {a.mustChangePassword && " · ainda não trocou a senha provisória"}
                             </p>
                           </div>
                           <Badge variant="secondary">{ACCOUNT_LABEL[a.status]}</Badge>
-                          {a.status !== "ACTIVE" && (
+                          {a.status === "INVITED" && (
                             <Button size="sm" variant="outline" onClick={() => resendInvite.mutate(a.id)}>Reenviar convite</Button>
+                          )}
+                          {a.status !== "DISABLED" && (
+                            <Button size="sm" variant="outline" disabled={newPassword.isPending} onClick={() => { if (confirm(`Gerar uma nova senha provisória para ${a.email}? A senha atual deixa de valer.`)) newPassword.mutate(a.id); }}>
+                              Enviar nova senha
+                            </Button>
                           )}
                           {a.status === "ACTIVE" ? (
                             <Button size="sm" variant="ghost" onClick={() => setAccountStatus.mutate({ id: a.id, status: "DISABLED" })}>Desativar</Button>

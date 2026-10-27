@@ -7,6 +7,7 @@ import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
+import { accessMessage, grantPortalAccess, sendUpgradeEmail } from "../portal/portal-access.service";
 import { enumQuery } from "../../utils/query";
 import { isValidCpf, onlyDigits } from "../../utils/document";
 import { sendAutomation } from "../../lib/automations";
@@ -341,18 +342,22 @@ router.post(
     });
 
     await audit(req.user!.id, "COMMERCIAL_LEAD_CONVERTED", "CommercialLead", lead.id, result);
+    // Acesso ao portal por e-mail: quem fez o cadastro rápido recebe o aviso de
+    // liberação; quem não tem conta ganha uma com senha provisória.
+    let accessNote: string | null;
     if (result.accessUpgraded) {
-      void sendAutomation("PORTAL_ACCESS", {
-        organizationId: req.user!.organizationId,
-        clientId: result.clientId,
-        dedupeKey: `portal-upgrade:${lead.account!.id}`,
-      });
+      const { delivered } = await sendUpgradeEmail(lead.account!.id);
+      accessNote = delivered ? "o cliente recebeu por e-mail o aviso de que o portal completo foi liberado" : "portal completo liberado (o e-mail de aviso não saiu)";
+    } else {
+      const client = await prisma.client.findUnique({ where: { id: result.clientId! }, select: { name: true, email: true } });
+      accessNote = accessMessage(await grantPortalAccess({ clientId: result.clientId!, name: client?.name ?? lead.name, email: client?.email, createdById: req.user!.id }));
     }
-    return ok(
-      res,
-      result,
-      result.accessUpgraded ? "Cadastro completado — o cliente já tem acesso ao portal completo" : "Lead convertido em oportunidade"
-    );
+    void sendAutomation("PORTAL_ACCESS", {
+      organizationId: req.user!.organizationId,
+      clientId: result.clientId,
+      dedupeKey: `portal-access:${result.clientId}`,
+    });
+    return ok(res, result, `Lead convertido em oportunidade${accessNote ? ` — ${accessNote}` : ""}`);
   })
 );
 
