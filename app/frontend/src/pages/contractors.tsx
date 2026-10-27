@@ -97,8 +97,8 @@ export function ContractorsPage() {
   });
 
   const toggleActive = useMutation({
-    mutationFn: (c: Contractor) => apiPatch(`/contractors/${c.id}`, { active: !c.active }),
-    onSuccess: refresh,
+    mutationFn: (c: Contractor) => apiPatch<{ message?: string }>(`/contractors/${c.id}`, { active: !c.active }),
+    onSuccess: (r) => { toast.success(r.message ?? "Montador atualizado"); refresh(); },
     onError: (e) => toast.error(errorMessage(e, "Falha")),
   });
 
@@ -244,7 +244,15 @@ export function ContractorsPage() {
                           <Button size="sm" variant="outline" title="Acesso ao sistema" disabled={!c.active} onClick={() => setAccessFor(c)}>
                             <KeyRound className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => toggleActive.mutate(c)}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={toggleActive.isPending}
+                            onClick={() => {
+                              // desativar encerra turno/montagem em andamento e corta o acesso: pede confirmação
+                              if (!c.active || confirm(`Desativar ${c.name}?${c.onSite ? " O turno aberto na obra será encerrado agora." : ""}${c.hasAccess ? " O acesso ao sistema será bloqueado." : ""} O histórico fica guardado.`)) toggleActive.mutate(c);
+                            }}
+                          >
                             {c.active ? "Desativar" : "Ativar"}
                           </Button>
                           <Button
