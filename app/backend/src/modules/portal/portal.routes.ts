@@ -96,6 +96,7 @@ router.post(
       level: account.accessLevel,
       account: { id: account.id, name: account.name, email: account.email },
       client: account.client ? { id: account.client.id, name: account.client.name } : null,
+      mustChangePassword: account.mustChangePassword,
     });
   })
 );
@@ -124,7 +125,7 @@ router.post(
     const passwordHash = await bcrypt.hash(password, 12);
     const updated = await prisma.clientAccount.update({
       where: { id: account.id },
-      data: { passwordHash, status: "ACTIVE", inviteToken: null, inviteExpiry: null, lastLogin: new Date() },
+      data: { passwordHash, status: "ACTIVE", inviteToken: null, inviteExpiry: null, lastLogin: new Date(), mustChangePassword: false },
     });
     return ok(res, {
       token: signPortalToken(updated.id),
@@ -170,7 +171,7 @@ router.post(
     const passwordHash = await bcrypt.hash(password, 12);
     await prisma.clientAccount.update({
       where: { id: account.id },
-      data: { passwordHash, resetToken: null, resetTokenExpiry: null },
+      data: { passwordHash, resetToken: null, resetTokenExpiry: null, mustChangePassword: false },
     });
     return ok(res, { reset: true });
   })
@@ -253,8 +254,32 @@ router.get(
       account: { id: a.accountId, name: a.name, email: a.email },
       level: a.level,
       hasClient: Boolean(a.clientId),
+      mustChangePassword: a.mustChangePassword,
       briefing: a.leadId ? { submittedAt: lead?.briefing?.submittedAt ?? null, leadStatus: lead?.status ?? null } : null,
     });
+  })
+);
+
+// POST /api/portal/auth/change-password { currentPassword, newPassword }
+// Obrigatório no primeiro acesso com a senha provisória enviada por e-mail.
+router.post(
+  "/auth/change-password",
+  rateLimit({ name: "portal-change-password", windowMs: 15 * 60 * 1000, max: 10 }),
+  authenticatePortalAccount,
+  asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = z.object({ currentPassword: z.string().min(1), newPassword: passwordSchema }).parse(req.body);
+    const account = await prisma.clientAccount.findUnique({ where: { id: req.portalAccount!.accountId } });
+    if (!account?.passwordHash || !(await bcrypt.compare(currentPassword, account.passwordHash))) {
+      throw new BadRequestError("A senha atual não confere", { field: "currentPassword" }, "VALIDATION_ERROR");
+    }
+    if (await bcrypt.compare(newPassword, account.passwordHash)) {
+      throw new BadRequestError("A nova senha precisa ser diferente da atual", { field: "newPassword" }, "VALIDATION_ERROR");
+    }
+    await prisma.clientAccount.update({
+      where: { id: account.id },
+      data: { passwordHash: await bcrypt.hash(newPassword, 12), mustChangePassword: false },
+    });
+    return ok(res, { changed: true }, "Senha alterada");
   })
 );
 

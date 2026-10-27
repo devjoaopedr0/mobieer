@@ -72,6 +72,7 @@ import aftersalesRoutes from "./modules/aftersales/aftersales.routes";
 import productivityRoutes from "./modules/productivity/productivity.routes";
 import assistanceRoutes from "./modules/assistance/assistance.routes";
 import publicConfirmRoutes from "./modules/assistance/public-confirm.routes";
+import publicLeadRoutes from "./modules/commercial/public-lead.routes";
 import assistanceItemsRoutes from "./modules/assistance/assistance-items.routes";
 import { publicWorkOrderRoutes, workOrderRoutes } from "./modules/contractors/workorder.routes";
 import cronRoutes from "./modules/cron/cron.routes";
@@ -113,7 +114,7 @@ export function createApp() {
   app.use(
     cors({
       // domínio oficial fixo aqui também: se FRONTEND_URLS ficar desatualizado, o site não perde a API
-      origin: [...env.frontendUrls, "https://mobieerprojetos.com.br", "https://www.mobieerprojetos.com.br", "https://mobieer.vercel.app", /^http:\/\/localhost:\d+$/],
+      origin: [...env.frontendUrls, "https://mobieerprojetos.com.br", "https://www.mobieerprojetos.com.br", "https://mobieer.vercel.app", "https://mobieer.com.br", "https://www.mobieer.com.br", /^http:\/\/localhost:\d+$/],
       credentials: true,
     })
   );
@@ -174,6 +175,7 @@ export function createApp() {
   app.use("/api/assistance", assistanceRoutes);
   app.use("/api/public/os", publicWorkOrderRoutes);
   app.use("/api/public", publicConfirmRoutes);
+  app.use("/api/public", publicLeadRoutes);
   app.use("/api/cron", cronRoutes);
   app.use("/api/automations", automationsRoutes);
   app.use("/api/store", storeRoutes);

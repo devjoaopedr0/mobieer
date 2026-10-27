@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mobieer</title>
+  <meta name="description" content="Mobieer Planejados — há 11 anos criando ambientes de alto padrão em Fortaleza. Mais de 400 clientes. Solicite seu orçamento." />
+  <link rel="icon" href="img/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Plus+Jakarta+Sans:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a href="#inicio" class="logo"><img src="img/logo.png" alt="Mobieer Planejados" /></a>
+      <nav class="nav">
+        <a href="#portfolio">Portfólio</a>
+        <a href="https://instagram.com/mobieer" target="_blank" rel="noopener">Instagram</a>
+        <a href="#formmob" class="btn-outline">Solicitar<br />Orçamento</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="inicio">
+    <!-- Hero + formulário de orçamento -->
+    <section class="hero">
+      <div class="wrap hero-inner">
+        <div class="hero-text">
+          <h3>Há 11 anos criando ambientes que contam histórias. Mais de 400 clientes têm a Mobieer presente em seus espaços — uma trajetória construída com confiança, qualidade e credibilidade.</h3>
+          <p>Solicite um orçamento em nosso formulário que entraremos em contato com você para mais informações.</p>
+        </div>
+        <form id="formmob" class="quote-form" novalidate>
+          <label for="f-name">Nome <span>*</span></label>
+          <input id="f-name" name="name" placeholder="Nome" autocomplete="name" required />
+          <label for="f-email">E-mail <span>*</span></label>
+          <input id="f-email" name="email" type="email" placeholder="E-mail" autocomplete="email" required />
+          <label for="f-phone">Telefone <span>*</span></label>
+          <input id="f-phone" name="phone" type="tel" placeholder="Telefone" autocomplete="tel" required />
+          <label for="f-type">Tipo de Projeto <span>*</span></label>
+          <select id="f-type" name="projectType" required>
+            <option value="">Selecione</option>
+            <option>Residencial</option>
+            <option>Empresarial</option>
+            <option>Corporativo</option>
+          </select>
+          <label for="f-has">Já Possui Projeto? <span>*</span></label>
+          <select id="f-has" name="hasProject" required>
+            <option value="">Selecione</option>
+            <option>Sim</option>
+            <option>Não</option>
+          </select>
+          <!-- campo invisível contra robôs -->
+          <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" />
+          <button type="submit">Enviar</button>
+          <p class="form-msg" role="status"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- Sobre -->
+    <section class="about wrap">
+      <div class="about-box">
+        <h4>SOBRE A MOBIEER</h4>
+        <h2>Móveis Planejados de<br />Alto padrão</h2>
+        <p>Somos um escritório de móveis planejados localizada na Av. Barão de Studart 2740, <strong>possuímos fabricação local</strong>, contamos com a tecnologia de máquinas de <strong>alta precisão e projetos personalizados</strong> para melhor atender nossos Clientes e Parceiros.</p>
+      </div>
+    </section>
+
+    <!-- Blog -->
+    <section class="blog">
+      <div class="wrap">
+        <h2>Blogs</h2>
+        <div class="accordion">
+          <details open>
+            <summary>5 formas de manter seus móveis planejados em ótimo estado:</summary>
+            <ol>
+              <li><strong>Limpeza regular:</strong> pano macio e úmido, sem produtos abrasivos.</li>
+              <li><strong>Longe do sol direto:</strong> evita desbotar e ressecar o acabamento.</li>
+              <li><strong>Apoios adequados:</strong> feltros e protetores evitam riscos e marcas.</li>
+              <li><strong>Umidade sob controle:</strong> ambientes muito úmidos danificam os materiais.</li>
+              <li><strong>Sem excesso de peso:</strong> distribua a carga e respeite o limite de prateleiras e gavetas.</li>
+            </ol>
+          </details>
+          <details>
+            <summary>Você sabe o que é um painel muxarabi ?</summary>
+            <p>É um painel vazado, inspirado na arquitetura árabe, que filtra a luz e a ventilação e dá privacidade sem fechar o ambiente. Funciona como divisória, fachada de armário ou detalhe decorativo.</p>
+          </details>
+          <details>
+            <summary>5 dicas para escolher a melhor loja de móveis planejados para você:</summary>
+            <ol>
+              <li>Pesquise a reputação, as avaliações e o portfólio da loja.</li>
+              <li>Veja de perto a qualidade dos materiais e das ferragens.</li>
+              <li>Confira se o projeto é realmente personalizado.</li>
+              <li>Compare prazo de entrega, garantia e formas de pagamento.</li>
+              <li>Prefira quem acompanha a montagem e o pós-venda.</li>
+            </ol>
+          </details>
+          <details>
+            <summary>A diferença entre laca e MDF Cristallo está nos materiais e acabamentos:</summary>
+            <p>A laca é uma pintura aplicada sobre o MDF, com cor sob medida e acabamento fosco ou alto brilho. O MDF Cristallo já sai da fábrica com uma superfície de alto brilho, mais resistente a riscos e com cores pré-definidas.</p>
+          </details>
+          <details>
+            <summary>Qual a diferença entre MDF e MDP:</summary>
+            <p>O MDF é feito de fibras de madeira prensadas: é homogêneo e ótimo para usinagem, curvas e pintura. O MDP é feito de partículas em camadas: é mais resistente à flexão e ideal para prateleiras, laterais e portas retas.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Portfólio -->
+    <section id="portfolio" class="portfolio wrap">
+      <h2>Portfólio</h2>
+      <div class="filters" role="tablist">
+        <button class="active" data-filter="cozinha">COZINHA</button>
+        <button data-filter="quarto">QUARTO</button>
+        <button data-filter="sala">SALA</button>
+      </div>
+      <div class="gallery">
+        <a href="img/p-aaaa3.jpg" data-cat="cozinha"><img src="img/p-aaaa3.jpg" alt="Cozinha planejada" loading="lazy" /></a>
+        <a href="img/p33.jpg" data-cat="cozinha"><img src="img/p33.jpg" alt="Cozinha planejada" loading="lazy" /></a>
+        <a href="img/p32.jpg" data-cat="cozinha"><img src="img/p32.jpg" alt="Cozinha planejada" loading="lazy" /></a>
+        <a href="img/p34.jpg" data-cat="quarto"><img src="img/p34.jpg" alt="Quarto planejado" loading="lazy" /></a>
+        <a href="img/p10.jpg" data-cat="quarto"><img src="img/p10.jpg" alt="Quarto planejado" loading="lazy" /></a>
+        <a href="img/p5.jpg" data-cat="quarto"><img src="img/p5.jpg" alt="Quarto planejado" loading="lazy" /></a>
+        <a href="img/p31.jpg" data-cat="sala"><img src="img/p31.jpg" alt="Sala planejada" loading="lazy" /></a>
+        <a href="img/p30.jpg" data-cat="sala"><img src="img/p30.jpg" alt="Sala planejada" loading="lazy" /></a>
+        <a href="img/p25.jpg" data-cat="sala"><img src="img/p25.jpg" alt="Sala planejada" loading="lazy" /></a>
+      </div>
+    </section>
+
+    <!-- Diferenciais -->
+    <section class="diff wrap">
+      <div class="diff-head">
+        <h2>Nossos<br />Diferenciais</h2>
+        <p>Seu ambiente do jeito que você sempre sonhou. Confere nossos diferenciais:</p>
+      </div>
+      <div class="diff-grid">
+        <div><svg viewBox="0 0 24 24"><path d="M3 21h3V4h9v17h3v2H3zm5-15v15h5V6zm3 7h1v2h-1zM16 4h3v17h-2V6h-1z"/></svg><span>Móveis com fabricação industrial</span></div>
+        <div><svg viewBox="0 0 24 24"><path d="M11 2h2v7.3l6.3-3.7 1 1.7L14 11l6.3 3.7-1 1.7L13 12.7V22h-2v-9.3l-6.3 3.7-1-1.7L10 11 3.7 7.3l1-1.7L11 9.3z"/></svg><span>Ferragens de marcas de alto padrão.</span></div>
+        <div><svg viewBox="0 0 24 24"><path d="M2.6 15.5 15.5 2.6l5.9 5.9L8.5 21.4zm3 0 2.9 2.9 1.4-1.4-1.5-1.4.7-.7 1.4 1.4 1.4-1.4-2.1-2.1.7-.7 2.1 2.1 1.4-1.4-1.4-1.4.7-.7 1.4 1.4 1.4-1.4-2.1-2.1.7-.7 2.1 2.1 1.4-1.4L15.5 5.4z"/></svg><span>Nossos módulos são 100% editáveis</span></div>
+        <div><svg viewBox="0 0 24 24"><path d="m12 2 3 6.6 7.2.7-5.4 4.8 1.6 7.1L12 17.5l-6.4 3.7 1.6-7.1L1.8 9.3 9 8.6z"/></svg><span>Móveis com 5 anos de Garantia</span></div>
+        <div><svg viewBox="0 0 24 24"><path d="M2 5h20v14H2zm2 2v2h16V7zm0 5v5h16v-5zm2 2h5v1.5H6z"/></svg><span>Diversas formas de pagamentos</span></div>
+        <div><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20m0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16m1 3v4.6l3.4 3.4-1.4 1.4-4-4V7z"/></svg><span>Compromisso e entrega com qualidade</span></div>
+      </div>
+    </section>
+
+    <!-- Instagram -->
+    <section class="insta wrap">
+      <h2>Instagram</h2>
+      <a href="https://instagram.com/mobieer" target="_blank" rel="noopener" class="insta-btn" aria-label="Instagram da Mobieer">
+        <svg viewBox="0 0 24 24"><path d="M7.5 2h9A5.5 5.5 0 0 1 22 7.5v9a5.5 5.5 0 0 1-5.5 5.5h-9A5.5 5.5 0 0 1 2 16.5v-9A5.5 5.5 0 0 1 7.5 2m0 2A3.5 3.5 0 0 0 4 7.5v9A3.5 3.5 0 0 0 7.5 20h9a3.5 3.5 0 0 0 3.5-3.5v-9A3.5 3.5 0 0 0 16.5 4zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10m0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6m5.3-3.3a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>
+      </a>
+    </section>
+
+    <!-- Contato -->
+    <section class="contact wrap">
+      <div>
+        <svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>
+        <div><h4>Telefone</h4><p><a href="tel:+558530164530">(85) 3016-4530</a><br /><a href="tel:+5585999691441">(85) 99969-1441</a></p></div>
+      </div>
+      <div>
+        <svg viewBox="0 0 24 24"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2m0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12m0 2a3 3 0 0 1 3 3c0 2.3-3 5-3 5s-3-2.7-3-5a3 3 0 0 1 3-3"/></svg>
+        <div><h4>Nosso Endereço</h4><p><a href="https://maps.google.com/?q=Av.+Barão+de+Studart,+2740,+Fortaleza" target="_blank" rel="noopener">Av. Barão de Studart,<br />2740 Dionísio Torres</a></p></div>
+      </div>
+      <div>
+        <svg viewBox="0 0 24 24" class="line"><path d="M3 9.5 12 3l9 6.5V20H3zM3 9.5l9 6 9-6M7 7.5V5h10v2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <div><h4>E-mail</h4><p><a href="mailto:contato@mobieer.com">contato@mobieer.com</a></p></div>
+      </div>
+      <div>
+        <svg viewBox="0 0 24 24"><path d="M7.5 2h9A5.5 5.5 0 0 1 22 7.5v9a5.5 5.5 0 0 1-5.5 5.5h-9A5.5 5.5 0 0 1 2 16.5v-9A5.5 5.5 0 0 1 7.5 2m0 2A3.5 3.5 0 0 0 4 7.5v9A3.5 3.5 0 0 0 7.5 20h9a3.5 3.5 0 0 0 3.5-3.5v-9A3.5 3.5 0 0 0 16.5 4zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10m0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6"/></svg>
+        <div><h4>Instagram</h4><p><a href="https://instagram.com/mobieer" target="_blank" rel="noopener">@mobieer</a></p></div>
+      </div>
+    </section>
+  </main>
+
+  <a class="whatsapp" href="https://wa.me/5585999691441?text=Ol%C3%A1!%20Vim%20pelo%20site%20e%20gostaria%20de%20um%20or%C3%A7amento." target="_blank" rel="noopener">
+    <span class="wa-bubble">Como podemos ajudar?</span>
+    <span class="wa-icon" aria-label="WhatsApp"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2m0 1.8a8.2 8.2 0 1 1-4.2 15.3l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 0 1 12 3.8M8.6 7.3c-.2 0-.5 0-.7.3s-1 .9-1 2.3 1 2.7 1.1 2.9 2 3.1 4.9 4.3c2.4 1 2.9.8 3.4.7s1.7-.7 1.9-1.4.2-1.2.2-1.4l-.5-.3-1.9-.9c-.3-.1-.4-.1-.6.1l-.8 1c-.2.2-.3.2-.6.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.5l-.9-2.1c-.2-.5-.4-.4-.6-.4z"/></svg></span>
+  </a>
+
+  <script src="main.js"></script>
+</body>
+</html>

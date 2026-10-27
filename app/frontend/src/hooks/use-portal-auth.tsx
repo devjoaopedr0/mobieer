@@ -10,6 +10,8 @@ type Session = {
   account: PortalAccount;
   level: PortalLevel;
   hasClient: boolean;
+  /** entrou com a senha provisória enviada por e-mail: precisa trocar antes de usar o portal */
+  mustChangePassword: boolean;
   briefing: { submittedAt: string | null; leadStatus: string | null } | null;
 };
 
@@ -19,6 +21,7 @@ type PortalAuthValue = {
   account: PortalAccount | null;
   client: PortalClient | null;
   level: PortalLevel | null;
+  mustChangePassword: boolean;
   briefing: Session["briefing"];
   isLoading: boolean;
   isAuthenticated: boolean;
@@ -50,7 +53,8 @@ export function PortalAuthProvider({ children }: { children: React.ReactNode }) 
     try {
       const res = await portalApi<{ data: Session }>("/session");
       setSession(res.data);
-      if (res.data.level === "FULL") {
+      // com senha provisória o servidor recusa o portal completo até a troca
+      if (res.data.level === "FULL" && !res.data.mustChangePassword) {
         const me = await portalApi<{ data: { client: PortalClient } }>("/me");
         setClient(me.data.client);
       } else {
@@ -109,6 +113,7 @@ export function PortalAuthProvider({ children }: { children: React.ReactNode }) 
       account: session?.account ?? null,
       client,
       level: session?.level ?? null,
+      mustChangePassword: Boolean(session?.mustChangePassword),
       briefing: session?.briefing ?? null,
       isLoading,
       isAuthenticated: Boolean(session),

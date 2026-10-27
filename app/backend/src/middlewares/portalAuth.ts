@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import type { ClientAccessLevel } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../prisma";
-import { ForbiddenError, UnauthorizedError } from "../utils/ApiError";
+import { ApiError, ForbiddenError, UnauthorizedError } from "../utils/ApiError";
 
 const PORTAL_AUDIENCE = "mobieer-client";
 
@@ -27,6 +27,7 @@ export type PortalAccountContext = {
   leadId: string | null;
   name: string;
   email: string;
+  mustChangePassword: boolean;
 };
 
 declare module "express-serve-static-core" {
@@ -60,6 +61,7 @@ async function resolveAccount(req: Request): Promise<PortalAccountContext> {
     leadId: account.leadId,
     name: account.name,
     email: account.email,
+    mustChangePassword: account.mustChangePassword,
   };
 }
 
@@ -80,6 +82,7 @@ export async function authenticateClient(req: Request, _res: Response, next: Nex
     if (ctx.level !== "FULL" || !ctx.clientId) {
       throw new ForbiddenError("Seu acesso ainda é só ao briefing. Assim que a equipe completar seu cadastro, o portal completo é liberado.");
     }
+    if (ctx.mustChangePassword) throw new ApiError(403, "Troque a senha provisória para continuar.", undefined, "PASSWORD_CHANGE_REQUIRED");
     req.portalAccount = ctx;
     req.portal = { accountId: ctx.accountId, clientId: ctx.clientId, name: ctx.name, email: ctx.email };
     next();

@@ -79,6 +79,7 @@ const PortalHomePage = lazy(() => import("@/pages/portal/home").then((m) => ({ d
 const PortalProjectPage = lazy(() => import("@/pages/portal/project").then((m) => ({ default: m.PortalProjectPage })));
 const PortalPaymentsPage = lazy(() => import("@/pages/portal/payments").then((m) => ({ default: m.PortalPaymentsPage })));
 const PortalChatPage = lazy(() => import("@/pages/portal/chat").then((m) => ({ default: m.PortalChatPage })));
+const PortalChangePasswordPage = lazy(() => import("@/pages/portal/change-password").then((m) => ({ default: m.PortalChangePasswordPage })));
 
 function LazyBoundary({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Carregando...</div>}>{children}</Suspense>;
@@ -198,6 +199,7 @@ export const router = createBrowserRouter([
               { path: "projeto/:id", element: <LazyBoundary><PortalProjectPage /></LazyBoundary> },
               { path: "pagamentos", element: <LazyBoundary><PortalPaymentsPage /></LazyBoundary> },
               { path: "conversa", element: <LazyBoundary><PortalChatPage /></LazyBoundary> },
+              { path: "trocar-senha", element: <LazyBoundary><PortalChangePasswordPage /></LazyBoundary> },
             ],
           },
         ],

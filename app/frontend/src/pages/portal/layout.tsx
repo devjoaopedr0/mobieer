@@ -26,10 +26,12 @@ function PortalLoader() {
 }
 
 export function PortalProtectedRoute() {
-  const { isAuthenticated, isLoading, level } = usePortalAuth();
+  const { isAuthenticated, isLoading, level, mustChangePassword } = usePortalAuth();
   const location = useLocation();
   if (isLoading) return <PortalLoader />;
   if (!isAuthenticated) return <Navigate to="/portal/login" state={{ from: location }} replace />;
+  // senha provisória enviada por e-mail: troca antes de qualquer outra tela
+  if (mustChangePassword && location.pathname !== "/portal/trocar-senha") return <Navigate to="/portal/trocar-senha" replace />;
   // Cadastro curto pelo site: só o briefing até a equipe completar o cadastro.
   if (level === "BRIEFING" && location.pathname !== "/portal/briefing") return <Navigate to="/portal/briefing" replace />;
   return <Outlet />;
