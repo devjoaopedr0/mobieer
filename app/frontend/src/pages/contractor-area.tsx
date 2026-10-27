@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, LogIn, LogOut, MapPin, MessagesSquare, Pause, Play, Plus, Trophy, Loader2 } from "lucide-react";
+import { CheckCircle2, Clock, LogIn, LogOut, MapPin, MessagesSquare, Pause, Play, Plus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,13 +52,9 @@ type Productivity = {
   summary: { rooms: number; hours: number; avgGainPct: number | null; roomsAboveTarget: number; bonusTotal: number; byRoom: { roomType: string; label: string; count: number; medianMinutes: number; bestMinutes: number }[] };
   targets: { roomType: string; label: string; samples: number; targetMinutes: number | null; missingForTarget: number }[];
   minSamples: number;
-  bonuses: { id: string; roomTypeLabel: string; roomLabel: string | null; projectCode: string; gainPct: number; amount: number; status: string; createdAt: string }[];
-  bonusPending: number;
-  bonusPaid: number;
 };
 
 export const hm = (min: number) => `${Math.floor(min / 60)}h${String(Math.round(min % 60)).padStart(2, "0")}`;
-const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const clock = (v: string) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
 /** Minutos correndo em tempo real enquanto o cômodo está em andamento. */
@@ -373,14 +369,14 @@ function ProductivityView({ p }: { p: Productivity }) {
         <Stat label="Cômodos (90 dias)" value={String(p.summary.rooms)} />
         <Stat label="Horas montando" value={`${p.summary.hours.toLocaleString("pt-BR")}h`} />
         <Stat label="Acima da sua meta" value={String(p.summary.roomsAboveTarget)} />
-        <Stat label="Bônus a receber" value={brl(p.bonusPending)} highlight />
+        <Stat label="Ganho médio sobre a meta" value={p.summary.avgGainPct == null ? "—" : `${p.summary.avgGainPct.toLocaleString("pt-BR")}%`} highlight />
       </div>
 
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Sua meta por tipo de cômodo</CardTitle>
           <p className="text-xs text-muted-foreground">
-            A meta é o seu próprio tempo típico (mediana dos seus últimos cômodos aprovados). Ser mais rápido que você mesmo gera bônus.
+            A meta é o seu próprio tempo típico (mediana dos seus últimos cômodos aprovados).
           </p>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -401,32 +397,6 @@ function ProductivityView({ p }: { p: Productivity }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Trophy className="h-4 w-4 text-primary" /> Bônus
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {p.bonuses.length === 0 ? (
-            <p className="py-2 text-sm text-muted-foreground">Nenhum bônus nos últimos 90 dias.</p>
-          ) : (
-            p.bonuses.map((b) => (
-              <div key={b.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                <div>
-                  <p>{b.roomLabel || b.roomTypeLabel} · {b.projectCode}</p>
-                  <p className="text-xs text-muted-foreground">{b.gainPct.toLocaleString("pt-BR")}% mais rápido que sua meta</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium">{brl(b.amount)}</p>
-                  <p className="text-xs text-muted-foreground">{b.status === "PAID" ? "pago" : "a receber"}</p>
-                </div>
-              </div>
-            ))
-          )}
-          {p.bonusPaid > 0 && <p className="text-right text-xs text-muted-foreground">Já recebido no período: {brl(p.bonusPaid)}</p>}
-        </CardContent>
-      </Card>
     </>
   );
 }

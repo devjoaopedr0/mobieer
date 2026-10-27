@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowRight, FileText, LifeBuoy, Loader2, Wallet } from "lucide-react";
+import { ArrowRight, FileText, LifeBuoy, Loader2, MessagesSquare, Wallet } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { portalGet } from "@/services/portal-api";
@@ -30,6 +30,12 @@ export function PortalHomePage() {
     queryKey: ["portal", "projects"],
     queryFn: () => portalGet<{ data: PortalProject[] }>("/projects"),
   });
+  const unread = useQuery({
+    queryKey: ["portal-chat-unread"],
+    queryFn: () => portalGet<{ data: { count: number } }>("/chat/unread"),
+    refetchInterval: 30_000,
+  });
+  const chatUnread = unread.data?.data.count ?? 0;
 
   if (isLoading) {
     return (
@@ -57,6 +63,20 @@ export function PortalHomePage() {
           </span>
         </span>
         <ArrowRight className="h-4 w-4 text-muted-foreground" />
+      </Link>
+
+      <Link to="/portal/conversa" className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/50">
+        <span className="flex items-center gap-3">
+          <MessagesSquare className="h-5 w-5 text-primary" />
+          <span>
+            <span className="block font-medium">Conversa</span>
+            <span className="block text-xs text-muted-foreground">Tire dúvidas com o assistente virtual ou fale com a equipe</span>
+          </span>
+        </span>
+        <span className="flex items-center gap-2">
+          {chatUnread > 0 && <Badge>{chatUnread} nova{chatUnread > 1 ? "s" : ""}</Badge>}
+          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+        </span>
       </Link>
 
       {projects.length === 0 ? (

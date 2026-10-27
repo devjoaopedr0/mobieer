@@ -44,7 +44,7 @@ import {
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { useChatUnread } from "@/hooks/use-chat-unread";
+import { useChatUnread, usePortalChatUnread } from "@/hooks/use-chat-unread";
 import { Logo } from "./logo";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -60,7 +60,7 @@ type NavItem = {
   /** Esconde destes perfis. */
   hideForRoles?: string[];
   end?: boolean;
-  badge?: "chat";
+  badge?: "chat" | "portal";
 };
 
 type NavGroup = {
@@ -79,7 +79,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Central de operações", to: "/painel-operacao", icon: MonitorPlay, anyPermission: ["dashboard.read", "reports.read", "commercial.read.all"] },
       { label: "Pipeline da loja", to: "/pipeline", icon: GanttChartSquare, permission: "organization.read", hideForRoles: ["MONTADOR"] },
       { label: "Minha montagem", to: "/montador", icon: Timer, roles: ["MONTADOR"] },
-      { label: "Chat", to: "/chat", icon: MessagesSquare, permission: "chat.use", badge: "chat" },
+      { label: "Chat", to: "/chat", icon: MessagesSquare, permission: "chat.use", badge: "chat", end: true },
+      { label: "Conversas com clientes", to: "/chat/clientes", icon: Headphones, permission: "organization.read", hideForRoles: ["MONTADOR"], badge: "portal" },
     ],
   },
   {
@@ -179,6 +180,8 @@ export function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   const { can, user } = useAuth();
   const location = useLocation();
   const chatUnread = useChatUnread(can("chat.use"));
+  const portalUnread = usePortalChatUnread(can("organization.read") && user?.role !== "MONTADOR");
+  const badgeCount = (b: NavItem["badge"]) => (b === "chat" ? chatUnread : b === "portal" ? portalUnread : 0);
 
   const userRoles: string[] = user ? user.roles ?? [user.role] : [];
   const visible = (i: NavItem) =>
@@ -214,14 +217,14 @@ export function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavig
           {isActive && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary" />}
           <item.icon className={cn("h-[18px] w-[18px] shrink-0", isActive ? "text-primary" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground")} />
           {!collapsed && <span className="flex-1">{item.label}</span>}
-          {item.badge === "chat" && chatUnread > 0 && (
+          {badgeCount(item.badge) > 0 && (
             <span
               className={cn(
                 "rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground",
                 collapsed && "absolute right-1 top-1"
               )}
             >
-              {chatUnread > 99 ? "99+" : chatUnread}
+              {badgeCount(item.badge) > 99 ? "99+" : badgeCount(item.badge)}
             </span>
           )}
         </>

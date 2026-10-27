@@ -21,8 +21,12 @@ import { acceptLocation, hourBank, performanceSummary, ratingAverage } from "../
 import { createDiaryEntry, diaryInclude, diaryInput } from "../fieldwork/fieldwork.routes";
 import { ok } from "../../utils/response";
 import { localDay, localPeriod, shiftMinutes } from "./contractors.service";
-import { currentTarget, finishTask, pauseTask, serializeTask, startTask, taskInclude } from "./installation.service";
+import { currentTarget, finishTask, pauseTask, serializeTask as serializeTaskFull, startTask, taskInclude } from "./installation.service";
 import { ROOM_LABEL, buildProductivityReport, ownTargetMinutes } from "./productivity.service";
+
+// Por enquanto a bonificação é só da gestão (tela Montadores externos): o
+// montador não recebe valor nem lista de bônus na área dele.
+const serializeTask = (t: Parameters<typeof serializeTaskFull>[0]) => ({ ...serializeTaskFull(t), bonus: null });
 
 const router = Router();
 router.use(authenticate, requirePermission("contractors.self"));
@@ -204,15 +208,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const c = await me(req);
     const { from, to } = localPeriod(req.query.from, req.query.to, 90);
-    const [done, bonuses, allApproved] = await Promise.all([
+    const [done, allApproved] = await Promise.all([
       prisma.installationTask.findMany({
         where: { contractorId: c.id, status: "DONE", review: "APPROVED", finishedAt: { gte: from, lte: to } },
-        select: { roomType: true, workedMinutes: true, targetMinutes: true, finishedAt: true, bonus: { select: { amount: true, status: true } } },
-      }),
-      prisma.contractorBonus.findMany({
-        where: { contractorId: c.id, createdAt: { gte: from, lte: to }, status: { not: "CANCELLED" } },
-        include: { task: { select: { roomLabel: true, project: { select: { code: true } } } } },
-        orderBy: { createdAt: "desc" },
+        select: { roomType: true, workedMinutes: true, targetMinutes: true, finishedAt: true },
       }),
       prisma.installationTask.findMany({
         where: { contractorId: c.id, status: "DONE", review: "APPROVED" },
@@ -229,7 +228,7 @@ router.get(
         workedMinutes: t.workedMinutes,
         targetMinutes: t.targetMinutes,
         finishedAt: t.finishedAt,
-        bonusAmount: t.bonus && t.bonus.status !== "CANCELLED" ? num(t.bonus.amount) : 0,
+        bonusAmount: 0,
       }))
     );
 
@@ -251,18 +250,6 @@ router.get(
       summary: report.contractors[0] ?? { rooms: 0, hours: 0, avgGainPct: null, roomsAboveTarget: 0, bonusTotal: 0, byRoom: [] },
       targets,
       minSamples,
-      bonuses: bonuses.map((b) => ({
-        id: b.id,
-        roomTypeLabel: ROOM_LABEL[b.roomType],
-        roomLabel: b.task.roomLabel,
-        projectCode: b.task.project.code,
-        gainPct: num(b.gainPct),
-        amount: num(b.amount),
-        status: b.status,
-        createdAt: b.createdAt,
-      })),
-      bonusPending: bonuses.filter((b) => b.status === "APPROVED").reduce((a, b) => a + num(b.amount), 0),
-      bonusPaid: bonuses.filter((b) => b.status === "PAID").reduce((a, b) => a + num(b.amount), 0),
     });
   })
 );

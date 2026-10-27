@@ -84,6 +84,7 @@ import referrerRoutes from "./modules/commercial/referrers.routes";
 import remindersRoutes from "./modules/commercial/reminders.routes";
 import teamsRoutes from "./modules/commercial/teams.routes";
 import portalFinanceRoutes from "./modules/portal/portal-finance.routes";
+import { portalChatClientRouter, portalChatStaffRouter } from "./modules/portal/portal-chat.routes";
 import agendaResponseRoutes from "./modules/agenda/response.routes";
 import fieldworkRoutes from "./modules/fieldwork/fieldwork.routes";
 import chatRoutes from "./modules/chat/chat.routes";
@@ -162,6 +163,8 @@ export function createApp() {
   app.use("/api/business", assistanceItemsRoutes);
   app.use("/api/documents", documentsRoutes);
   app.use("/api/portal/finance", portalFinanceRoutes);
+  app.use("/api/portal/chat", portalChatClientRouter);
+  app.use("/api/portal-chat", portalChatStaffRouter);
   app.use("/api/portal", portalRoutes);
   app.use("/api/hr", hrRoutes);
   // antes das rotas do montador: "/attendance" não pode cair em "/:id"

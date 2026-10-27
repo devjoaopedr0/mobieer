@@ -42,6 +42,7 @@ const BusinessPage = lazy(() => import("@/pages/business").then((m) => ({ defaul
 const ProjectDetailPage = lazy(() => import("@/pages/project-detail").then((m) => ({ default: m.ProjectDetailPage })));
 const MeasurementsPage = lazy(() => import("@/pages/measurements").then((m) => ({ default: m.MeasurementsPage })));
 const ChatPage = lazy(() => import("@/pages/chat").then((m) => ({ default: m.ChatPage })));
+const PortalConversationsPage = lazy(() => import("@/pages/portal-conversations").then((m) => ({ default: m.PortalConversationsPage })));
 const ContractorAreaPage = lazy(() => import("@/pages/contractor-area").then((m) => ({ default: m.ContractorAreaPage })));
 const StorePipelinePage = lazy(() => import("@/pages/store-pipeline").then((m) => ({ default: m.StorePipelinePage })));
 const StoreDashboardPage = lazy(() => import("@/pages/store-dashboard").then((m) => ({ default: m.StoreDashboardPage })));
@@ -77,6 +78,7 @@ const PortalSetPasswordPage = lazy(() => import("@/pages/portal/set-password").t
 const PortalHomePage = lazy(() => import("@/pages/portal/home").then((m) => ({ default: m.PortalHomePage })));
 const PortalProjectPage = lazy(() => import("@/pages/portal/project").then((m) => ({ default: m.PortalProjectPage })));
 const PortalPaymentsPage = lazy(() => import("@/pages/portal/payments").then((m) => ({ default: m.PortalPaymentsPage })));
+const PortalChatPage = lazy(() => import("@/pages/portal/chat").then((m) => ({ default: m.PortalChatPage })));
 
 function LazyBoundary({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Carregando...</div>}>{children}</Suspense>;
@@ -109,6 +111,7 @@ export const router = createBrowserRouter([
             children: [
           { path: "/", element: <HomeRoute dashboard={<PermissionGate permission="dashboard.read"><DashboardPage /></PermissionGate>} /> },
           { path: "/chat", element: <PermissionGate permission="chat.use"><ChatPage /></PermissionGate> },
+          { path: "/chat/clientes", element: <PermissionGate permission="organization.read"><PortalConversationsPage /></PermissionGate> },
           { path: "/montador", element: <PermissionGate permission="contractors.self"><ContractorAreaPage /></PermissionGate> },
           { path: "/pipeline", element: <PermissionGate permission="organization.read"><StorePipelinePage /></PermissionGate> },
           { path: "/painel-loja", element: <StoreDashboardPage /> },
@@ -194,6 +197,7 @@ export const router = createBrowserRouter([
               { path: "briefing", element: <LazyBoundary><PortalBriefingPage /></LazyBoundary> },
               { path: "projeto/:id", element: <LazyBoundary><PortalProjectPage /></LazyBoundary> },
               { path: "pagamentos", element: <LazyBoundary><PortalPaymentsPage /></LazyBoundary> },
+              { path: "conversa", element: <LazyBoundary><PortalChatPage /></LazyBoundary> },
             ],
           },
         ],

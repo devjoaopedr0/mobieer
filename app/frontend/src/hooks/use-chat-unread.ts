@@ -12,3 +12,15 @@ export function useChatUnread(enabled: boolean) {
   });
   return q.data?.data.total ?? 0;
 }
+
+/** Mensagens de clientes no portal esperando a equipe (contador do menu). */
+export function usePortalChatUnread(enabled: boolean) {
+  const q = useQuery({
+    queryKey: ["portal-chat", "unread"],
+    queryFn: () => apiGet<{ data: { count: number } }>("/portal-chat/unread"),
+    enabled,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  });
+  return q.data?.data.count ?? 0;
+}
