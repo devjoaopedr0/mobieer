@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ORIGIN_OPTIONS } from "@/components/crm-parts";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BriefcaseBusiness, Building2, CalendarClock, Camera, Headphones, Loader2, Plus } from "lucide-react";
@@ -68,7 +69,8 @@ function AssistPhotoButton({ ticketId, count, onDone }: { ticketId: string; coun
   );
 }
 type Person={id:string;name:string};
-const LEAD_SOURCES=["Instagram","Indicação","Google","Site","Arquiteto","Parceiros","Outro"];
+// lista fixa de origem, a mesma do comercial
+const LEAD_SOURCES=ORIGIN_OPTIONS;
 const statusLabel:Record<string,string>={ACTIVE:"Ativo",INACTIVE:"Inativo",PLANNING:"Planejamento",ON_HOLD:"Pausado",COMPLETED:"Concluído",CANCELLED:"Cancelado",OPEN:"Aberto",TRIAGE:"Triagem",SCHEDULED:"Agendado",IN_PROGRESS:"Em andamento",WAITING_CLIENT:"Aguardando cliente",RESOLVED:"Resolvido"};
 
 export function BusinessPage(){const qc=useQueryClient();const{can}=useAuth();

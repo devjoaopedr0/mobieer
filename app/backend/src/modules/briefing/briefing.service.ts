@@ -6,6 +6,7 @@
  * o acesso ao portal é ampliado.
  */
 import { Prisma } from "@prisma/client";
+import { normalizeOrigin, ORIGIN_LABEL, ORIGINS } from "../commercial/crm.rules";
 import { z } from "zod";
 import { sendAutomation } from "../../lib/automations";
 import { notifyUsersWithPermission } from "../../lib/notify";
@@ -16,7 +17,8 @@ export const ENVIRONMENTS = [
   "Suíte Master", "Cozinha", "Sala", "Suíte Hóspede", "Suíte Filhos", "Banheiro",
   "Varanda", "Ambiente Corporativo", "Ambiente Comercial", "Área de Serviço", "Lavabo", "Outro",
 ] as const;
-export const DISCOVERY_CHANNELS = ["Instagram", "Indicação", "Google", "Site", "Arquiteto", "Parceiros", "Outro"] as const;
+/** a lista fixa de origem do CRM (Instagram, Indicação, Google, Site, Arquiteto, Parceiros, Outro) */
+export const DISCOVERY_CHANNELS = ORIGINS.map((o) => ORIGIN_LABEL[o]) as [string, ...string[]];
 
 /** Respostas do briefing (nome/e-mail/CPF já vêm do cadastro). */
 export const briefingAnswersSchema = z.object({
@@ -99,6 +101,7 @@ export async function saveBriefing(leadId: string, input: BriefingAnswers) {
         phone: input.phone,
         interest: input.environments.length ? input.environments.join(", ") : null,
         source: input.discoveryChannel || undefined,
+        origin: normalizeOrigin(input.discoveryChannel) ?? undefined,
       },
     }),
     prisma.leadBriefing.upsert({

@@ -27,6 +27,7 @@ import { ReferrersTab } from "@/components/referrers-tab";
 import { TeamsTab } from "@/components/teams-tab";
 import { errorMessage, formatCurrency } from "@/lib/utils";
 import type { CommercialLead, Opportunity, PipelineSummary, SalesStage } from "@/types";
+import { ChannelPanel, ORIGIN_OPTIONS, TemperatureFilter, TemperatureTag } from "@/components/crm-parts";
 
 const LEAD_STATUS: Record<string, string> = {
   NEW: "Novo", CONTACTED: "Contatado", QUALIFIED: "Qualificado", CONVERTED: "Convertido", LOST: "Perdido",
@@ -34,7 +35,6 @@ const LEAD_STATUS: Record<string, string> = {
 const INTERACTION_TYPES = [
   ["CALL", "Ligação"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "E-mail"], ["MEETING", "Reunião"], ["VISIT", "Visita"], ["OTHER", "Outro"],
 ] as const;
-const LEAD_SOURCES = ["Instagram", "Indicação", "Google", "Site", "Arquiteto", "Parceiros", "Outro"];
 const LOST_REASONS = [
   ["PRECO", "Preço"], ["PRAZO", "Prazo"], ["CONCORRENCIA", "Concorrência"], ["SEM_RESPOSTA", "Sem resposta"],
   ["DESISTIU", "Desistiu"], ["ESCOPO", "Escopo"], ["OUTRO", "Outro"],
@@ -80,6 +80,11 @@ export function CommercialPage() {
   const [convertLead, setConvertLead] = useState<CommercialLead | null>(null);
   const [briefLead, setBriefLead] = useState<string | null>(null);
   const [loseForm, setLoseForm] = useState({ code: "SEM_RESPOSTA", note: "" });
+  // lead perdido: o motivo é obrigatório (a mesma lista das oportunidades)
+  const [loseLead, setLoseLead] = useState<CommercialLead | null>(null);
+  const [leadLostCode, setLeadLostCode] = useState("");
+  const [oppTemp, setOppTemp] = useState("");
+  const [leadTemp, setLeadTemp] = useState("");
 
   const [oppForm, setOppForm] = useState({ title: "", stageId: "", estimatedValue: "", expectedCloseAt: "", nextAction: "" });
   const [leadForm, setLeadForm] = useState({ name: "", phone: "", email: "", source: "", interest: "" });
@@ -120,6 +125,11 @@ export function CommercialPage() {
     mutationFn: () => apiPost(`/commercial/opportunities/${active!.id}/interactions`, { ...intForm, result: intForm.result || null, nextAction: intForm.nextAction || null, nextActionAt: intForm.nextActionAt || null }),
     onSuccess: () => { toast.success("Interação registrada"); setDialog(null); setIntForm({ type: "CALL", summary: "", result: "", nextAction: "", nextActionAt: "" }); refresh(); },
     onError: (e) => toast.error(errorMessage(e, "Falha ao registrar")),
+  });
+  const markLeadLost = useMutation({
+    mutationFn: () => apiPatch(`/commercial/leads/${loseLead!.id}`, { status: "LOST", lostReasonCode: leadLostCode }),
+    onSuccess: () => { toast.success("Lead marcado como perdido"); setLoseLead(null); setLeadLostCode(""); refresh(); },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao marcar como perdido")),
   });
   const patchOpp = useMutation({
     mutationFn: (body: Record<string, unknown>) => apiPatch(`/commercial/opportunities/${active!.id}`, body),
@@ -190,12 +200,13 @@ export function CommercialPage() {
 
         {/* ---- Funil (kanban) ---- */}
         <TabsContent value="funil">
+          <div className="mb-2"><TemperatureFilter value={oppTemp} onChange={setOppTemp} /></div>
           {openStages.length === 0 ? (
             <EmptyState title="Nenhuma etapa de funil" description="Cadastre as etapas em Configurações do comercial." />
           ) : (
             <div className="flex gap-3 overflow-x-auto pb-2">
               {openStages.map((s) => {
-                const items = oppList.filter((o) => o.stage.id === s.id);
+                const items = oppList.filter((o) => o.stage.id === s.id && (!oppTemp || o.temperature === oppTemp));
                 const sum = items.reduce((a, o) => a + o.estimatedValue, 0);
                 return (
                   <div key={s.id} className="w-72 shrink-0">
@@ -212,7 +223,7 @@ export function CommercialPage() {
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-sm font-medium leading-snug">{o.title}</p>
-                            <span className={`shrink-0 text-xs font-bold ${scoreColor(o.score)}`}>{o.score}</span>
+                            <span className="flex shrink-0 items-center gap-1"><TemperatureTag value={o.temperature} title={`Score ${o.score}`} /><span className={`text-xs font-bold ${scoreColor(o.score)}`}>{o.score}</span></span>
                           </div>
                           <p className="mt-1 text-xs text-muted-foreground">{o.client?.name ?? "Sem cliente"}</p>
                           <div className="mt-2 flex items-center justify-between text-xs">
@@ -254,16 +265,15 @@ export function CommercialPage() {
 
         {/* ---- Leads ---- */}
         <TabsContent value="leads" className="space-y-4">
-          {canLeads && (
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => setDialog("lead")}><UserPlus className="mr-2 h-4 w-4" /> Lead</Button>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <TemperatureFilter value={leadTemp} onChange={setLeadTemp} />
+            {canLeads && <Button size="sm" onClick={() => setDialog("lead")}><UserPlus className="mr-2 h-4 w-4" /> Lead</Button>}
+          </div>
           {leadList.length === 0 ? (
             <EmptyState title="Nenhum lead" />
           ) : (
             <div className="space-y-2">
-              {leadList.map((l) => (
+              {leadList.filter((l) => !leadTemp || l.temperature === leadTemp).map((l) => (
                 <div key={l.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
@@ -274,7 +284,8 @@ export function CommercialPage() {
                       {[l.phone, l.interest, l.source].filter(Boolean).join(" · ") || "—"}
                     </p>
                   </div>
-                  <Badge variant="secondary">{LEAD_STATUS[l.status] ?? l.status}</Badge>
+                  <TemperatureTag value={l.temperature} title={l.temperatureReason ?? undefined} />
+                  <Badge variant="secondary">{LEAD_STATUS[l.status] ?? l.status}{l.status === "LOST" && l.lostReasonCode ? ` · ${LOST_REASONS.find(([v]) => v === l.lostReasonCode)?.[1] ?? l.lostReasonCode}` : ""}</Badge>
                   <Button size="sm" variant="ghost" onClick={() => { setBriefLead(l.id); setDialog("briefing"); }}>
                     {l.briefing ? "Ver briefing" : "Briefing"}
                   </Button>
@@ -282,6 +293,9 @@ export function CommercialPage() {
                     <Button size="sm" variant="outline" onClick={() => { setConvertLead(l); setConvForm({ title: l.interest ? `${l.name} — ${l.interest}` : l.name, estimatedValue: "", stageId: "", name: l.name, document: l.document ?? "", email: l.email ?? "", phone: l.phone ?? "", address: "" }); setDialog("convert"); }}>
                       Converter <ArrowRight className="ml-1 h-3.5 w-3.5" />
                     </Button>
+                  )}
+                  {canLeads && l.status !== "CONVERTED" && l.status !== "LOST" && (
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { setLoseLead(l); setLeadLostCode(""); }}>Perdido</Button>
                   )}
                 </div>
               ))}
@@ -292,6 +306,7 @@ export function CommercialPage() {
         {/* ---- Resumo ---- */}
         {/* ---- Conversão (funil MRV-style + motivos de perda) ---- */}
         <TabsContent value="conversao" className="space-y-4">
+          <ChannelPanel />
           {funnel.isLoading || !funnel.data ? (
             <PageSkeleton />
           ) : (
@@ -446,6 +461,24 @@ export function CommercialPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={loseLead !== null} onOpenChange={(v) => !v && setLoseLead(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Lead perdido — {loseLead?.name}</DialogTitle></DialogHeader>
+          <Field label="Motivo da perda *">
+            <Select value={leadLostCode || "NONE"} onValueChange={(v) => setLeadLostCode(v === "NONE" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Escolha o motivo" /></SelectTrigger>
+              <SelectContent><SelectItem value="NONE">Escolha o motivo</SelectItem>{LOST_REASONS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLoseLead(null)}>Cancelar</Button>
+            <Button variant="destructive" disabled={!leadLostCode || markLeadLost.isPending} onClick={() => markLeadLost.mutate()}>
+              {markLeadLost.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Marcar como perdido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={dialog === "lead"} onOpenChange={(v) => !v && setDialog(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Novo lead</DialogTitle></DialogHeader>
@@ -456,7 +489,7 @@ export function CommercialPage() {
             <Field label="Origem">
               <Select value={leadForm.source || "NONE"} onValueChange={(v) => setLeadForm({ ...leadForm, source: v === "NONE" ? "" : v })}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent><SelectItem value="NONE">—</SelectItem>{LEAD_SOURCES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                <SelectContent><SelectItem value="NONE">—</SelectItem>{ORIGIN_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
             <Field label="Interesse"><Input value={leadForm.interest} onChange={(e) => setLeadForm({ ...leadForm, interest: e.target.value })} /></Field>

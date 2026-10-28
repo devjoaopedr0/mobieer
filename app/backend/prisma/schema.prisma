@@ -1143,7 +1143,8 @@ model Client {
   // quem atende o cliente no dia a dia (pode ser diferente do consultor que vendeu)
   attendantId         String?
   attendant           User?                   @relation("ClientAttendant", fields: [attendantId], references: [id], onDelete: SetNull)
-  leadSource          String? // Instagram | Indicação | Google | Site | Arquiteto | Parceiros | Outro
+  leadSource          String? // texto como foi digitado
+  origin              LeadOrigin? // item da lista fixa de origem
   secondaryPhone      String?
   // endereço estruturado; a coluna "address" segue valendo para quem já tem só o texto
   street              String?
@@ -1808,8 +1809,11 @@ model CommercialLead {
   phone             String?
   email             String?
   source            String?
+  origin            LeadOrigin?
   interest          String?
   status            CommercialLeadStatus    @default(NEW)
+  /// motivo da perda (obrigatório ao marcar como perdido), o mesmo das oportunidades
+  lostReasonCode    LostReason?
   notes             String?                 @db.Text
   enteredAt         DateTime                @default(now())
   lastContactAt     DateTime?
@@ -1860,6 +1864,18 @@ model LeadBriefing {
   updatedAt          DateTime       @updatedAt
 }
 
+/// Origem: lista fixa, a mesma em leads, clientes e negócios. O texto
+/// original continua em source/leadSource.
+enum LeadOrigin {
+  INSTAGRAM
+  INDICACAO
+  GOOGLE
+  SITE
+  ARQUITETO
+  PARCEIROS
+  OUTRO
+}
+
 enum LostReason {
   PRECO
   PRAZO
@@ -1878,6 +1894,7 @@ model CommercialOpportunity {
   probability         Int                     @default(0)
   expectedCloseAt     DateTime?
   source              String?
+  origin              LeadOrigin?
   notes               String?                 @db.Text
   nextAction          String?
   nextActionAt        DateTime?

@@ -733,6 +733,12 @@ export type CommercialLead = {
   phone: string | null;
   email: string | null;
   source: string | null;
+  /** item da lista fixa de origem */
+  origin?: string | null;
+  /** quente / morno / frio pelo tempo sem contato e próximo contato vencido */
+  temperature?: "QUENTE" | "MORNO" | "FRIO" | null;
+  temperatureReason?: string | null;
+  lostReasonCode?: string | null;
   interest: string | null;
   status: "NEW" | "CONTACTED" | "QUALIFIED" | "CONVERTED" | "LOST";
   notes: string | null;
@@ -762,6 +768,9 @@ export type Opportunity = {
   id: string;
   title: string;
   status: "OPEN" | "NEGOTIATION" | "WAITING_CLIENT" | "WON" | "LOST";
+  /** quente (score ≥ 70) / morno (40–69) / frio (< 40); só em aberto */
+  temperature?: "QUENTE" | "MORNO" | "FRIO" | null;
+  origin?: string | null;
   estimatedValue: number;
   probability: number;
   weightedValue: number;

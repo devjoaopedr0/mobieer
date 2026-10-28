@@ -1,0 +1,116 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { apiGet } from "@/services/api";
+import { cn, formatCurrency } from "@/lib/utils";
+
+/** Lista fixa de origem, a mesma em leads, clientes e negócios (o texto gravado é o rótulo). */
+export const ORIGIN_OPTIONS = ["Instagram", "Indicação", "Google", "Site", "Arquiteto", "Parceiros", "Outro"];
+
+export type Temperature = "QUENTE" | "MORNO" | "FRIO";
+export const TEMPERATURE_LABEL: Record<Temperature, string> = { QUENTE: "Quente", MORNO: "Morno", FRIO: "Frio" };
+const TEMPERATURE_CLASS: Record<Temperature, string> = {
+  QUENTE: "bg-destructive/10 text-destructive",
+  MORNO: "bg-warning/15 text-warning",
+  FRIO: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+export function TemperatureTag({ value, title, className }: { value: Temperature | null | undefined; title?: string; className?: string }) {
+  if (!value) return null;
+  return <span title={title} className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", TEMPERATURE_CLASS[value], className)}>{TEMPERATURE_LABEL[value]}</span>;
+}
+
+/** Filtro por temperatura: "" = todas. */
+export function TemperatureFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-xs">
+      <span className="text-muted-foreground">Temperatura:</span>
+      {["", "QUENTE", "MORNO", "FRIO"].map((t) => (
+        <button key={t || "ALL"} type="button" onClick={() => onChange(t)} className={cn("rounded-full border px-2 py-0.5", value === t ? "border-primary bg-primary/10" : "hover:bg-muted")}>
+          {t ? TEMPERATURE_LABEL[t as Temperature] : "Todas"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type ChannelRow = { origin: string; label: string; entrou: number; qualificou: number; converteu: number; perdeu: number; taxaConversao: number; oportunidades: number; ganhos: number; valorVendido: number };
+type ChannelData = { from: string; to: string; rows: ChannelRow[]; total: { entrou: number; converteu: number; valorVendido: number; taxaConversao: number } };
+
+const monthsAgo = (n: number) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n, 1);
+  return d.toLocaleDateString("en-CA");
+};
+
+/** Painel por canal (origem) na aba Conversão, com filtro de período. */
+export function ChannelPanel() {
+  const [from, setFrom] = useState(monthsAgo(5));
+  const [to, setTo] = useState(new Date().toLocaleDateString("en-CA"));
+  const q = useQuery({ queryKey: ["commercial", "channels", from, to], queryFn: () => apiGet<{ data: ChannelData }>("/commercial/channels", { from: from || undefined, to: to || undefined }) });
+  const d = q.data?.data;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <CardTitle className="text-base">Por canal (origem)</CardTitle>
+            <p className="text-xs text-muted-foreground">Leads que entraram no período e o que foi vendido nele, por origem.</p>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <Input type="date" className="h-8 w-36" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <span>a</span>
+            <Input type="date" className="h-8 w-36" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        {q.isLoading || !d ? (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        ) : !d.rows.length ? (
+          <p className="text-sm text-muted-foreground">Nenhum lead ou negócio no período.</p>
+        ) : (
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="text-xs text-muted-foreground">
+              <tr className="border-b">
+                <th className="py-1.5 text-left">Canal</th>
+                <th className="text-right">Entrou</th>
+                <th className="text-right">Qualificou</th>
+                <th className="text-right">Converteu</th>
+                <th className="text-right">Perdeu</th>
+                <th className="text-right">Conversão</th>
+                <th className="text-right">Negócios ganhos</th>
+                <th className="text-right">Valor vendido</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              {d.rows.map((r) => (
+                <tr key={r.origin} className="border-b last:border-0">
+                  <td className="py-1.5">{r.label}</td>
+                  <td className="text-right">{r.entrou}</td>
+                  <td className="text-right">{r.qualificou}</td>
+                  <td className="text-right">{r.converteu}</td>
+                  <td className="text-right">{r.perdeu}</td>
+                  <td className="text-right">{r.taxaConversao}%</td>
+                  <td className="text-right">{r.ganhos}</td>
+                  <td className="text-right font-medium">{formatCurrency(r.valorVendido)}</td>
+                </tr>
+              ))}
+              <tr className="font-semibold">
+                <td className="py-1.5">Total</td>
+                <td className="text-right">{d.total.entrou}</td>
+                <td />
+                <td className="text-right">{d.total.converteu}</td>
+                <td />
+                <td className="text-right">{d.total.taxaConversao}%</td>
+                <td />
+                <td className="text-right">{formatCurrency(d.total.valorVendido)}</td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

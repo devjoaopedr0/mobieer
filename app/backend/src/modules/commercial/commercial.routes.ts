@@ -11,6 +11,7 @@ import { accessMessage, grantPortalAccess, sendUpgradeEmail } from "../portal/po
 import { enumQuery } from "../../utils/query";
 import { isValidCpf, onlyDigits } from "../../utils/document";
 import { sendAutomation } from "../../lib/automations";
+import { channelPanel, leadTemperature, normalizeOrigin, opportunityScore, opportunityTemperature, ORIGIN_LABEL, ORIGINS, type Origin, type Temperature } from "./crm.rules";
 
 const router = Router();
 router.use(authenticate);
@@ -28,21 +29,17 @@ function sellerScope(req: { user?: { id: string; permissions: string[] } }) {
   return req.user!.permissions.includes("commercial.read.all") ? {} : { sellerId: req.user!.id };
 }
 
-const DAY = 86400000;
-/** Score 0–100 = probabilidade da etapa (peso 60) + valor relativo (25) + recência do último contato (15). */
-function opportunityScore(opp: {
-  probability: number;
-  estimatedValue: Prisma.Decimal | number;
-  interactions: { occurredAt: Date }[];
-  expectedCloseAt: Date | null;
-}) {
-  const prob = Math.max(0, Math.min(100, opp.probability));
-  const value = money(opp.estimatedValue);
-  const valueScore = value <= 0 ? 0 : Math.min(25, Math.log10(value + 1) * 6);
-  const last = opp.interactions[0]?.occurredAt;
-  const daysSince = last ? (Date.now() - last.getTime()) / DAY : 999;
-  const recencyScore = daysSince <= 3 ? 15 : daysSince <= 7 ? 11 : daysSince <= 15 ? 6 : daysSince <= 30 ? 2 : 0;
-  return Math.round(prob * 0.6 + valueScore + recencyScore);
+const LOST_REASONS = ["PRECO", "PRAZO", "CONCORRENCIA", "SEM_RESPOSTA", "DESISTIU", "ESCOPO", "OUTRO"] as const;
+const TEMPERATURES = ["QUENTE", "MORNO", "FRIO"] as const;
+const temperatureFilter = (raw: unknown): Temperature | null => (TEMPERATURES as readonly string[]).includes(String(raw ?? "")) ? (String(raw) as Temperature) : null;
+
+/**
+ * Origem: o item da lista fixa (escolhido ou reconhecido no texto) e o texto
+ * como veio. Escolher da lista sem texto grava o nome do item como texto.
+ */
+function originFields(origin: Origin | null | undefined, source: string | null | undefined) {
+  const o = origin ?? normalizeOrigin(source);
+  return { origin: o, source: nn(source ?? null) ?? (o ? ORIGIN_LABEL[o] : null) };
 }
 
 // ============================================================
@@ -112,8 +109,11 @@ const leadSchema = z.object({
   phone: nullable(30),
   email: z.string().email().optional().nullable().or(z.literal("")),
   source: nullable(80),
+  origin: z.enum(ORIGINS).optional().nullable(),
   interest: nullable(200),
   status: z.enum(["NEW", "CONTACTED", "QUALIFIED", "CONVERTED", "LOST"]).optional(),
+  /** obrigatório ao marcar o lead como perdido */
+  lostReasonCode: z.enum(LOST_REASONS).optional().nullable(),
   notes: nullable(5000),
   sellerId: z.string().min(1).optional().nullable(),
   nextContactAt: z.coerce.date().optional().nullable(),
@@ -136,7 +136,14 @@ router.get(
       },
       orderBy: [{ status: "asc" }, { enteredAt: "desc" }],
     });
-    return ok(res, rows);
+    // temperatura do lead: tempo sem contato e próximo contato vencido
+    const now = new Date();
+    const wanted = temperatureFilter(req.query.temperatura);
+    const withTemp = rows.map((l) => {
+      const t = leadTemperature(l, now);
+      return { ...l, temperature: t?.temperature ?? null, temperatureReason: t?.reason ?? null };
+    });
+    return ok(res, wanted ? withTemp.filter((l) => l.temperature === wanted) : withTemp);
   })
 );
 
@@ -193,7 +200,7 @@ router.post(
       update: data,
     });
     if (input.discoveryChannel && !lead.source) {
-      await prisma.commercialLead.update({ where: { id: lead.id }, data: { source: input.discoveryChannel } });
+      await prisma.commercialLead.update({ where: { id: lead.id }, data: originFields(null, input.discoveryChannel) });
     }
     return ok(res, briefing, "Briefing salvo");
   })
@@ -204,13 +211,15 @@ router.post(
   requirePermission("commercial.leads.manage"),
   asyncHandler(async (req, res) => {
     const input = leadSchema.parse(req.body);
+    if (input.status === "LOST" && !input.lostReasonCode) throw new BadRequestError("Informe o motivo da perda", { field: "lostReasonCode" }, "VALIDATION_ERROR");
     const lead = await prisma.commercialLead.create({
       data: {
         organizationId: req.user!.organizationId,
         name: input.name,
         phone: nn(input.phone),
         email: nn(input.email),
-        source: nn(input.source),
+        ...originFields(input.origin, input.source),
+        lostReasonCode: input.status === "LOST" ? input.lostReasonCode : null,
         interest: nn(input.interest),
         notes: nn(input.notes),
         status: input.status ?? "NEW",
@@ -230,13 +239,21 @@ router.patch(
     const cur = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
     if (!cur) throw new NotFoundError("Lead não encontrado");
     const input = leadSchema.partial().parse(req.body);
+    // perdido: o motivo é obrigatório (a mesma lista das oportunidades)
+    const becomesLost = input.status === "LOST" && cur.status !== "LOST";
+    if (becomesLost && !input.lostReasonCode) throw new BadRequestError("Informe o motivo da perda", { field: "lostReasonCode" }, "VALIDATION_ERROR");
+    const lostReasonCode = input.status && input.status !== "LOST" ? null : input.lostReasonCode ?? undefined;
+    // só a origem mudou: o texto antigo fica se ainda bate com ela; senão vira o nome do item
+    const keepText = input.source === undefined && input.origin != null && normalizeOrigin(cur.source) === input.origin;
+    const origin = input.origin === undefined && input.source === undefined ? {} : originFields(input.origin, input.source !== undefined ? input.source : keepText ? cur.source : null);
     const lead = await prisma.commercialLead.update({
       where: { id: cur.id },
       data: {
         name: input.name,
         phone: input.phone === undefined ? undefined : nn(input.phone),
         email: input.email === undefined ? undefined : nn(input.email),
-        source: input.source === undefined ? undefined : nn(input.source),
+        ...origin,
+        lostReasonCode,
         interest: input.interest === undefined ? undefined : nn(input.interest),
         notes: input.notes === undefined ? undefined : nn(input.notes),
         status: input.status,
@@ -245,6 +262,7 @@ router.patch(
         lastContactAt: input.status === "CONTACTED" ? new Date() : undefined,
       },
     });
+    if (becomesLost) await audit(req.user!.id, "COMMERCIAL_LEAD_LOST", "CommercialLead", lead.id, { reason: input.lostReasonCode });
     return ok(res, lead, "Lead atualizado");
   })
 );
@@ -300,6 +318,9 @@ router.post(
             phone: input.client?.phone ?? lead.phone,
             address: input.client?.address ?? lead.briefing?.address ?? null,
             notes: lead.interest ? `Interesse: ${lead.interest}` : null,
+            // a origem do lead acompanha o cliente novo
+            leadSource: lead.source,
+            origin: lead.origin,
             sellerId: lead.sellerId,
           },
         });
@@ -323,6 +344,7 @@ router.post(
           probability: stage.probability,
           estimatedValue: new Prisma.Decimal(input.estimatedValue.toFixed(2)),
           source: lead.source,
+          origin: lead.origin,
           clientId,
           leadId: lead.id,
           sellerId: lead.sellerId ?? req.user!.id,
@@ -373,6 +395,7 @@ const oppSchema = z.object({
   probability: z.coerce.number().int().min(0).max(100).optional(),
   expectedCloseAt: z.coerce.date().optional().nullable(),
   source: nullable(80),
+  origin: z.enum(ORIGINS).optional().nullable(),
   notes: nullable(5000),
   nextAction: nullable(200),
   nextActionAt: z.coerce.date().optional().nullable(),
@@ -390,7 +413,7 @@ const oppInclude = {
 const serializeOpp = (o: {
   id: string; title: string; status: string; estimatedValue: Prisma.Decimal; probability: number;
   expectedCloseAt: Date | null; nextAction: string | null; nextActionAt: Date | null; position: number;
-  createdAt: Date; lostReason: string | null;
+  createdAt: Date; lostReason: string | null; origin?: Origin | null; source?: string | null;
   stage: { id: string; name: string; position: number; isWon: boolean; isLost: boolean };
   client: { id: string; name: string } | null;
   seller: { id: string; name: string };
@@ -416,6 +439,10 @@ const serializeOpp = (o: {
   interactionCount: o._count.interactions,
   quoteCount: o._count.quotes,
   score: opportunityScore(o),
+  // quente / morno / frio pelo score; só para oportunidade em aberto
+  temperature: opportunityTemperature(opportunityScore(o), o.status),
+  origin: o.origin ?? null,
+  source: o.source ?? null,
 });
 
 // Kanban: oportunidades abertas agrupadas por etapa
@@ -434,7 +461,9 @@ router.get(
       include: oppInclude,
       orderBy: [{ stage: { position: "asc" } }, { position: "asc" }, { createdAt: "desc" }],
     });
-    return ok(res, rows.map(serializeOpp));
+    const wanted = temperatureFilter(req.query.temperatura);
+    const list = rows.map(serializeOpp);
+    return ok(res, wanted ? list.filter((o) => o.temperature === wanted) : list);
   })
 );
 
@@ -458,7 +487,7 @@ router.post(
         estimatedValue: new Prisma.Decimal(input.estimatedValue.toFixed(2)),
         probability: input.probability ?? stage.probability,
         expectedCloseAt: input.expectedCloseAt ?? null,
-        source: nn(input.source),
+        ...originFields(input.origin, input.source),
         notes: nn(input.notes),
         nextAction: nn(input.nextAction),
         nextActionAt: input.nextActionAt ?? null,
@@ -493,8 +522,9 @@ router.patch(
         position: z.coerce.number().int().min(0).optional(),
         action: z.enum(["win", "lose", "reopen"]).optional(),
         lostReason: nullable(300),
-        lostReasonCode: z.enum(["PRECO", "PRAZO", "CONCORRENCIA", "SEM_RESPOSTA", "DESISTIU", "ESCOPO", "OUTRO"]).optional(),
+        lostReasonCode: z.enum(LOST_REASONS).optional(),
         generateReceivable: z.boolean().optional(),
+        origin: z.enum(ORIGINS).optional().nullable(),
       })
       .parse(req.body);
 
@@ -507,6 +537,7 @@ router.patch(
       nextAction: input.nextAction === undefined ? undefined : nn(input.nextAction),
       nextActionAt: input.nextActionAt === undefined ? undefined : input.nextActionAt,
       position: input.position,
+      ...(input.origin !== undefined ? { origin: input.origin } : {}),
     };
 
     if (input.stageId && input.stageId !== cur.stageId) {
@@ -684,6 +715,42 @@ router.get(
       lostCount: lost.length,
       lostReasons,
       winRate: closed > 0 ? Math.round((won.length / closed) * 100) : 0,
+    });
+  })
+);
+
+// ============================================================
+// PAINEL POR CANAL (origem): entrou, qualificou, converteu, perdeu, vendido
+// ============================================================
+router.get(
+  "/channels",
+  requirePermission("commercial.read"),
+  asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
+    const now = new Date();
+    const from = req.query.from ? new Date(String(req.query.from)) : new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const to = req.query.to ? new Date(`${String(req.query.to).slice(0, 10)}T23:59:59.999`) : now;
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) throw new BadRequestError("Período inválido");
+    const scope = sellerScope(req);
+    const [leads, opps] = await Promise.all([
+      prisma.commercialLead.findMany({ where: { organizationId, ...scope, enteredAt: { gte: from, lte: to } }, select: { origin: true, source: true, status: true } }),
+      prisma.commercialOpportunity.findMany({
+        where: { organizationId, ...scope, OR: [{ createdAt: { gte: from, lte: to } }, { wonAt: { gte: from, lte: to } }] },
+        select: { origin: true, source: true, status: true, estimatedValue: true, createdAt: true, wonAt: true },
+      }),
+    ]);
+    const inPeriod = (d: Date | null) => Boolean(d && d >= from && d <= to);
+    const rows = channelPanel(
+      // registro antigo sem a coluna preenchida: reconhece pelo texto
+      leads.map((l) => ({ origin: l.origin ?? normalizeOrigin(l.source), status: l.status })),
+      opps.map((o) => ({ origin: o.origin ?? normalizeOrigin(o.source), createdInPeriod: inPeriod(o.createdAt), wonInPeriod: o.status === "WON" && inPeriod(o.wonAt), estimatedValue: money(o.estimatedValue) }))
+    );
+    const sum = (k: "entrou" | "converteu" | "valorVendido") => rows.reduce((a, r) => a + r[k], 0);
+    return ok(res, {
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+      rows,
+      total: { entrou: sum("entrou"), converteu: sum("converteu"), valorVendido: sum("valorVendido"), taxaConversao: sum("entrou") ? Math.round((sum("converteu") / sum("entrou")) * 1000) / 10 : 0 },
     });
   })
 );
