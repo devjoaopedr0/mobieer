@@ -26,6 +26,8 @@ type PontoPreview = {
   totalPunches: number;
   rowsError: number;
   requiresConfirmation: boolean;
+  /** número já usado por outra pessoa com nome diferente: cada linha precisa de escolha */
+  requiresChoice?: boolean;
   rows: {
     registration: string;
     fileName: string | null;
@@ -37,12 +39,18 @@ type PontoPreview = {
     inactive: boolean;
     how: "RELOGIO" | "NOME" | "MATRICULA" | null;
     ambiguous: boolean;
+    heldBy: { id: string; fullName: string } | null;
+    manualLink?: boolean;
     newName: string | null;
   }[];
 };
 type PontoImport = { id: string; fileName: string; createdAt: string; rowsOk: number; rowsError: number; periodFrom: string | null; periodTo: string | null };
 
 
+
+// escolhas especiais na conferência do ponto (linhas com número de outra pessoa)
+const NOVO = "__NOVO__";
+const IGNORAR = "__IGNORAR__";
 
 const EMP_DOC_TYPE_LABEL: Record<EmployeeDocumentType, string> = {
   CONTRATO: "Contrato assinado", RESCISAO: "Rescisão", FERIAS: "Documento de férias",
@@ -201,12 +209,14 @@ export function HrPage() {
   });
 
   const importPonto = useMutation({
-    mutationFn: ({ file, confirmar, cadastrar, links }: { file: File; confirmar: boolean; cadastrar: boolean; links: Record<string, string> }) => {
+    mutationFn: ({ file, confirmar, cadastrar, links, liberar, ignorar }: { file: File; confirmar: boolean; cadastrar: boolean; links: Record<string, string>; liberar: string[]; ignorar: string[] }) => {
       const fd = new FormData();
       fd.append("file", file);
       if (confirmar) fd.append("confirmarDivergencias", "true");
       if (cadastrar) fd.append("cadastrarNaoEncontrados", "true");
       if (Object.keys(links).length) fd.append("vinculos", JSON.stringify(links));
+      if (liberar.length) fd.append("liberarNumeros", JSON.stringify(liberar));
+      if (ignorar.length) fd.append("ignorar", JSON.stringify(ignorar));
       return apiPostForm<{ data: { importadas: number; reconhecidas: number; semColaborador: number; linhasInvalidas: number; cadastrados?: { fullName: string }[] } }>("/hr/timeclock/import", fd);
     },
     onSuccess: (r) => {
@@ -719,7 +729,7 @@ export function HrPage() {
 
       {/* ---- Dialogs ---- */}
       {managementId && (
-        <EmployeeManagementDialog employeeId={managementId} users={users.data?.data ?? []} onClose={() => setManagementId(null)} />
+        <EmployeeManagementDialog employeeId={managementId} users={users.data?.data ?? []} canTimeclock={canTimeclock} onClose={() => setManagementId(null)} />
       )}
 
       <Dialog open={dialog === "employee"} onOpenChange={(v) => !v && setDialog(null)}>
@@ -1013,7 +1023,17 @@ export function HrPage() {
         </DialogContent>
       </Dialog>
 
-      {conferencia && (
+      {conferencia && (() => {
+        // linhas com número de outra pessoa (heldBy): escolha obrigatória
+        const rows = conferencia.data.rows;
+        const choice = (r: (typeof rows)[number]) => vinculos[r.registration] ?? "";
+        const isEmp = (v: string) => Boolean(v) && v !== NOVO && v !== IGNORAR;
+        const pendentes = rows.filter((r) => r.heldBy && !choice(r));
+        const links = Object.fromEntries(Object.entries(vinculos).filter(([, v]) => isEmp(v)));
+        const liberar = rows.filter((r) => r.heldBy && (choice(r) === NOVO || (isEmp(choice(r)) && choice(r) !== r.heldBy.id))).map((r) => r.registration);
+        const ignorar = rows.filter((r) => r.heldBy && choice(r) === IGNORAR).map((r) => r.registration);
+        const novos = rows.filter((r) => !r.employee && (r.heldBy ? choice(r) === NOVO : !choice(r)));
+        return (
         <Dialog open onOpenChange={() => setConferencia(null)}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
@@ -1035,8 +1055,8 @@ export function HrPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {conferencia.data.rows.map((r) => (
-                      <tr key={r.registration} className={vinculos[r.registration] ? "" : r.nameMismatch ? "bg-destructive/5" : !r.employee ? "bg-warning/5" : ""}>
+                    {rows.map((r) => (
+                      <tr key={r.registration} className={vinculos[r.registration] ? "" : r.nameMismatch || r.heldBy ? "bg-destructive/5" : !r.employee ? "bg-warning/5" : ""}>
                         <td className="px-2 py-1.5 tabular-nums">{r.registration}</td>
                         <td className="px-2 py-1.5">{r.fileName ?? "—"}</td>
                         <td className="px-2 py-1.5">
@@ -1053,16 +1073,30 @@ export function HrPage() {
                               })
                             }
                           >
-                            <option value="">{cadastrarNovos ? `Novo colaborador: ${r.newName ?? r.fileName ?? r.registration}` : "Sem colaborador — ignorar"}</option>
+                            {r.heldBy ? (
+                              <>
+                                <option value="">Escolha o colaborador…</option>
+                                <option value={IGNORAR}>Não importar este número agora</option>
+                                {cadastrarNovos && <option value={NOVO}>Novo colaborador: {r.newName ?? r.fileName ?? r.registration}</option>}
+                              </>
+                            ) : (
+                              <option value="">{cadastrarNovos ? `Novo colaborador: ${r.newName ?? r.fileName ?? r.registration}` : "Sem colaborador — ignorar"}</option>
+                            )}
                             {empList.filter((e) => e.status !== "TERMINATED" || e.id === r.employee?.id).map((e) => (
                               <option key={e.id} value={e.id}>{e.fullName} ({e.registration})</option>
                             ))}
                           </select>
-                          {vinculos[r.registration] ? (
+                          {r.heldBy && !choice(r) ? (
+                            <span className="text-xs font-medium text-destructive">nº já usado por {r.heldBy.fullName}: escolha quem é esta pessoa</span>
+                          ) : r.heldBy && liberar.includes(r.registration) ? (
+                            <span className="text-xs text-warning">o nº {r.registration} sai do cadastro de {r.heldBy.fullName} e passa para a escolha</span>
+                          ) : r.heldBy && choice(r) === IGNORAR ? (
+                            <span className="text-xs text-muted-foreground">não será importado; o nº continua com {r.heldBy.fullName}</span>
+                          ) : vinculos[r.registration] ? (
                             <span className="text-xs text-primary">escolhido por você · fica gravado para as próximas importações</span>
                           ) : r.employee ? (
                             <span className={r.nameMismatch ? "text-xs font-medium text-destructive" : "text-xs text-muted-foreground"}>
-                              {r.nameMismatch ? "nome diferente do cadastro!" : r.how === "NOME" ? "ligado pelo nome" : r.how === "MATRICULA" ? "ligado pela matrícula" : "ligado pelo número do relógio"}
+                              {r.nameMismatch ? "nome diferente do cadastro!" : r.how === "NOME" ? "ligado pelo nome" : r.how === "MATRICULA" ? "ligado pela matrícula" : r.manualLink ? "ligado à mão pelo número do relógio" : "ligado pelo número do relógio"}
                             </span>
                           ) : r.ambiguous ? (
                             <span className="text-xs text-warning">o nome parece com mais de um cadastro — escolha na lista</span>
@@ -1074,16 +1108,23 @@ export function HrPage() {
                   </tbody>
                 </table>
               </div>
-              {conferencia.data.rows.some((r) => !r.employee && !vinculos[r.registration]) && (
+              {novos.length > 0 && (
                 <label className="flex items-start gap-2 rounded-md border p-2 text-sm">
                   <input type="checkbox" className="mt-0.5 h-4 w-4" checked={cadastrarNovos} onChange={(e) => setCadastrarNovos(e.target.checked)} />
                   <span>
-                    Cadastrar os {conferencia.data.rows.filter((r) => !r.employee && !vinculos[r.registration]).length} que estão no relógio e não estão no sistema
+                    Cadastrar os {novos.length} que estão no relógio e não estão no sistema
                     <span className="block text-xs text-muted-foreground">Cria a ficha do colaborador com o nome e o número do relógio, admitido na data da primeira batida. Não cria usuário de acesso ao sistema; complete o cadastro depois (nome completo, CPF, cargo).</span>
                   </span>
                 </label>
               )}
               <p className="text-xs text-muted-foreground">O número do relógio não é a matrícula do sistema. Na coluna "Vai para" você pode ligar cada nome do relógio a um colaborador já cadastrado; a ligação fica guardada no cadastro e vale para as próximas importações.</p>
+              {pendentes.length > 0 && (
+                <p className="rounded-md bg-destructive/10 p-2 text-xs">
+                  O aparelho reaproveitou número(s) que já estão no cadastro de outra pessoa com nome diferente
+                  ({pendentes.map((r) => `nº ${r.registration} de ${r.heldBy!.fullName}`).join(", ")}). Escolha quem é cada pessoa nas
+                  linhas em vermelho; aqui não há "importar mesmo assim".
+                </p>
+              )}
               {conferencia.data.requiresConfirmation && (
                 <p className="rounded-md bg-destructive/10 p-2 text-xs">
                   O nome no relógio não bate com o cadastro nas linhas em vermelho. Isso costuma ser matrícula reaproveitada — importar assim
@@ -1096,8 +1137,8 @@ export function HrPage() {
               <Button variant="outline" onClick={() => setConferencia(null)}>Cancelar</Button>
               <Button
                 variant={conferencia.data.requiresConfirmation ? "destructive" : "default"}
-                disabled={importPonto.isPending}
-                onClick={() => importPonto.mutate({ file: conferencia.file, confirmar: conferencia.data.requiresConfirmation, cadastrar: cadastrarNovos && conferencia.data.rows.some((r) => !r.employee && !vinculos[r.registration]), links: vinculos })}
+                disabled={importPonto.isPending || pendentes.length > 0}
+                onClick={() => importPonto.mutate({ file: conferencia.file, confirmar: conferencia.data.requiresConfirmation, cadastrar: cadastrarNovos && novos.length > 0, links, liberar, ignorar })}
               >
                 {importPonto.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {conferencia.data.requiresConfirmation ? "Importar mesmo assim" : "Importar"}
@@ -1105,7 +1146,8 @@ export function HrPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { apiGet, apiPatch } from "@/services/api";
+import { apiGet, apiPatch, apiPut } from "@/services/api";
 import { errorMessage } from "@/lib/utils";
 import type { EmployeeStatus, User } from "@/types";
 
@@ -15,6 +15,7 @@ type EmployeeFull = {
   id: string;
   registration: string;
   clockRegistration: string | null;
+  clockLinkSource: "AUTO" | "MANUAL" | null;
   fullName: string;
   document: string | null;
   role: string | null;
@@ -39,7 +40,7 @@ const noonUtc = (d: string) => `${d}T12:00:00.000Z`;
  * (ativo, afastado ou desligado). Desligar guarda todo o histórico — o ponto
  * só passa a contar até a data do desligamento.
  */
-export function EmployeeManagementDialog({ employeeId, users, onClose }: { employeeId: string; users: User[]; onClose: () => void }) {
+export function EmployeeManagementDialog({ employeeId, users, canTimeclock = false, onClose }: { employeeId: string; users: User[]; canTimeclock?: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const detail = useQuery({
     queryKey: ["hr", "employee", employeeId],
@@ -109,6 +110,18 @@ export function EmployeeManagementDialog({ employeeId, users, onClose }: { emplo
     onError: (err) => toast.error(errorMessage(err, "Não foi possível mudar a situação")),
   });
 
+  // número do relógio de ponto: vincular, trocar ou desvincular (vale como vínculo manual)
+  const [clockEdit, setClockEdit] = useState<string | null>(null);
+  const saveClock = useMutation({
+    mutationFn: (clockRegistration: string) => apiPut<{ message?: string }>(`/hr/timeclock/employees/${employeeId}/clock-registration`, { clockRegistration }),
+    onSuccess: (r) => {
+      toast.success(r.message ?? "Número do relógio salvo");
+      setClockEdit(null);
+      void qc.invalidateQueries({ queryKey: ["hr"] });
+    },
+    onError: (err) => toast.error(errorMessage(err, "Não foi possível salvar o número do relógio")),
+  });
+
   const hoursValid = Number.isInteger(Number(form.weeklyHours)) && Number(form.weeklyHours) >= 1 && Number(form.weeklyHours) <= 60;
   const canSave = form.fullName.trim().length >= 2 && Boolean(form.admittedAt) && hoursValid;
   const busy = save.isPending || changeStatus.isPending;
@@ -151,6 +164,55 @@ export function EmployeeManagementDialog({ employeeId, users, onClose }: { emplo
                 {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Salvar dados
               </Button>
+            </div>
+
+            {/* ---- Número do relógio de ponto ---- */}
+            <div className="space-y-2 rounded-md border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  Número no relógio de ponto:{" "}
+                  {e.clockRegistration ? (
+                    <span className="tabular-nums">
+                      {e.clockRegistration}
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">{e.clockLinkSource === "MANUAL" ? "(vinculado à mão)" : "(vinculado na importação)"}</span>
+                    </span>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">não vinculado</span>
+                  )}
+                </p>
+                {canTimeclock && clockEdit === null && (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" disabled={saveClock.isPending} onClick={() => setClockEdit(e.clockRegistration ?? "")}>
+                      {e.clockRegistration ? "Trocar" : "Vincular"}
+                    </Button>
+                    {e.clockRegistration && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        disabled={saveClock.isPending}
+                        onClick={() => { if (window.confirm(`Desvincular o nº ${e.clockRegistration} do relógio de ${e.fullName}? As próximas importações não vão mais ligar esse número a esta pessoa.`)) saveClock.mutate(""); }}
+                      >
+                        Desvincular
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {clockEdit !== null && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Número como aparece no aparelho (EnNo)</Label>
+                    <Input className="max-w-[10rem]" inputMode="numeric" value={clockEdit} onChange={(ev) => setClockEdit(ev.target.value)} />
+                  </div>
+                  <Button size="sm" variant="ghost" disabled={saveClock.isPending} onClick={() => setClockEdit(null)}>Cancelar</Button>
+                  <Button size="sm" disabled={saveClock.isPending || !clockEdit.trim() || clockEdit.trim() === e.clockRegistration} onClick={() => saveClock.mutate(clockEdit.trim())}>
+                    {saveClock.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Salvar número
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">O número do relógio não é a matrícula do sistema. Cada número fica com um colaborador só; para passar um número a outra pessoa, desvincule aqui primeiro.</p>
             </div>
 
             {/* ---- Situação: afastar, desligar (desativar) ou reativar ---- */}

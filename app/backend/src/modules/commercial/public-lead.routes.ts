@@ -44,6 +44,7 @@ router.post(
         email: input.email,
         phone: input.phone,
         source: "Site",
+        origin: "SITE",
         interest: `${input.projectType} — ${input.hasProject === "Sim" ? "já possui projeto" : "ainda sem projeto"}`,
         notes: "Pedido de orçamento pela landing page.",
       },

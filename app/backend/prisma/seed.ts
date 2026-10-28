@@ -125,6 +125,7 @@ const PERMISSIONS = [
   { code: "purchases.approve", label: "Aprovar ou recusar solicitações de compra", module: "Compras" },
   { code: "purchases.manage", label: "Cotar, emitir pedidos e receber material", module: "Compras" },
   { code: "production.steps", label: "Atualizar etapas da produção (iniciar, concluir, bloquear, prazo)", module: "Produção" },
+  { code: "production.route.manage", label: "Editar o roteiro de produção por peça (etapas, instruções e tipos de peça)", module: "Produção" },
   { code: "inspections.manage", label: "Registrar vistorias técnicas pós-montagem", module: "Pós-venda" },
   { code: "warranty.manage", label: "Gerenciar garantias, certificados e manutenções preventivas", module: "Pós-venda" },
   { code: "productivity.read", label: "Ver produtividade da equipe (indicadores mensais)", module: "Produtividade" },

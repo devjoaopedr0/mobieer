@@ -250,6 +250,7 @@ router.post(
         kind: "PECAS",
         clientName: project.client?.name ?? null,
         projectReference: project.code,
+        projectId: project.id,
         priority: "NORMAL",
         note: `Gerada da produção — ${project.code} ${project.name}`.slice(0, 3000),
         submit: false,
@@ -271,7 +272,8 @@ router.post(
           edgeFinish: null,
         })),
       },
-      req.user!.id
+      req.user!.id,
+      req.user!.organizationId
     );
 
     await prisma.requisition.update({ where: { id: created.id }, data: { productionOrderId: order.id } });

@@ -64,6 +64,10 @@ model User {
   responsibleReqs           Requisition[]              @relation("RequisitionResponsible")
   cuttingReqs               Requisition[]              @relation("RequisitionCutter")
   inspectedReqs             Requisition[]              @relation("RequisitionInspector")
+  receivedReqItems          RequisitionItem[]          @relation("RequisitionItemReceiver")
+  pieceTypesConfirmed       ProductionItem[]           @relation("PieceTypeConfirmer")
+  pieceStepsDone            PieceStepProgress[]        @relation("PieceStepDoneBy")
+  requisitionPhotos         RequisitionPhoto[]         @relation("RequisitionPhotoUploader")
   requisitionEvents         RequisitionHistory[]
   inventories               Inventory[]
   notifications             Notification[]
@@ -252,6 +256,8 @@ model Organization {
   technicalApprovals     TechnicalProjectApproval[]
   productionOrders       ProductionOrder[]
   productionItems        ProductionItem[]
+  routeSteps             RouteStep[]
+  pieceTypes             PieceType[]
   productionTimeLogs     ProductionTimeLog[]
   fiscalInvoices         FiscalInvoice[]
   promobImports          PromobImport[]
@@ -777,6 +783,18 @@ enum RequisitionItemStatus {
   CUTTING
   CUT
   INSPECTED
+  /// faltando: chegou menos do que o pedido (quantidade faltante e foto da etiqueta)
+  MISSING
+  /// peça cancelada (a que faltava não vai mais ser feita/entregue)
+  CANCELLED
+}
+
+/// ETIQUETA: foto da etiqueta da peça (leitura por IA); FALTANDO: etiqueta da peça
+/// que faltou; RECEBIMENTO: foto de quando o montador recebeu o item.
+enum RequisitionPhotoKind {
+  ETIQUETA
+  FALTANDO
+  RECEBIMENTO
 }
 
 enum RequisitionPriority {
@@ -836,6 +854,10 @@ model Requisition {
   productionOrderId String?
   productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id], onDelete: SetNull)
 
+  /// obra: projeto cadastrado. clientName/projectReference continuam (texto livre ou cópia do projeto)
+  projectId String?
+  project   Project? @relation("RequisitionProject", fields: [projectId], references: [id], onDelete: SetNull)
+
   items        RequisitionItem[]
   movements    StockMovement[]
   reservations StockReservation[]
@@ -847,6 +869,7 @@ model Requisition {
 
   @@index([status])
   @@index([kind])
+  @@index([projectId])
   @@index([productionOrderId])
   @@index([priority])
   @@index([neededAt])
@@ -871,7 +894,21 @@ model RequisitionItem {
   width       Decimal?              @db.Decimal(10, 2)
   unit        Unit                  @default(UNIT)
   edgeFinish  String?
+  /// "Motivo" na tela e na folha (peça foi menor, complemento…)
   note        String?
+  /// observação: detalha abreviações ("CORREDIÇA 45 LIGHT", "FLANGE PRAT")
+  observation String?
+  /// dados da etiqueta da peça
+  pieceCode   String? // código da peça (PRA8604A)
+  moduleRef   String? // módulo (8421)
+  cutPlanRef  String? // plano de corte ("Chapa 2 / posição 20.C")
+  /// faltando: quantas não vieram
+  missingQuantity Int?
+  /// recebimento pelo montador
+  receivedQuantity Int?
+  receivedAt       DateTime?
+  receivedById     String?
+  receivedBy       User?    @relation("RequisitionItemReceiver", fields: [receivedById], references: [id], onDelete: SetNull)
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
@@ -881,9 +918,33 @@ model RequisitionItem {
   productId    String?
   product      Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
   reservations StockReservation[]
+  photos       RequisitionPhoto[]
 
   @@index([requisitionId])
   @@index([productId])
+}
+
+/// Foto ligada a um item da requisição. A da etiqueta pode nascer antes do item
+/// (leitura no formulário); a leitura da IA fica em ocrJson e só vale depois que
+/// o montador confirma (ocrConfirmedAt), ao salvar a requisição.
+model RequisitionPhoto {
+  id                String               @id @default(cuid())
+  kind              RequisitionPhotoKind
+  storageKey        String
+  fileName          String
+  mimeType          String?
+  size              Int?
+  ocrJson           Json?
+  ocrConfirmedAt    DateTime?
+  ocrConfirmedById  String?
+  requisitionItemId String?
+  requisitionItem   RequisitionItem?     @relation(fields: [requisitionItemId], references: [id], onDelete: SetNull)
+  uploadedById      String?
+  uploadedBy        User?                @relation("RequisitionPhotoUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt         DateTime             @default(now())
+
+  @@index([requisitionItemId])
+  @@index([uploadedById])
 }
 
 model RequisitionHistory {
@@ -1082,7 +1143,8 @@ model Client {
   // quem atende o cliente no dia a dia (pode ser diferente do consultor que vendeu)
   attendantId         String?
   attendant           User?                   @relation("ClientAttendant", fields: [attendantId], references: [id], onDelete: SetNull)
-  leadSource          String? // Instagram | Indicação | Google | Site | Arquiteto | Parceiros | Outro
+  leadSource          String? // texto como foi digitado
+  origin              LeadOrigin? // item da lista fixa de origem
   secondaryPhone      String?
   // endereço estruturado; a coluna "address" segue valendo para quem já tem só o texto
   street              String?
@@ -1139,6 +1201,7 @@ model Project {
   managerId           String?
   manager             User?                     @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
   assistances         AssistanceTicket[]
+  requisitions        Requisition[]             @relation("RequisitionProject")
   kanbanTasks         KanbanTask[]
   salesOrders         SalesOrder[]
   quotes              CommercialQuote[]
@@ -1746,8 +1809,11 @@ model CommercialLead {
   phone             String?
   email             String?
   source            String?
+  origin            LeadOrigin?
   interest          String?
   status            CommercialLeadStatus    @default(NEW)
+  /// motivo da perda (obrigatório ao marcar como perdido), o mesmo das oportunidades
+  lostReasonCode    LostReason?
   notes             String?                 @db.Text
   enteredAt         DateTime                @default(now())
   lastContactAt     DateTime?
@@ -1798,6 +1864,18 @@ model LeadBriefing {
   updatedAt          DateTime       @updatedAt
 }
 
+/// Origem: lista fixa, a mesma em leads, clientes e negócios. O texto
+/// original continua em source/leadSource.
+enum LeadOrigin {
+  INSTAGRAM
+  INDICACAO
+  GOOGLE
+  SITE
+  ARQUITETO
+  PARCEIROS
+  OUTRO
+}
+
 enum LostReason {
   PRECO
   PRAZO
@@ -1816,6 +1894,7 @@ model CommercialOpportunity {
   probability         Int                     @default(0)
   expectedCloseAt     DateTime?
   source              String?
+  origin              LeadOrigin?
   notes               String?                 @db.Text
   nextAction          String?
   nextActionAt        DateTime?
@@ -2408,6 +2487,14 @@ enum EmployeeStatus {
   TERMINATED
 }
 
+/// Como o número do relógio foi parar no cadastro: AUTO (importação, pelo nome
+/// ou pela matrícula) ou MANUAL (alguém escolheu na conferência ou na ficha).
+/// O manual vale mais que o automático nas próximas importações.
+enum ClockLinkSource {
+  AUTO
+  MANUAL
+}
+
 enum VacationPeriodStatus {
   OPEN
   SCHEDULED
@@ -2430,6 +2517,7 @@ model Employee {
   registration   String // matrícula (gerada: EMP-0001)
   /// número da pessoa no relógio de ponto (EnNo); não é a matrícula do sistema
   clockRegistration String?
+  clockLinkSource   ClockLinkSource?
   fullName       String
   document       String? // CPF (só dígitos)
   role           String? // cargo
@@ -3113,6 +3201,14 @@ model ProductionItem {
   updatedAt      DateTime              @updatedAt
   events         ProductionItemEvent[]
   timeLogs       ProductionTimeLog[]
+  /// tipo da peça (roteiro): sugerido pela etiqueta e confirmado pela pessoa
+  pieceTypeId          String?
+  pieceType            PieceType?          @relation(fields: [pieceTypeId], references: [id], onDelete: SetNull)
+  /// LABEL: sugestão da etiqueta confirmada; MANUAL: escolhido à mão
+  pieceTypeSource      String?
+  pieceTypeConfirmedById String?
+  pieceTypeConfirmedBy   User?             @relation("PieceTypeConfirmer", fields: [pieceTypeConfirmedById], references: [id], onDelete: SetNull)
+  routeSteps           PieceStepProgress[]
 
   @@unique([organizationId, code])
   @@index([organizationId, status, sector])
@@ -4685,6 +4781,97 @@ model ProductionStep {
   @@unique([orderId, step])
   @@index([status, dueAt])
   @@index([responsibleId])
+}
+
+// ============================================================
+// Roteiro de produção por peça
+//
+// RouteStep: as etapas base (01 Corte … 11 Coleta), com instrução; só o
+// administrador edita. PieceType: tipo da peça (lateral, porta…). RouteOverride:
+// por tipo, pular a etapa, acrescentar à instrução ou trocar a instrução.
+// PieceStepProgress: o andamento de cada peça — a peça é o ProductionItem, e o
+// código da etiqueta é o code dele — em cada etapa. Quando todas as peças do pedido fecham uma etapa ligada a uma
+// etapa do pedido (productionStep), a etapa do pedido é concluída.
+// ============================================================
+
+enum RouteOverrideAction {
+  SKIP // a etapa não se aplica a este tipo de peça
+  APPEND // acrescenta à instrução
+  REPLACE // troca a instrução
+}
+
+enum PieceStepStatus {
+  PENDING
+  DONE
+  NOT_APPLICABLE
+}
+
+model RouteStep {
+  id             String               @id @default(cuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  position       Int
+  name           String
+  instruction    String?              @db.Text
+  requirePhoto   Boolean              @default(false)
+  /// etapa do pedido que esta etapa da peça fecha quando todas as peças passarem
+  productionStep ProductionStepKey?
+  active         Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  overrides      RouteOverride[]
+  progress       PieceStepProgress[]
+
+  @@unique([organizationId, position])
+}
+
+model PieceType {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  overrides      RouteOverride[]
+  items          ProductionItem[]
+
+  @@unique([organizationId, name])
+}
+
+model RouteOverride {
+  id          String              @id @default(cuid())
+  pieceTypeId String
+  pieceType   PieceType           @relation(fields: [pieceTypeId], references: [id], onDelete: Cascade)
+  routeStepId String
+  routeStep   RouteStep           @relation(fields: [routeStepId], references: [id], onDelete: Cascade)
+  action      RouteOverrideAction
+  instruction String?             @db.Text
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([pieceTypeId, routeStepId])
+}
+
+/// Andamento da peça (ProductionItem) em cada etapa do roteiro.
+model PieceStepProgress {
+  id           String          @id @default(cuid())
+  itemId       String
+  item         ProductionItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  routeStepId  String
+  routeStep    RouteStep       @relation(fields: [routeStepId], references: [id], onDelete: Cascade)
+  status       PieceStepStatus @default(PENDING)
+  doneById     String?
+  doneBy       User?           @relation("PieceStepDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  doneAt       DateTime?
+  photoKey     String?
+  photoName    String?
+  photoMime    String?
+  note         String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([itemId, routeStepId])
+  @@index([routeStepId, status])
 }
 
 // ============================================================

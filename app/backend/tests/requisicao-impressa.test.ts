@@ -3,14 +3,25 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blockHeight, pieceText, requisitionsPdf, type RequisitionPrint } from "../src/modules/requisitions/requisitions.pdf";
+import { blockHeight, observationText, pieceSize, pieceText, requisitionsPdf, type RequisitionPrint } from "../src/modules/requisitions/requisitions.pdf";
 
 const base: RequisitionPrint = { number: "REQ-00001", requester: "DAVID BRUNO", clientName: "GUILHERME", projectReference: "Q. NOAH", priority: "HIGH", orderedAt: new Date(), neededAt: null, cutter: null, note: null, items: [] };
 const peca = { quantity: 1, description: "PEÇA ACABAMENTO", material: "MDF BRANCO", thickness: 6, length: 2119, width: 181, edgeFinish: "SEM FITA", note: null };
 
-test("peça impressa com material, espessura e medidas", () => {
-  assert.equal(pieceText(peca), "PEÇA ACABAMENTO · 6 mm · 2119 × 181 mm"); // a cor vai na coluna COR
-  assert.equal(pieceText({ ...peca, material: null, thickness: null, width: null }), "PEÇA ACABAMENTO · 2119 mm");
+test("peça impressa com comprimento, largura e altura (espessura da chapa) com rótulo", () => {
+  // length = comprimento, width = largura, thickness = altura; a cor vai na coluna COR
+  assert.equal(pieceText(peca), "PEÇA ACABAMENTO · C 2119 × L 181 × A 6 mm");
+  assert.equal(pieceText({ ...peca, material: null, thickness: null, width: null }), "PEÇA ACABAMENTO · C 2119 mm");
+  assert.equal(pieceSize({ length: 397, width: 111.08, thickness: 15.5 }), "C 397 × L 111,08 × A 15,5 mm");
+  // código da etiqueta vai na frente, sem repetir
+  assert.equal(pieceText({ ...peca, pieceCode: "PRA8604A", description: "PRATELEIRA" }), "PRA8604A PRATELEIRA · C 2119 × L 181 × A 6 mm");
+  assert.equal(pieceText({ ...peca, pieceCode: "PRA8604A", description: "PRA8604A PRATELEIRA" }), "PRA8604A PRATELEIRA · C 2119 × L 181 × A 6 mm");
+});
+
+test("observação impressa separada do motivo, com módulo, plano de corte e falta", () => {
+  const it = { ...peca, note: "PEÇA FOI MENOR", observation: "CORREDIÇA 45 LIGHT", moduleRef: "8421", cutPlanRef: "Chapa 2 / posição 20.C", missingQuantity: 1 };
+  assert.equal(observationText(it), "CORREDIÇA 45 LIGHT · Mód. 8421 · Chapa 2 / posição 20.C · FALTANDO 1");
+  assert.equal(observationText(peca), "");
 });
 
 test("requisição pequena cabe em um terço da folha; com muitas peças, não", () => {

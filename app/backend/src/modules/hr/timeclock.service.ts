@@ -212,16 +212,30 @@ export function looksLikeSamePerson(fileName: string | null | undefined, employe
 
 /** Alterna IN/OUT pela ordem cronológica das marcações do dia. */
 export type ClockPerson = { registration: string; name: string | null };
-export type ClockEmployee = { id: string; registration: string; clockRegistration: string | null; fullName: string };
-/** RELOGIO: já ligado pelo número do relógio; NOME: ligado agora pelo nome; MATRICULA: arquivo sem nomes, pela matrícula. */
-export type ClockMatch = { registration: string; employeeId: string | null; how: "RELOGIO" | "NOME" | "MATRICULA" | null; ambiguous: boolean };
+/** clockLinkSource: MANUAL quando uma pessoa escolheu o vínculo (ficha ou conferência); null/AUTO quando veio da importação. */
+export type ClockEmployee = { id: string; registration: string; clockRegistration: string | null; fullName: string; clockLinkSource?: string | null };
+/**
+ * RELOGIO: já ligado pelo número do relógio; NOME: ligado agora pelo nome; MATRICULA: arquivo sem nomes, pela matrícula.
+ * heldBy: o número já está no cadastro de outra pessoa com nome diferente; a linha fica sem colaborador até alguém escolher.
+ */
+export type ClockMatch = {
+  registration: string;
+  employeeId: string | null;
+  how: "RELOGIO" | "NOME" | "MATRICULA" | null;
+  ambiguous: boolean;
+  heldBy: { id: string; fullName: string } | null;
+};
 
 /**
  * Liga cada pessoa do relógio a um colaborador do cadastro.
  *
  * O número do relógio (EnNo) não é a matrícula do sistema: o "1" do aparelho pode
  * ser a Joana e o EMP-0001 a Camila. Por isso a ordem é:
- *  1. quem já tem aquele número do relógio guardado no cadastro;
+ *  1. quem já tem aquele número do relógio guardado no cadastro — desde que o nome
+ *     do relógio pareça a mesma pessoa ou o vínculo tenha sido feito à mão. O
+ *     aparelho reaproveita números ("Markos" no nº 3 que era do "MARCIO V"): com
+ *     nome diferente e vínculo automático a linha fica com heldBy, sem colaborador,
+ *     até alguém escolher;
  *  2. pelo nome, quando o nome do relógio aponta para um colaborador só e nenhuma
  *     outra pessoa do relógio aponta para o mesmo;
  *  3. pela matrícula, só quando o arquivo não traz nome (formato simples).
@@ -229,35 +243,40 @@ export type ClockMatch = { registration: string; employeeId: string | null; how:
  */
 export function matchClockPeople(people: ClockPerson[], employees: ClockEmployee[]): ClockMatch[] {
   const digitsOf = (s: string) => s.replace(/\D/g, "").replace(/^0+/, "");
-  const out = new Map<string, ClockMatch>(people.map((p) => [p.registration, { registration: p.registration, employeeId: null, how: null, ambiguous: false }]));
+  const out = new Map<string, ClockMatch>(people.map((p) => [p.registration, { registration: p.registration, employeeId: null, how: null, ambiguous: false, heldBy: null }]));
   const taken = new Set<string>();
   for (const p of people) {
     const e = employees.find((x) => x.clockRegistration != null && x.clockRegistration === p.registration);
-    if (e) {
-      out.set(p.registration, { registration: p.registration, employeeId: e.id, how: "RELOGIO", ambiguous: false });
-      taken.add(e.id);
+    if (!e) continue;
+    taken.add(e.id);
+    if (e.clockLinkSource === "MANUAL" || looksLikeSamePerson(p.name, e.fullName)) {
+      out.set(p.registration, { registration: p.registration, employeeId: e.id, how: "RELOGIO", ambiguous: false, heldBy: null });
+    } else {
+      out.set(p.registration, { registration: p.registration, employeeId: null, how: null, ambiguous: false, heldBy: { id: e.id, fullName: e.fullName } });
     }
   }
-  // pelo nome: só quem ainda não tem número de relógio pode receber um
+  // pelo nome: só quem ainda não tem número de relógio pode receber um, e
+  // número que já é de outra pessoa (heldBy) não entra: precisa de escolha explícita
   const free = employees.filter((e) => !taken.has(e.id) && !e.clockRegistration);
   const candidates = new Map<string, string[]>();
   for (const p of people) {
-    if (out.get(p.registration)!.employeeId || !p.name?.trim()) continue;
+    const cur = out.get(p.registration)!;
+    if (cur.employeeId || cur.heldBy || !p.name?.trim()) continue;
     candidates.set(p.registration, free.filter((e) => looksLikeSamePerson(p.name, e.fullName)).map((e) => e.id));
   }
   const claims = new Map<string, number>();
   for (const ids of candidates.values()) if (ids.length === 1) claims.set(ids[0], (claims.get(ids[0]) ?? 0) + 1);
   for (const [reg, ids] of candidates) {
     if (ids.length === 1 && claims.get(ids[0]) === 1) {
-      out.set(reg, { registration: reg, employeeId: ids[0], how: "NOME", ambiguous: false });
+      out.set(reg, { registration: reg, employeeId: ids[0], how: "NOME", ambiguous: false, heldBy: null });
       taken.add(ids[0]);
-    } else if (ids.length > 0) out.set(reg, { registration: reg, employeeId: null, how: null, ambiguous: true });
+    } else if (ids.length > 0) out.set(reg, { registration: reg, employeeId: null, how: null, ambiguous: true, heldBy: null });
   }
   for (const p of people) {
     if (out.get(p.registration)!.employeeId || p.name?.trim()) continue;
     const e = employees.find((x) => !taken.has(x.id) && !x.clockRegistration && (x.registration.toUpperCase() === p.registration.toUpperCase() || (digitsOf(x.registration) !== "" && digitsOf(x.registration) === digitsOf(p.registration))));
     if (e) {
-      out.set(p.registration, { registration: p.registration, employeeId: e.id, how: "MATRICULA", ambiguous: false });
+      out.set(p.registration, { registration: p.registration, employeeId: e.id, how: "MATRICULA", ambiguous: false, heldBy: null });
       taken.add(e.id);
     }
   }
@@ -454,4 +473,54 @@ export function summarizeTeamMonth(days: DayMirror[], o: { from?: string | null;
   }
   row.balanceMinutes = row.workedMinutes - row.expectedMinutes;
   return row;
+}
+
+export type ClockHolder = { id: string; fullName: string; clockRegistration: string | null };
+export type ClockLinkConflict = { registration: string; chosenId: string; holder: { id: string; fullName: string } };
+
+/**
+ * Vínculo manual "número do relógio -> colaborador": o número só pode ir para
+ * quem escolheram se não estiver gravado no cadastro de outra pessoa. Quem já
+ * tem o número só o perde quando pediram isso explicitamente (released: "tirar
+ * o nº do cadastro de X" na conferência) ou na ficha do colaborador, para o
+ * ponto de um não cair no histórico do outro sem ninguém perceber.
+ */
+export function clockLinkConflicts(links: Record<string, string>, holders: ClockHolder[], released: string[] = []): ClockLinkConflict[] {
+  const out: ClockLinkConflict[] = [];
+  for (const [registration, chosenId] of Object.entries(links)) {
+    if (released.includes(registration)) continue;
+    const holder = holders.find((h) => h.clockRegistration === registration && h.id !== chosenId);
+    if (holder) out.push({ registration, chosenId, holder: { id: holder.id, fullName: holder.fullName } });
+  }
+  return out;
+}
+
+/**
+ * Um número por colaborador: quem foi escolhido e já tem outro número do
+ * relógio no cadastro precisa trocar na ficha; a conferência não sobrescreve.
+ */
+export function chosenWithOtherNumber(links: Record<string, string>, chosen: ClockHolder[]): { registration: string; employee: ClockHolder }[] {
+  const out: { registration: string; employee: ClockHolder }[] = [];
+  for (const [registration, id] of Object.entries(links)) {
+    const e = chosen.find((c) => c.id === id);
+    if (e?.clockRegistration && e.clockRegistration !== registration) out.push({ registration, employee: e });
+  }
+  return out;
+}
+
+/**
+ * Número do relógio digitado na ficha, igual ao que o aparelho exporta (EnNo).
+ * "" = desvincular; null = inválido.
+ */
+export function normalizeClockNumber(raw: string | null | undefined): string | null {
+  const v = String(raw ?? "").trim();
+  if (!v) return "";
+  return /^[0-9A-Za-z-]{1,40}$/.test(v) ? v : null;
+}
+
+/** O mesmo colaborador escolhido para dois números do relógio no mesmo arquivo. */
+export function duplicatedClockChoices(links: Record<string, string>): string[] {
+  const seen = new Map<string, number>();
+  for (const id of Object.values(links)) seen.set(id, (seen.get(id) ?? 0) + 1);
+  return [...seen].filter(([, n]) => n > 1).map(([id]) => id);
 }

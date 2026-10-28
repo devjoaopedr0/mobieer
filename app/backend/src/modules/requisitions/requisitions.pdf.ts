@@ -6,10 +6,11 @@
  * com as 10 linhas da planilha.
  *
  * Peças:   CLIENTE / MONTADOR · DATA PEDIDO / DATA ENTREGA
- *          AMBIENTE | COR | QTD | DESCRIÇÃO | FITA | MOTIVO
+ *          AMBIENTE | COR | QTD | DESCRIÇÃO | FITA | MOTIVO | OBSERVAÇÃO
  *          SOLICITADO POR · PRODUZIDO POR
- * Insumos: AMBIENTE | TIPO | QTD | DESCRIÇÃO | PENDENTE | MOTIVO
+ * Insumos: AMBIENTE | TIPO | QTD | DESCRIÇÃO | PENDENTE | MOTIVO | OBSERVAÇÃO
  *          SOLICITADO POR · ENTREGUE
+ * Medidas da peça: C (comprimento) × L (largura) × A (altura = espessura da chapa).
  * Requisição com muitas linhas ocupa o espaço que precisar.
  */
 import PDFDocument from "pdfkit";
@@ -27,7 +28,15 @@ type Item = {
   length: number | null;
   width: number | null;
   edgeFinish: string | null;
+  /** MOTIVO */
   note: string | null;
+  /** OBSERVAÇÃO: detalha abreviações */
+  observation?: string | null;
+  pieceCode?: string | null;
+  moduleRef?: string | null;
+  cutPlanRef?: string | null;
+  /** faltando: quantas não vieram */
+  missingQuantity?: number | null;
 };
 
 export type RequisitionPrint = {
@@ -62,10 +71,21 @@ const rowsFor = (r: RequisitionPrint, perPage: PerPage) => (perPage === "auto" ?
 const brDate = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" }) : "");
 const n = (v: number | null) => (v == null ? "" : String(Number(v)).replace(".", ","));
 
-/** "PEÇA ACABAMENTO · 6 mm · 2119 × 181 mm" (a cor vai na coluna COR) */
+/** "C 2119 × L 181 × A 6 mm": comprimento, largura e altura (espessura da chapa); só o que tiver */
+export function pieceSize(i: Pick<Item, "length" | "width" | "thickness">): string {
+  const parts = [i.length != null ? `C ${n(i.length)}` : "", i.width != null ? `L ${n(i.width)}` : "", i.thickness != null ? `A ${n(i.thickness)}` : ""].filter(Boolean);
+  return parts.length ? `${parts.join(" × ")} mm` : "";
+}
+
+/** "PRA8604A PEÇA ACABAMENTO · C 2119 × L 181 × A 6 mm" (a cor vai na coluna COR) */
 export function pieceText(i: Item): string {
-  const size = i.length != null && i.width != null ? `${n(i.length)} × ${n(i.width)} mm` : i.length != null ? `${n(i.length)} mm` : "";
-  return [i.description, i.thickness != null ? `${n(i.thickness)} mm` : "", size].filter(Boolean).join(" · ");
+  const name = i.pieceCode && !i.description.toUpperCase().includes(i.pieceCode.toUpperCase()) ? `${i.pieceCode} ${i.description}` : i.description;
+  return [name, pieceSize(i)].filter(Boolean).join(" · ");
+}
+
+/** OBSERVAÇÃO: a do item, módulo, plano de corte e a falta */
+export function observationText(i: Item): string {
+  return [i.observation, i.moduleRef ? `Mód. ${i.moduleRef}` : "", i.cutPlanRef, i.missingQuantity ? `FALTANDO ${i.missingQuantity}` : ""].filter(Boolean).join(" · ");
 }
 
 /** Altura que a requisição ocupa (para saber se cabe na sua parte da folha). */
@@ -85,12 +105,13 @@ export function requisitionsPdf(reqs: RequisitionPrint[], perPage: PerPage = "au
   const GAP = 12;
   // larguras como na planilha
   const colsFor = (supply: boolean) => [
-    { label: "AMBIENTE", w: 0.15 },
-    { label: supply ? "TIPO" : "COR", w: 0.15 },
-    { label: "QTD", w: 0.06 },
-    { label: "DESCRIÇÃO", w: 0.36 },
-    { label: supply ? "PENDENTE" : "FITA", w: 0.12 },
-    { label: "MOTIVO", w: 0.16 },
+    { label: "AMBIENTE", w: 0.12 },
+    { label: supply ? "TIPO" : "COR", w: 0.12 },
+    { label: "QTD", w: 0.05 },
+    { label: "DESCRIÇÃO", w: 0.33 },
+    { label: supply ? "PENDENTE" : "FITA", w: 0.1 },
+    { label: "MOTIVO", w: 0.13 },
+    { label: "OBSERVAÇÃO", w: 0.15 },
   ];
   const stroke = () => doc.lineWidth(0.6).strokeColor(BRAND.ink);
   const text = (s: string, x: number, y: number, w: number, h: number, o: { bold?: boolean; size?: number; align?: "left" | "center" | "right" } = {}) =>
@@ -164,8 +185,8 @@ export function requisitionsPdf(reqs: RequisitionPrint[], perPage: PerPage = "au
       cols.forEach((_, i) => i && doc.moveTo(xs[i], y).lineTo(xs[i], y + ROW_H).stroke());
       if (it) {
         const desc = supply ? [it.description, it.unit && UNIT[it.unit] ? UNIT[it.unit] : ""].filter(Boolean).join(" · ") : pieceText(it);
-        const cells = [it.room ?? "", supply ? it.kindLabel ?? "" : it.material ?? "", String(it.quantity), desc, supply ? "" : it.edgeFinish ?? "", it.note ?? ""];
-        cells.forEach((c, i) => text(c, xs[i], y, cols[i].w * W, ROW_H, { size: i === 3 ? 7 : 7.5, bold: i === 2, align: i === 2 ? "center" : "left" }));
+        const cells = [it.room ?? "", supply ? it.kindLabel ?? "" : it.material ?? "", String(it.quantity), desc, supply ? (it.missingQuantity ? String(it.missingQuantity) : "") : it.edgeFinish ?? "", it.note ?? "", observationText(supply ? { ...it, missingQuantity: null } : it)];
+        cells.forEach((c, i) => text(c, xs[i], y, cols[i].w * W, ROW_H, { size: i === 3 || i === 6 ? 7 : 7.5, bold: i === 2, align: i === 2 ? "center" : "left" }));
       }
       y += ROW_H;
     }
