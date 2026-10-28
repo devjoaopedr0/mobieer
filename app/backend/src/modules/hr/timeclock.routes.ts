@@ -7,7 +7,7 @@ import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { DEFAULT_SCHEDULE, parseSchedule, summarizeTeamMonth, buildMirror, clockDisplayName, computeHourBank, fortalezaDay, parsePunchTime, inferKinds, looksLikeSamePerson, matchClockPeople, monthsBetween, parseTimeClockFile } from "./timeclock.service";
+import { DEFAULT_SCHEDULE, chosenWithOtherNumber, clockLinkConflicts, duplicatedClockChoices, normalizeClockNumber, parseSchedule, summarizeTeamMonth, buildMirror, clockDisplayName, computeHourBank, fortalezaDay, parsePunchTime, inferKinds, looksLikeSamePerson, matchClockPeople, monthsBetween, parseTimeClockFile } from "./timeclock.service";
 import { nextRegistration } from "./hr.service";
 
 const router = Router();
@@ -283,7 +283,7 @@ router.delete(
  */
 async function mapPunches(buffer: Buffer, organizationId: string) {
   const parsed = parseTimeClockFile(buffer);
-  const employees = await prisma.employee.findMany({ where: { organizationId }, select: { id: true, registration: true, clockRegistration: true, fullName: true, status: true } });
+  const employees = await prisma.employee.findMany({ where: { organizationId }, select: { id: true, registration: true, clockRegistration: true, clockLinkSource: true, fullName: true, status: true } });
 
   const porMatricula = new Map<string, { registration: string; fileName: string | null; punches: typeof parsed.punches }>();
   for (const p of parsed.punches) {
@@ -307,13 +307,18 @@ async function mapPunches(buffer: Buffer, organizationId: string) {
         // como a ligação foi feita (RELOGIO, NOME, MATRICULA) ou por que não foi
         how: m.how as typeof m.how | "MANUAL",
         ambiguous: m.ambiguous,
+        // número já gravado no cadastro de outra pessoa com nome diferente: exige escolha
+        heldBy: m.heldBy,
+        // vínculo pelo número feito à mão antes (ficha ou conferência): vale mesmo com nome diferente
+        manualLink: m.how === "RELOGIO" && emp?.clockLinkSource === "MANUAL",
         // quem não está no cadastro pode ser cadastrado com o nome e o número do relógio
         newName: emp ? null : clockDisplayName({ registration: g.registration, name: g.fileName }),
         punches: g.punches.length,
         from: new Date(Math.min(...times)),
         to: new Date(Math.max(...times)),
         // avisos que uma pessoa precisa olhar antes de gravar
-        nameMismatch: Boolean(emp) && !looksLikeSamePerson(g.fileName, emp!.fullName),
+        // só vale para ligação por nome/matrícula; número com nome diferente já virou heldBy
+        nameMismatch: Boolean(emp) && (m.how === "NOME" || m.how === "MATRICULA") && !looksLikeSamePerson(g.fileName, emp!.fullName),
         inactive: emp?.status !== undefined && emp.status !== "ACTIVE",
       };
     })
@@ -327,23 +332,58 @@ async function mapPunches(buffer: Buffer, organizationId: string) {
  * Vale mais que a ligação automática (nome/matrícula) e fica gravada no
  * cadastro, para as próximas importações irem direto para a pessoa certa.
  */
-async function applyManualLinks(rows: Awaited<ReturnType<typeof mapPunches>>["rows"], raw: unknown, organizationId: string) {
-  if (typeof raw !== "string" || !raw.trim()) return [];
-  let parsed: unknown;
+function parseJsonField<T>(raw: unknown, schema: z.ZodType<T>, empty: T, message: string): T {
+  if (typeof raw !== "string" || !raw.trim()) return empty;
   try {
-    parsed = JSON.parse(raw);
+    return schema.parse(JSON.parse(raw));
   } catch {
-    throw new BadRequestError("Vínculos do ponto inválidos");
+    throw new BadRequestError(message);
   }
-  const links = z.record(z.string().min(1).max(40), z.string().min(1)).parse(parsed);
+}
+
+/**
+ * Escolhas feitas à mão na conferência.
+ *  - vinculos: "número do relógio -> colaborador"; vale mais que a ligação automática.
+ *  - liberarNumeros: números que estão no cadastro de outra pessoa (heldBy) e que a
+ *    pessoa mandou tirar de lá ("o nº 3 sai do cadastro de MARCIO V").
+ *  - ignorar: números com heldBy que a pessoa decidiu não importar agora.
+ * Número com heldBy sem nenhuma dessas escolhas trava a importação.
+ */
+async function applyManualLinks(rows: Awaited<ReturnType<typeof mapPunches>>["rows"], body: Record<string, unknown> | undefined, organizationId: string) {
+  const links = parseJsonField(body?.vinculos, z.record(z.string().min(1).max(40), z.string().min(1)), {}, "Vínculos do ponto inválidos");
+  const released = parseJsonField(body?.liberarNumeros, z.array(z.string().min(1).max(40)), [], "Números do relógio a liberar inválidos");
+  const ignored = parseJsonField(body?.ignorar, z.array(z.string().min(1).max(40)), [], "Números do relógio a ignorar inválidos");
+  for (const reg of released) {
+    if (!rows.some((r) => r.registration === reg && r.heldBy)) throw new BadRequestError(`O nº ${reg} do relógio não está no cadastro de outra pessoa`);
+  }
   const ids = [...new Set(Object.values(links))];
-  if (new Set(Object.values(links)).size !== Object.values(links).length) {
+  if (duplicatedClockChoices(links).length) {
     throw new BadRequestError("O mesmo colaborador foi escolhido para mais de um número do relógio");
   }
   const employees = await prisma.employee.findMany({
     where: { organizationId, id: { in: ids } },
-    select: { id: true, registration: true, fullName: true, status: true },
+    select: { id: true, registration: true, fullName: true, status: true, clockRegistration: true },
   });
+  // um colaborador por número: o número já gravado em outra pessoa só sai de lá se mandaram liberar
+  const holders = await prisma.employee.findMany({
+    where: { organizationId, clockRegistration: { in: Object.keys(links) } },
+    select: { id: true, fullName: true, clockRegistration: true },
+  });
+  const conflicts = clockLinkConflicts(links, holders, released);
+  if (conflicts.length) {
+    throw new BadRequestError(
+      conflicts.map((c) => `O nº ${c.registration} do relógio já está no cadastro de ${c.holder.fullName}`).join("; ") +
+        ". Marque para tirar o número do cadastro dessa pessoa ou desvincule na ficha do colaborador (RH → Gerenciar)."
+    );
+  }
+  // um número por colaborador: quem já tem outro número troca na ficha
+  const other = chosenWithOtherNumber(links, employees);
+  if (other.length) {
+    throw new BadRequestError(
+      other.map((o) => `${o.employee.fullName} já tem o nº ${o.employee.clockRegistration} do relógio`).join("; ") +
+        ". Para mudar o número, use Trocar na ficha do colaborador (RH → Gerenciar)."
+    );
+  }
   const byId = new Map(employees.map((e) => [e.id, e]));
   const applied: string[] = [];
   for (const [reg, employeeId] of Object.entries(links)) {
@@ -352,11 +392,18 @@ async function applyManualLinks(rows: Awaited<ReturnType<typeof mapPunches>>["ro
     if (!row) continue;
     if (!emp) throw new BadRequestError("Colaborador escolhido não encontrado");
     // outra linha do arquivo ligada automaticamente à mesma pessoa perde a ligação
-    for (const other of rows) if (other !== row && other.employee?.id === emp.id) Object.assign(other, { employee: null, how: null, nameMismatch: false });
+    for (const o of rows) if (o !== row && o.employee?.id === emp.id) Object.assign(o, { employee: null, how: null, nameMismatch: false });
     Object.assign(row, { employee: emp, how: "MANUAL", nameMismatch: false, inactive: emp.status !== "ACTIVE", newName: null });
     applied.push(reg);
   }
-  return applied;
+  const pending = rows.filter((r) => r.heldBy && !r.employee && !released.includes(r.registration) && !ignored.includes(r.registration));
+  if (pending.length) {
+    throw new BadRequestError(
+      pending.map((r) => `nº ${r.registration} "${r.fileName ?? ""}" já é usado por ${r.heldBy!.fullName}`).join("; ") +
+        ". Escolha o colaborador dessas linhas na conferência (ou marque para não importar)."
+    );
+  }
+  return { applied, links, released };
 }
 
 // POST /api/hr/timeclock/import/preview -> confere antes de gravar
@@ -380,9 +427,12 @@ router.post(
       warnings: {
         unmatched: naoEncontrados.map((r) => ({ registration: r.registration, fileName: r.fileName, punches: r.punches, ambiguous: r.ambiguous, newName: r.newName })),
         nameMismatch: divergentes.map((r) => ({ registration: r.registration, fileName: r.fileName, employee: r.employee!.fullName })),
+        numberHeld: rows.filter((r) => r.heldBy).map((r) => ({ registration: r.registration, fileName: r.fileName, heldBy: r.heldBy!.fullName })),
       },
-      // o import só grava com confirmarDivergencias quando há nome diferente
+      // o import só grava com confirmarDivergencias quando há nome diferente (ligação por nome/matrícula)
       requiresConfirmation: divergentes.length > 0,
+      // número já usado por outra pessoa: não há "importar mesmo assim", só escolha linha a linha
+      requiresChoice: rows.some((r) => r.heldBy),
     });
   })
 );
@@ -396,12 +446,13 @@ router.post(
     if (!req.file) throw new BadRequestError("Envie o arquivo exportado do relógio de ponto");
     const confirmarDivergencias = String(req.body?.confirmarDivergencias ?? "") === "true";
     const { parsed, rows } = await mapPunches(req.file.buffer, req.user!.organizationId);
-    const manual = await applyManualLinks(rows, req.body?.vinculos, req.user!.organizationId);
     if (parsed.punches.length === 0) {
       throw new BadRequestError("Nenhuma marcação reconhecida no arquivo. Formatos aceitos: exportação com cabeçalho (EnNo/DateTime) ou matrícula; data; hora.");
     }
-    // Nome do relógio diferente do cadastro: quase sempre é matrícula reaproveitada.
-    // Gravar ponto na pessoa errada é grave, então isso exige confirmação explícita.
+    const manual = await applyManualLinks(rows, req.body, req.user!.organizationId);
+    // Nome do relógio diferente do cadastro numa ligação por nome/matrícula: exige
+    // confirmação explícita. Número de outra pessoa (heldBy) não passa por aqui:
+    // applyManualLinks já exigiu a escolha linha a linha.
     const divergentes = rows.filter((r) => r.nameMismatch);
     if (divergentes.length && !confirmarDivergencias) {
       throw new BadRequestError(
@@ -414,20 +465,26 @@ router.post(
     const byRegistration = new Map(rows.filter((r) => r.employee).map((r) => [r.registration, r.employee!.id]));
     const lookup = (reg: string) => byRegistration.get(reg);
 
-    // Ligado pelo nome ou pela matrícula: guarda o número do relógio no cadastro,
-    // para a próxima importação não depender do nome.
+    // Número liberado: sai do cadastro de quem tinha (a pessoa marcou isso na conferência).
+    for (const reg of manual.released) {
+      const row = rows.find((r) => r.registration === reg)!;
+      await prisma.employee.updateMany({
+        where: { organizationId: req.user!.organizationId, clockRegistration: reg, id: { not: row.employee?.id ?? "" } },
+        data: { clockRegistration: null, clockLinkSource: null },
+      });
+      await prisma.auditLog.create({
+        data: { userId: req.user!.id, action: "TIMECLOCK_NUMBER_RELEASED", entity: "Employee", entityId: row.heldBy!.id, details: { clockRegistration: reg, fileName: row.fileName, to: row.employee?.id ?? null } },
+      });
+    }
+    // Ligado pelo nome, pela matrícula ou à mão: guarda o número do relógio no
+    // cadastro, para a próxima importação não depender do nome.
     for (const r of rows) {
       if (!r.employee || !(r.how === "NOME" || r.how === "MATRICULA" || r.how === "MANUAL")) continue;
-      // o número do relógio é único no cadastro: sai de quem tinha antes
-      await prisma.employee.updateMany({
-        where: { organizationId: req.user!.organizationId, clockRegistration: r.registration, id: { not: r.employee.id } },
-        data: { clockRegistration: null },
-      });
-      await prisma.employee.update({ where: { id: r.employee.id }, data: { clockRegistration: r.registration } });
+      await prisma.employee.update({ where: { id: r.employee.id }, data: { clockRegistration: r.registration, clockLinkSource: r.how === "MANUAL" ? "MANUAL" : "AUTO" } });
     }
-    if (manual.length) {
+    if (manual.applied.length) {
       await prisma.auditLog.create({
-        data: { userId: req.user!.id, action: "TIMECLOCK_MANUAL_LINK", entity: "TimeEntryImport", entityId: req.file.originalname, details: { links: req.body?.vinculos } },
+        data: { userId: req.user!.id, action: "TIMECLOCK_MANUAL_LINK", entity: "TimeEntryImport", entityId: req.file.originalname, details: { links: manual.links, released: manual.released } },
       });
     }
     // Quem não está no cadastro: cadastra o colaborador com o nome e o número do relógio.
@@ -435,10 +492,11 @@ router.post(
     const cadastrar = String(req.body?.cadastrarNaoEncontrados ?? "") === "true";
     const cadastrados: { registration: string; fullName: string; clockRegistration: string }[] = [];
     if (cadastrar) {
-      for (const r of rows.filter((x) => !x.employee)) {
+      // número de outra pessoa só vira cadastro novo quando mandaram liberar o número
+      for (const r of rows.filter((x) => !x.employee && (!x.heldBy || manual.released.includes(x.registration)))) {
         const fullName = r.newName ?? `COLABORADOR ${r.registration}`;
         const emp = await prisma.employee.create({
-          data: { organizationId: req.user!.organizationId, registration: await nextRegistration(req.user!.organizationId), clockRegistration: r.registration, fullName, admittedAt: r.from, status: "ACTIVE" },
+          data: { organizationId: req.user!.organizationId, registration: await nextRegistration(req.user!.organizationId), clockRegistration: r.registration, clockLinkSource: r.heldBy ? "MANUAL" : "AUTO", fullName, admittedAt: r.from, status: "ACTIVE" },
         });
         byRegistration.set(r.registration, emp.id);
         cadastrados.push({ registration: emp.registration, fullName, clockRegistration: r.registration });
@@ -511,6 +569,36 @@ router.post(
       },
       "Arquivo importado"
     );
+  })
+);
+
+// PUT /api/hr/timeclock/employees/:id/clock-registration { clockRegistration: "3" | "" }
+// Vincular, trocar ou desvincular (vazio) o número do relógio na ficha do colaborador.
+// Fica como vínculo manual: vale mais que a ligação automática nas importações.
+router.put(
+  "/employees/:id/clock-registration",
+  requirePermission("hr.timeclock.manage"),
+  asyncHandler(async (req, res) => {
+    const input = z.object({ clockRegistration: z.string().max(40).nullable().optional() }).parse(req.body);
+    const next = normalizeClockNumber(input.clockRegistration);
+    if (next === null) throw new BadRequestError("Número do relógio inválido: use só números ou letras, como aparece no aparelho");
+    const employee = await ensureEmployee(req.params.id, req.user!.organizationId);
+    const previous = employee.clockRegistration;
+    if (next && next !== previous) {
+      const holder = await prisma.employee.findFirst({
+        where: { organizationId: req.user!.organizationId, clockRegistration: next, id: { not: employee.id } },
+        select: { fullName: true, registration: true },
+      });
+      if (holder) throw new BadRequestError(`O nº ${next} do relógio já está no cadastro de ${holder.fullName} (${holder.registration}). Desvincule lá antes.`);
+    }
+    const updated = await prisma.employee.update({
+      where: { id: employee.id },
+      data: next ? { clockRegistration: next, clockLinkSource: "MANUAL" } : { clockRegistration: null, clockLinkSource: null },
+      select: { id: true, fullName: true, clockRegistration: true, clockLinkSource: true },
+    });
+    const action = !next ? "TIMECLOCK_NUMBER_UNLINKED" : previous ? "TIMECLOCK_NUMBER_CHANGED" : "TIMECLOCK_NUMBER_LINKED";
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action, entity: "Employee", entityId: employee.id, details: { from: previous, to: next || null } } });
+    return ok(res, updated, !next ? "Número do relógio desvinculado" : previous ? `Número do relógio trocado para ${next}` : `Número ${next} do relógio vinculado`);
   })
 );
 
