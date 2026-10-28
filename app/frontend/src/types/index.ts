@@ -497,7 +497,16 @@ export type RequisitionStatus =
   | "CANCELLED";
 
 export type RequisitionPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
-export type RequisitionItemStatus = "PENDING" | "CUTTING" | "CUT" | "INSPECTED";
+export type RequisitionItemStatus = "PENDING" | "CUTTING" | "CUT" | "INSPECTED" | "MISSING" | "CANCELLED";
+export type RequisitionPhotoKind = "ETIQUETA" | "FALTANDO" | "RECEBIMENTO";
+/** sugestão da leitura da etiqueta (nada vai para o item sem o montador salvar) */
+export type RequisitionLabelSuggestion = {
+  clientName: string | null; room: string | null; description: string | null; pieceCode: string | null;
+  width: number | null; length: number | null; thickness: number | null; material: string | null;
+  edgeFinish: string | null; moduleRef: string | null; cutPlanRef: string | null;
+};
+/** obra para o seletor da requisição */
+export type RequisitionProjectOption = { id: string; code: string; name: string; status: string; client: { name: string } | null; rooms: { id: string; name: string }[] };
 
 export type Requisition = {
   id: string;
@@ -508,6 +517,9 @@ export type Requisition = {
   destination: string | null;
   clientName: string | null;
   projectReference: string | null;
+  /** obra: projeto cadastrado */
+  projectId?: string | null;
+  project?: { id: string; code: string; name: string; client: { name: string } | null } | null;
   priority: RequisitionPriority;
   /** DATA PEDIDO da folha (sem ela, vale a criação) */
   orderedAt?: string | null;
@@ -535,7 +547,7 @@ export type Requisition = {
     id: string;
     /** ambiente (cozinha, quarto…) */
     room?: string | null;
-    /** insumo: INSUMO, FERRAGEM ou OUTRO */
+    /** INSUMO, FERRAGEM, FERRAMENTA, PERFIL, PUXADOR, ACESSORIOS ou OUTRO */
     supplyType?: string | null;
     description: string;
     material: string | null;
@@ -546,7 +558,20 @@ export type Requisition = {
     quantity: number;
     unit: Unit;
     edgeFinish: string | null;
+    /** "Motivo" */
     note: string | null;
+    observation?: string | null;
+    pieceCode?: string | null;
+    moduleRef?: string | null;
+    cutPlanRef?: string | null;
+    missingQuantity?: number | null;
+    /** quantas vezes faltou: nesta requisição e, com código da peça, em todas */
+    missingTimes?: number;
+    missingTimesByCode?: number | null;
+    receivedQuantity?: number | null;
+    receivedAt?: string | null;
+    receivedBy?: { id: string; name: string } | null;
+    photos?: { id: string; kind: RequisitionPhotoKind; createdAt: string; ocrConfirmedAt: string | null }[];
     status: RequisitionItemStatus;
     reservedQuantity: number;
     product: { id: string; name: string; code: string; unit: Unit; stock: number; reservedStock: number } | null;
