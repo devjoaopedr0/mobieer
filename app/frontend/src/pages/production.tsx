@@ -18,6 +18,7 @@ import { DispatchChecklistCard } from "@/components/dispatch-checklist";
 import { useAuth } from "@/hooks/use-auth";
 import { cn, errorMessage } from "@/lib/utils";
 import { ProductionItemsPanel } from "./production-items";
+import { PieceRouteCard } from "@/components/piece-route";
 import { LeadTimesCard } from "@/components/lead-times";
 import { FactoryStepsOverview, ProductionStepsCard } from "@/components/production-steps";
 import { ProductionBoard } from "@/components/production-board";
@@ -381,6 +382,7 @@ export function ProductionProjectPanel({ projectId, canManage }: { projectId: st
       </Card>
 
       <ProductionStepsCard projectId={projectId} canEdit={canManage || can("production.steps")} />
+      <PieceRouteCard projectId={projectId} canEdit={canManage || can("production.steps")} />
       <ProductionFrontsCard projectId={projectId} canEdit={canManage || can("production.steps")} />
 
       <CutPlanCard projectId={projectId} canManage={canManage} cutPlan={o.cutPlan} onChange={(id) => patch.mutate({ cutPlanImportId: id })} saving={patch.isPending} />

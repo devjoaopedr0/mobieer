@@ -65,6 +65,8 @@ model User {
   cuttingReqs               Requisition[]              @relation("RequisitionCutter")
   inspectedReqs             Requisition[]              @relation("RequisitionInspector")
   receivedReqItems          RequisitionItem[]          @relation("RequisitionItemReceiver")
+  pieceTypesConfirmed       ProductionItem[]           @relation("PieceTypeConfirmer")
+  pieceStepsDone            PieceStepProgress[]        @relation("PieceStepDoneBy")
   requisitionPhotos         RequisitionPhoto[]         @relation("RequisitionPhotoUploader")
   requisitionEvents         RequisitionHistory[]
   inventories               Inventory[]
@@ -254,6 +256,8 @@ model Organization {
   technicalApprovals     TechnicalProjectApproval[]
   productionOrders       ProductionOrder[]
   productionItems        ProductionItem[]
+  routeSteps             RouteStep[]
+  pieceTypes             PieceType[]
   productionTimeLogs     ProductionTimeLog[]
   fiscalInvoices         FiscalInvoice[]
   promobImports          PromobImport[]
@@ -3180,6 +3184,14 @@ model ProductionItem {
   updatedAt      DateTime              @updatedAt
   events         ProductionItemEvent[]
   timeLogs       ProductionTimeLog[]
+  /// tipo da peça (roteiro): sugerido pela etiqueta e confirmado pela pessoa
+  pieceTypeId          String?
+  pieceType            PieceType?          @relation(fields: [pieceTypeId], references: [id], onDelete: SetNull)
+  /// LABEL: sugestão da etiqueta confirmada; MANUAL: escolhido à mão
+  pieceTypeSource      String?
+  pieceTypeConfirmedById String?
+  pieceTypeConfirmedBy   User?             @relation("PieceTypeConfirmer", fields: [pieceTypeConfirmedById], references: [id], onDelete: SetNull)
+  routeSteps           PieceStepProgress[]
 
   @@unique([organizationId, code])
   @@index([organizationId, status, sector])
@@ -4752,6 +4764,97 @@ model ProductionStep {
   @@unique([orderId, step])
   @@index([status, dueAt])
   @@index([responsibleId])
+}
+
+// ============================================================
+// Roteiro de produção por peça
+//
+// RouteStep: as etapas base (01 Corte … 11 Coleta), com instrução; só o
+// administrador edita. PieceType: tipo da peça (lateral, porta…). RouteOverride:
+// por tipo, pular a etapa, acrescentar à instrução ou trocar a instrução.
+// PieceStepProgress: o andamento de cada peça — a peça é o ProductionItem, e o
+// código da etiqueta é o code dele — em cada etapa. Quando todas as peças do pedido fecham uma etapa ligada a uma
+// etapa do pedido (productionStep), a etapa do pedido é concluída.
+// ============================================================
+
+enum RouteOverrideAction {
+  SKIP // a etapa não se aplica a este tipo de peça
+  APPEND // acrescenta à instrução
+  REPLACE // troca a instrução
+}
+
+enum PieceStepStatus {
+  PENDING
+  DONE
+  NOT_APPLICABLE
+}
+
+model RouteStep {
+  id             String               @id @default(cuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  position       Int
+  name           String
+  instruction    String?              @db.Text
+  requirePhoto   Boolean              @default(false)
+  /// etapa do pedido que esta etapa da peça fecha quando todas as peças passarem
+  productionStep ProductionStepKey?
+  active         Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  overrides      RouteOverride[]
+  progress       PieceStepProgress[]
+
+  @@unique([organizationId, position])
+}
+
+model PieceType {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  overrides      RouteOverride[]
+  items          ProductionItem[]
+
+  @@unique([organizationId, name])
+}
+
+model RouteOverride {
+  id          String              @id @default(cuid())
+  pieceTypeId String
+  pieceType   PieceType           @relation(fields: [pieceTypeId], references: [id], onDelete: Cascade)
+  routeStepId String
+  routeStep   RouteStep           @relation(fields: [routeStepId], references: [id], onDelete: Cascade)
+  action      RouteOverrideAction
+  instruction String?             @db.Text
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([pieceTypeId, routeStepId])
+}
+
+/// Andamento da peça (ProductionItem) em cada etapa do roteiro.
+model PieceStepProgress {
+  id           String          @id @default(cuid())
+  itemId       String
+  item         ProductionItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  routeStepId  String
+  routeStep    RouteStep       @relation(fields: [routeStepId], references: [id], onDelete: Cascade)
+  status       PieceStepStatus @default(PENDING)
+  doneById     String?
+  doneBy       User?           @relation("PieceStepDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  doneAt       DateTime?
+  photoKey     String?
+  photoName    String?
+  photoMime    String?
+  note         String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([itemId, routeStepId])
+  @@index([routeStepId, status])
 }
 
 // ============================================================

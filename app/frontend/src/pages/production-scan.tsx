@@ -13,6 +13,7 @@ import { apiGet, apiObjectUrl, apiPost } from "@/services/api";
 import { useAuth } from "@/hooks/use-auth";
 import { cn, errorMessage } from "@/lib/utils";
 import { CameraScanner } from "@/components/camera-scanner";
+import { PieceCardView, type PieceCard } from "@/components/piece-route";
 
 type CheckItem = {
   id: string;
@@ -81,11 +82,36 @@ const TONE: Record<Feedback["tone"], string> = {
 export function ProductionScanPage() {
   const { can } = useAuth();
   const canScan = can("organization.manage");
+  // roteiro por peça: quem atualiza as etapas da produção marca a etapa da peça lida
+  const canRoute = can("organization.manage") || can("production.steps");
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const projectId = params.get("projeto");
   const [code, setCode] = useState("");
-  const [mode, setMode] = useState<"done" | "advance">("done");
+  const [mode, setMode] = useState<"done" | "advance" | "route">("done");
+  const canScanNow = mode === "route" ? canRoute : canScan;
+  const [routeCode, setRouteCode] = useState<string | null>(null);
+  const routeCard = useQuery({
+    queryKey: ["production", "piece-route-code", routeCode],
+    queryFn: () => apiGet<{ data: PieceCard }>(`/production/piece-routes/by-code/${encodeURIComponent(routeCode!)}`),
+    enabled: Boolean(routeCode),
+    retry: false,
+  });
+  const routeTypes = useQuery({
+    queryKey: ["production", "piece-route-config"],
+    queryFn: () => apiGet<{ data: { types: { id: string; name: string; active: boolean }[] } }>("/production/piece-route/config"),
+    enabled: mode === "route" && canRoute,
+    staleTime: 60_000,
+  });
+  const read = (value: string) => {
+    if (mode === "route") {
+      setRouteCode(value);
+      setCode("");
+      input.current?.focus();
+      return;
+    }
+    if (!scan.isPending) scan.mutate(value);
+  };
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [log, setLog] = useState<Feedback[]>([]);
@@ -141,7 +167,7 @@ export function ProductionScanPage() {
             className="flex flex-wrap items-end gap-3"
             onSubmit={(e) => {
               e.preventDefault();
-              if (code.trim() && !scan.isPending) scan.mutate(code.trim());
+              if (code.trim()) read(code.trim());
             }}
           >
             <div className="min-w-[240px] flex-1">
@@ -153,29 +179,42 @@ export function ProductionScanPage() {
                   ref={input}
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  disabled={!canScan}
+                  disabled={!canScanNow}
                   inputMode="numeric"
                   autoComplete="off"
-                  placeholder={canScan ? "Aponte o leitor para a etiqueta" : "Seu perfil não pode dar baixa"}
+                  placeholder={canScanNow ? "Aponte o leitor para a etiqueta" : "Seu perfil não pode dar baixa"}
                   className="h-12 pl-11 text-lg tabular-nums"
                 />
               </div>
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">O que a leitura faz</label>
-              <Select value={mode} onValueChange={(v) => setMode(v as "done" | "advance")}>
+              <Select value={mode} onValueChange={(v) => setMode(v as "done" | "advance" | "route")}>
                 <SelectTrigger className="h-12 w-[230px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="done">Dar baixa (item pronto)</SelectItem>
                   <SelectItem value="advance">Concluir o setor e avançar</SelectItem>
+                  <SelectItem value="route">Abrir o roteiro da peça</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" className="h-12" disabled={!canScan || !code.trim() || scan.isPending}>Registrar</Button>
+            <Button type="submit" className="h-12" disabled={!canScanNow || !code.trim() || scan.isPending}>{mode === "route" ? "Abrir" : "Registrar"}</Button>
           </form>
 
           {/* celular/tablet: lê a etiqueta pela câmera, uma atrás da outra */}
-          <CameraScanner disabled={!canScan} onCode={(value) => { if (!scan.isPending) scan.mutate(value); }} />
+          <CameraScanner disabled={!canScanNow} onCode={read} />
+
+          {/* roteiro por peça: o cartão da peça lida, com as etapas em sequência */}
+          {mode === "route" && routeCode && (
+            routeCard.isLoading ? <p className="text-sm text-muted-foreground">Abrindo a peça {routeCode}…</p>
+            : routeCard.isError ? <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{errorMessage(routeCard.error, "Peça não encontrada")}</p>
+            : routeCard.data && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Projeto {routeCard.data.data.project.code} — {routeCard.data.data.project.name}</p>
+                <PieceCardView card={routeCard.data.data} canEdit={canRoute} types={(routeTypes.data?.data.types ?? []).filter((t) => t.active)} onChange={() => { void routeCard.refetch(); void qc.invalidateQueries({ queryKey: ["production"] }); }} />
+              </div>
+            )
+          )}
 
           {feedback && (
             <div className={cn("flex items-start gap-3 rounded-lg border p-4", TONE[feedback.tone])} role="status" aria-live="polite">
