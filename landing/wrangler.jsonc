@@ -8,6 +8,8 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-10-23",
 	"assets": {
+		// pasta gerada pelo `npm run build` (o deploy precisa do build antes)
+		"directory": "./dist/client",
 		"not_found_handling": "single-page-application"
 	},
 	"observability": {
