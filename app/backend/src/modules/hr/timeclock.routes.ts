@@ -305,7 +305,7 @@ async function mapPunches(buffer: Buffer, organizationId: string) {
         fileName: g.fileName,
         employee: emp ? { id: emp.id, registration: emp.registration, fullName: emp.fullName, status: emp.status } : null,
         // como a ligação foi feita (RELOGIO, NOME, MATRICULA) ou por que não foi
-        how: m.how,
+        how: m.how as typeof m.how | "MANUAL",
         ambiguous: m.ambiguous,
         // quem não está no cadastro pode ser cadastrado com o nome e o número do relógio
         newName: emp ? null : clockDisplayName({ registration: g.registration, name: g.fileName }),
@@ -320,6 +320,43 @@ async function mapPunches(buffer: Buffer, organizationId: string) {
     .sort((a, b) => Number(a.registration) - Number(b.registration) || a.registration.localeCompare(b.registration));
 
   return { parsed, rows };
+}
+
+/**
+ * Ligações escolhidas à mão na conferência: "número do relógio -> colaborador".
+ * Vale mais que a ligação automática (nome/matrícula) e fica gravada no
+ * cadastro, para as próximas importações irem direto para a pessoa certa.
+ */
+async function applyManualLinks(rows: Awaited<ReturnType<typeof mapPunches>>["rows"], raw: unknown, organizationId: string) {
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new BadRequestError("Vínculos do ponto inválidos");
+  }
+  const links = z.record(z.string().min(1).max(40), z.string().min(1)).parse(parsed);
+  const ids = [...new Set(Object.values(links))];
+  if (new Set(Object.values(links)).size !== Object.values(links).length) {
+    throw new BadRequestError("O mesmo colaborador foi escolhido para mais de um número do relógio");
+  }
+  const employees = await prisma.employee.findMany({
+    where: { organizationId, id: { in: ids } },
+    select: { id: true, registration: true, fullName: true, status: true },
+  });
+  const byId = new Map(employees.map((e) => [e.id, e]));
+  const applied: string[] = [];
+  for (const [reg, employeeId] of Object.entries(links)) {
+    const row = rows.find((r) => r.registration === reg);
+    const emp = byId.get(employeeId);
+    if (!row) continue;
+    if (!emp) throw new BadRequestError("Colaborador escolhido não encontrado");
+    // outra linha do arquivo ligada automaticamente à mesma pessoa perde a ligação
+    for (const other of rows) if (other !== row && other.employee?.id === emp.id) Object.assign(other, { employee: null, how: null, nameMismatch: false });
+    Object.assign(row, { employee: emp, how: "MANUAL", nameMismatch: false, inactive: emp.status !== "ACTIVE", newName: null });
+    applied.push(reg);
+  }
+  return applied;
 }
 
 // POST /api/hr/timeclock/import/preview -> confere antes de gravar
@@ -359,6 +396,7 @@ router.post(
     if (!req.file) throw new BadRequestError("Envie o arquivo exportado do relógio de ponto");
     const confirmarDivergencias = String(req.body?.confirmarDivergencias ?? "") === "true";
     const { parsed, rows } = await mapPunches(req.file.buffer, req.user!.organizationId);
+    const manual = await applyManualLinks(rows, req.body?.vinculos, req.user!.organizationId);
     if (parsed.punches.length === 0) {
       throw new BadRequestError("Nenhuma marcação reconhecida no arquivo. Formatos aceitos: exportação com cabeçalho (EnNo/DateTime) ou matrícula; data; hora.");
     }
@@ -379,7 +417,18 @@ router.post(
     // Ligado pelo nome ou pela matrícula: guarda o número do relógio no cadastro,
     // para a próxima importação não depender do nome.
     for (const r of rows) {
-      if (r.employee && (r.how === "NOME" || r.how === "MATRICULA")) await prisma.employee.update({ where: { id: r.employee.id }, data: { clockRegistration: r.registration } });
+      if (!r.employee || !(r.how === "NOME" || r.how === "MATRICULA" || r.how === "MANUAL")) continue;
+      // o número do relógio é único no cadastro: sai de quem tinha antes
+      await prisma.employee.updateMany({
+        where: { organizationId: req.user!.organizationId, clockRegistration: r.registration, id: { not: r.employee.id } },
+        data: { clockRegistration: null },
+      });
+      await prisma.employee.update({ where: { id: r.employee.id }, data: { clockRegistration: r.registration } });
+    }
+    if (manual.length) {
+      await prisma.auditLog.create({
+        data: { userId: req.user!.id, action: "TIMECLOCK_MANUAL_LINK", entity: "TimeEntryImport", entityId: req.file.originalname, details: { links: req.body?.vinculos } },
+      });
     }
     // Quem não está no cadastro: cadastra o colaborador com o nome e o número do relógio.
     // Não cria usuário de acesso ao sistema — só a ficha, para o ponto ter onde ficar.
