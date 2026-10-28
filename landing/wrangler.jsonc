@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "my-react-app",
+	"name": "mobieer-landing",
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-10-23",
 	"assets": {
