@@ -143,3 +143,16 @@ export function channelPanel(leads: ChannelLead[], opps: ChannelOpportunity[]): 
   });
   return rows.filter((r) => r.entrou || r.oportunidades || r.ganhos).sort((a, b) => b.valorVendido - a.valorVendido || b.entrou - a.entrou);
 }
+
+// ---------------------------------------------------------------- lead
+
+/**
+ * Situação que o lead pode receber. Ele entra como lead (novo, contatado ou
+ * qualificado); convertido só pela conversão, que cria a oportunidade; perdido
+ * exige o motivo. `current` vazio = cadastro novo.
+ */
+export function leadStatusProblem(next: string | undefined, lostReasonCode: string | null | undefined, current?: string | null): string | null {
+  if (next === "CONVERTED" && current !== "CONVERTED") return current == null ? "O lead entra como lead: a conversão cria a oportunidade depois" : "Use Converter: a conversão cria a oportunidade e liga o cliente";
+  if (next === "LOST" && current !== "LOST" && !lostReasonCode) return "Informe o motivo da perda";
+  return null;
+}

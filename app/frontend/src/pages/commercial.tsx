@@ -27,7 +27,8 @@ import { ReferrersTab } from "@/components/referrers-tab";
 import { TeamsTab } from "@/components/teams-tab";
 import { errorMessage, formatCurrency } from "@/lib/utils";
 import type { CommercialLead, Opportunity, PipelineSummary, SalesStage } from "@/types";
-import { ChannelPanel, ORIGIN_OPTIONS, TemperatureFilter, TemperatureTag } from "@/components/crm-parts";
+import { ChannelPanel, TemperatureFilter, TemperatureTag, originLabel } from "@/components/crm-parts";
+import { LeadDialog } from "@/components/lead-dialog";
 
 const LEAD_STATUS: Record<string, string> = {
   NEW: "Novo", CONTACTED: "Contatado", QUALIFIED: "Qualificado", CONVERTED: "Convertido", LOST: "Perdido",
@@ -87,7 +88,6 @@ export function CommercialPage() {
   const [leadTemp, setLeadTemp] = useState("");
 
   const [oppForm, setOppForm] = useState({ title: "", stageId: "", estimatedValue: "", expectedCloseAt: "", nextAction: "" });
-  const [leadForm, setLeadForm] = useState({ name: "", phone: "", email: "", source: "", interest: "" });
   const [convForm, setConvForm] = useState({ title: "", estimatedValue: "", stageId: "", name: "", document: "", email: "", phone: "", address: "" });
   const [intForm, setIntForm] = useState({ type: "CALL", summary: "", result: "", nextAction: "", nextActionAt: "" });
   const [moveStage, setMoveStage] = useState("");
@@ -97,11 +97,6 @@ export function CommercialPage() {
   const createOpp = useMutation({
     mutationFn: () => apiPost("/commercial/opportunities", { ...oppForm, estimatedValue: Number(oppForm.estimatedValue || 0), expectedCloseAt: oppForm.expectedCloseAt || null, nextAction: oppForm.nextAction || null }),
     onSuccess: () => { toast.success("Oportunidade criada"); setDialog(null); setOppForm({ title: "", stageId: "", estimatedValue: "", expectedCloseAt: "", nextAction: "" }); refresh(); },
-    onError: (e) => toast.error(errorMessage(e, "Falha ao criar")),
-  });
-  const createLead = useMutation({
-    mutationFn: () => apiPost("/commercial/leads", { ...leadForm, email: leadForm.email || null }),
-    onSuccess: () => { toast.success("Lead criado"); setDialog(null); setLeadForm({ name: "", phone: "", email: "", source: "", interest: "" }); refresh(); },
     onError: (e) => toast.error(errorMessage(e, "Falha ao criar")),
   });
   const doConvert = useMutation({
@@ -281,8 +276,14 @@ export function CommercialPage() {
                       {l.briefing && <Badge variant="secondary" className="ml-2 align-middle text-[10px]">briefing</Badge>}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {[l.phone, l.interest, l.source].filter(Boolean).join(" · ") || "—"}
+                      {[l.phone, l.interest, originLabel(l.origin) ?? (l.source ? `${l.source} (sem origem na lista)` : null)].filter(Boolean).join(" · ") || "—"}
                     </p>
+                    {(l.convertedClient || (l.opportunities?.length ?? 0) > 0) && (
+                      <p className="truncate text-xs">
+                        {l.convertedClient && <>Cliente: <span className="font-medium">{l.convertedClient.name}</span></>}
+                        {l.opportunities?.map((o) => <span key={o.id}> · Oportunidade: <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => setParams({ aba: "funil" }, { replace: true })}>{o.title}</button></span>)}
+                      </p>
+                    )}
                   </div>
                   <TemperatureTag value={l.temperature} title={l.temperatureReason ?? undefined} />
                   <Badge variant="secondary">{LEAD_STATUS[l.status] ?? l.status}{l.status === "LOST" && l.lostReasonCode ? ` · ${LOST_REASONS.find(([v]) => v === l.lostReasonCode)?.[1] ?? l.lostReasonCode}` : ""}</Badge>
@@ -479,29 +480,7 @@ export function CommercialPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={dialog === "lead"} onOpenChange={(v) => !v && setDialog(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Novo lead</DialogTitle></DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Nome" className="sm:col-span-2"><Input value={leadForm.name} onChange={(e) => setLeadForm({ ...leadForm, name: e.target.value })} /></Field>
-            <Field label="Telefone"><Input value={leadForm.phone} onChange={(e) => setLeadForm({ ...leadForm, phone: e.target.value })} /></Field>
-            <Field label="E-mail"><Input type="email" value={leadForm.email} onChange={(e) => setLeadForm({ ...leadForm, email: e.target.value })} /></Field>
-            <Field label="Origem">
-              <Select value={leadForm.source || "NONE"} onValueChange={(v) => setLeadForm({ ...leadForm, source: v === "NONE" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent><SelectItem value="NONE">—</SelectItem>{ORIGIN_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field label="Interesse"><Input value={leadForm.interest} onChange={(e) => setLeadForm({ ...leadForm, interest: e.target.value })} /></Field>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialog(null)}>Cancelar</Button>
-            <Button disabled={createLead.isPending || leadForm.name.length < 2} onClick={() => createLead.mutate()}>
-              {createLead.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Criar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <LeadDialog open={dialog === "lead"} onClose={() => setDialog(null)} onCreated={refresh} />
 
       <Dialog open={dialog === "convert"} onOpenChange={(v) => !v && setDialog(null)}>
         <DialogContent>

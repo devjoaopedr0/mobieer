@@ -753,6 +753,12 @@ export type CommercialLead = {
   seller: { id: string; name: string } | null;
   briefing: { id: string; submittedAt: string; environments: string[]; origin: "PUBLIC" | "CONSULTANT" } | null;
   _count: { opportunities: number; interactions: number };
+  /** cliente ligado: já era cliente ou virou na conversão */
+  convertedClient?: { id: string; name: string } | null;
+  opportunities?: { id: string; title: string; status: string }[];
+  lastContactAt?: string | null;
+  /** próximo contato vencido */
+  overdue?: boolean;
 };
 
 export type LeadBriefing = {

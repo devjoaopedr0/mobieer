@@ -11,7 +11,7 @@ import { accessMessage, grantPortalAccess, sendUpgradeEmail } from "../portal/po
 import { enumQuery } from "../../utils/query";
 import { isValidCpf, onlyDigits } from "../../utils/document";
 import { sendAutomation } from "../../lib/automations";
-import { channelPanel, leadTemperature, normalizeOrigin, opportunityScore, opportunityTemperature, ORIGIN_LABEL, ORIGINS, type Origin, type Temperature } from "./crm.rules";
+import { channelPanel, leadStatusProblem, leadTemperature, normalizeOrigin, opportunityScore, opportunityTemperature, ORIGIN_LABEL, ORIGINS, type Origin, type Temperature } from "./crm.rules";
 
 const router = Router();
 router.use(authenticate);
@@ -117,7 +117,18 @@ const leadSchema = z.object({
   notes: nullable(5000),
   sellerId: z.string().min(1).optional().nullable(),
   nextContactAt: z.coerce.date().optional().nullable(),
+  /** "já é cliente": o lead fica ligado ao cadastro existente (e a conversão usa ele) */
+  clientId: z.string().min(1).optional().nullable(),
 });
+
+/** Cliente ligado ao lead: da organização e dentro da carteira de quem cadastra. */
+async function ensureLeadClient(clientId: string, req: { user?: { id: string; organizationId: string; permissions: string[] } }) {
+  const c = await prisma.client.findFirst({ where: { id: clientId, organizationId: req.user!.organizationId }, select: { id: true, sellerId: true } });
+  if (!c) throw new NotFoundError("Cliente não encontrado");
+  const seeAll = req.user!.permissions.includes("commercial.read.all") || req.user!.permissions.includes("clients.read.all");
+  if (!seeAll && c.sellerId && c.sellerId !== req.user!.id) throw new BadRequestError("Este cliente é da carteira de outro vendedor");
+  return c;
+}
 
 router.get(
   "/leads",
@@ -128,9 +139,13 @@ router.get(
         organizationId: req.user!.organizationId,
         ...sellerScope(req),
         ...(req.query.status ? { status: enumQuery(req.query.status, CommercialLeadStatus, "status") } : {}),
+        ...(req.query.clientId ? { convertedClientId: String(req.query.clientId) } : {}),
       },
       include: {
         seller: { select: { id: true, name: true } },
+        // vínculo do lead: o cliente (já era ou virou na conversão) e as oportunidades criadas
+        convertedClient: { select: { id: true, name: true } },
+        opportunities: { select: { id: true, title: true, status: true }, orderBy: { createdAt: "asc" } },
         briefing: { select: { id: true, submittedAt: true, environments: true, origin: true } },
         _count: { select: { opportunities: true, interactions: true } },
       },
@@ -211,7 +226,9 @@ router.post(
   requirePermission("commercial.leads.manage"),
   asyncHandler(async (req, res) => {
     const input = leadSchema.parse(req.body);
-    if (input.status === "LOST" && !input.lostReasonCode) throw new BadRequestError("Informe o motivo da perda", { field: "lostReasonCode" }, "VALIDATION_ERROR");
+    const statusProblem = leadStatusProblem(input.status, input.lostReasonCode, null);
+    if (statusProblem) throw new BadRequestError(statusProblem, { field: input.status === "LOST" ? "lostReasonCode" : "status" }, "VALIDATION_ERROR");
+    if (input.clientId) await ensureLeadClient(input.clientId, req);
     const lead = await prisma.commercialLead.create({
       data: {
         organizationId: req.user!.organizationId,
@@ -225,9 +242,12 @@ router.post(
         status: input.status ?? "NEW",
         sellerId: input.sellerId ?? req.user!.id,
         nextContactAt: input.nextContactAt ?? null,
+        // contatado/qualificado já na entrada: conta como o primeiro contato
+        lastContactAt: input.status === "CONTACTED" || input.status === "QUALIFIED" ? new Date() : null,
+        convertedClientId: input.clientId ?? null,
       },
     });
-    await audit(req.user!.id, "COMMERCIAL_LEAD_CREATED", "CommercialLead", lead.id, { name: lead.name });
+    await audit(req.user!.id, "COMMERCIAL_LEAD_CREATED", "CommercialLead", lead.id, { name: lead.name, clientId: input.clientId ?? null });
     return ok(res, lead, "Lead criado");
   })
 );
@@ -239,9 +259,11 @@ router.patch(
     const cur = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
     if (!cur) throw new NotFoundError("Lead não encontrado");
     const input = leadSchema.partial().parse(req.body);
+    if (input.clientId) await ensureLeadClient(input.clientId, req);
     // perdido: o motivo é obrigatório (a mesma lista das oportunidades)
     const becomesLost = input.status === "LOST" && cur.status !== "LOST";
-    if (becomesLost && !input.lostReasonCode) throw new BadRequestError("Informe o motivo da perda", { field: "lostReasonCode" }, "VALIDATION_ERROR");
+    const statusProblem = leadStatusProblem(input.status, input.lostReasonCode, cur.status);
+    if (statusProblem) throw new BadRequestError(statusProblem, { field: becomesLost ? "lostReasonCode" : "status" }, "VALIDATION_ERROR");
     const lostReasonCode = input.status && input.status !== "LOST" ? null : input.lostReasonCode ?? undefined;
     // só a origem mudou: o texto antigo fica se ainda bate com ela; senão vira o nome do item
     const keepText = input.source === undefined && input.origin != null && normalizeOrigin(cur.source) === input.origin;
@@ -260,6 +282,8 @@ router.patch(
         sellerId: input.sellerId === undefined ? undefined : input.sellerId,
         nextContactAt: input.nextContactAt === undefined ? undefined : input.nextContactAt,
         lastContactAt: input.status === "CONTACTED" ? new Date() : undefined,
+        // lead convertido não troca de cliente: o vínculo com o cliente e a oportunidade fica
+        convertedClientId: input.clientId === undefined || cur.status === "CONVERTED" ? undefined : input.clientId,
       },
     });
     if (becomesLost) await audit(req.user!.id, "COMMERCIAL_LEAD_LOST", "CommercialLead", lead.id, { reason: input.lostReasonCode });
@@ -302,7 +326,8 @@ router.post(
     if (document && document.length === 11 && !isValidCpf(document)) throw new BadRequestError("CPF inválido", { field: "document" }, "VALIDATION_ERROR");
 
     const result = await prisma.$transaction(async (tx) => {
-      let clientId = input.clientId ?? null;
+      // "já é cliente": o cadastro ligado ao lead vale antes de procurar pelo CPF
+      let clientId = input.clientId ?? lead.convertedClientId ?? null;
       if (!clientId && document) {
         // mesmo CPF já é cliente: liga ao cadastro existente em vez de duplicar
         const existing = await tx.client.findFirst({ where: { organizationId: req.user!.organizationId, document }, select: { id: true } });

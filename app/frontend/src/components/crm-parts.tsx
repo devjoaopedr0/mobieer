@@ -7,6 +7,17 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 /** Lista fixa de origem, a mesma em leads, clientes e negócios (o texto gravado é o rótulo). */
 export const ORIGIN_OPTIONS = ["Instagram", "Indicação", "Google", "Site", "Arquiteto", "Parceiros", "Outro"];
+/** A mesma lista com o código gravado em `origin` */
+export const ORIGIN_CODES = [
+  { value: "INSTAGRAM", label: "Instagram" },
+  { value: "INDICACAO", label: "Indicação" },
+  { value: "GOOGLE", label: "Google" },
+  { value: "SITE", label: "Site" },
+  { value: "ARQUITETO", label: "Arquiteto" },
+  { value: "PARCEIROS", label: "Parceiros" },
+  { value: "OUTRO", label: "Outro" },
+];
+export const originLabel = (code: string | null | undefined) => ORIGIN_CODES.find((o) => o.value === code)?.label ?? null;
 
 export type Temperature = "QUENTE" | "MORNO" | "FRIO";
 export const TEMPERATURE_LABEL: Record<Temperature, string> = { QUENTE: "Quente", MORNO: "Morno", FRIO: "Frio" };
