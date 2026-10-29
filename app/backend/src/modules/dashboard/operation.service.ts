@@ -4,6 +4,7 @@
  * período; nada é guardado.
  */
 import { prisma } from "../../prisma";
+import { closedWhere, lostWhere } from "../commercial/closed.rules";
 import { bucketKeys, isSheetProduct, periodRange, series, sheetsFor, type Period } from "./operation.rules";
 
 const n = (v: unknown) => (v == null ? 0 : Number(v));
@@ -50,10 +51,10 @@ export async function operationDashboard(organizationId: string, period: Period,
     prisma.client.count({ where: { ...org, status: "ACTIVE" } }),
     prisma.commercialLead.count({ where: { ...org, createdAt: inPeriod } }),
     prisma.commercialOpportunity.findMany({
-      where: { ...org, status: "WON", wonAt: inPeriod },
+      where: { ...org, ...closedWhere(inPeriod) },
       select: { estimatedValue: true, wonAt: true, seller: { select: { id: true, name: true } } },
     }),
-    prisma.commercialOpportunity.count({ where: { ...org, status: "LOST", updatedAt: inPeriod } }),
+    prisma.commercialOpportunity.count({ where: { ...org, ...lostWhere(inPeriod) } }),
     prisma.commercialOpportunity.aggregate({ where: { ...org, status: "OPEN" }, _count: true, _sum: { estimatedValue: true } }),
     prisma.commercialQuote.count({ where: { ...org, status: "APPROVED", approvedAt: inPeriod } }),
     prisma.commercialQuote.count({ where: { ...org, status: { in: ["DRAFT", "SENT", "VIEWED", "NEGOTIATION"] } } }),

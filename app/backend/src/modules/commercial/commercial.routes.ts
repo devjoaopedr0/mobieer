@@ -11,6 +11,7 @@ import { accessMessage, grantPortalAccess, sendUpgradeEmail } from "../portal/po
 import { enumQuery } from "../../utils/query";
 import { isValidCpf, onlyDigits } from "../../utils/document";
 import { sendAutomation } from "../../lib/automations";
+import { closeRate, closedWhere, defaultMonth, lostWhere } from "./closed.rules";
 import { channelPanel, leadStatusProblem, leadTemperature, normalizeOrigin, opportunityScore, opportunityTemperature, ORIGIN_LABEL, ORIGINS, type Origin, type Temperature } from "./crm.rules";
 
 const router = Router();
@@ -812,6 +813,47 @@ router.get(
       to: to.toISOString().slice(0, 10),
       rows,
       total: { entrou: sum("entrou"), converteu: sum("converteu"), valorVendido: sum("valorVendido"), taxaConversao: sum("entrou") ? Math.round((sum("converteu") / sum("entrou")) * 1000) / 10 : 0 },
+    });
+  })
+);
+
+// Painel comercial do período (padrão: mês atual): leads que entraram, clientes
+// novos, fechados (definição única: closedWhere), taxa de conversão e a quebra
+// por origem. Respeita a carteira de quem não vê tudo.
+router.get(
+  "/panel",
+  requirePermission("commercial.read"),
+  asyncHandler(async (req, res) => {
+    const organizationId = req.user!.organizationId;
+    const def = defaultMonth();
+    const from = req.query.from ? new Date(`${String(req.query.from).slice(0, 10)}T00:00:00`) : def.from;
+    const to = req.query.to ? new Date(`${String(req.query.to).slice(0, 10)}T23:59:59.999`) : def.to;
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) throw new BadRequestError("Período inválido");
+    const scope = sellerScope(req);
+    const range = { gte: from, lte: to };
+    const [leads, newClients, won, lost, created] = await Promise.all([
+      prisma.commercialLead.findMany({ where: { organizationId, ...scope, enteredAt: range }, select: { origin: true, source: true, status: true } }),
+      prisma.client.count({ where: { organizationId, ...scope, createdAt: range } }),
+      prisma.commercialOpportunity.findMany({ where: { organizationId, ...scope, ...closedWhere(range) }, select: { origin: true, source: true, estimatedValue: true } }),
+      prisma.commercialOpportunity.count({ where: { organizationId, ...scope, ...lostWhere(range) } }),
+      prisma.commercialOpportunity.findMany({ where: { organizationId, ...scope, createdAt: range }, select: { origin: true, source: true } }),
+    ]);
+    const rows = channelPanel(
+      leads.map((l) => ({ origin: l.origin ?? normalizeOrigin(l.source), status: l.status })),
+      [
+        ...created.map((o) => ({ origin: o.origin ?? normalizeOrigin(o.source), createdInPeriod: true, wonInPeriod: false, estimatedValue: 0 })),
+        ...won.map((o) => ({ origin: o.origin ?? normalizeOrigin(o.source), createdInPeriod: false, wonInPeriod: true, estimatedValue: money(o.estimatedValue) })),
+      ]
+    );
+    return ok(res, {
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+      leadsEntraram: leads.length,
+      clientesNovos: newClients,
+      fechados: { quantidade: won.length, valor: Math.round(won.reduce((a, o) => a + money(o.estimatedValue), 0)) },
+      perdidos: lost,
+      taxaConversao: closeRate(won.length, lost),
+      porOrigem: rows,
     });
   })
 );

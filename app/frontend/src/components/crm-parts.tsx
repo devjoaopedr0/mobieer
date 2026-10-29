@@ -51,7 +51,17 @@ export function TemperatureFilter({ value, onChange }: { value: string; onChange
 }
 
 type ChannelRow = { origin: string; label: string; entrou: number; qualificou: number; converteu: number; perdeu: number; taxaConversao: number; oportunidades: number; ganhos: number; valorVendido: number };
-type ChannelData = { from: string; to: string; rows: ChannelRow[]; total: { entrou: number; converteu: number; valorVendido: number; taxaConversao: number } };
+type PanelData = {
+  from: string;
+  to: string;
+  leadsEntraram: number;
+  clientesNovos: number;
+  /** fechado = oportunidade ganha com data de ganho no período (definição única do sistema) */
+  fechados: { quantidade: number; valor: number };
+  perdidos: number;
+  taxaConversao: number;
+  porOrigem: ChannelRow[];
+};
 
 const monthsAgo = (n: number) => {
   const d = new Date();
@@ -61,17 +71,19 @@ const monthsAgo = (n: number) => {
 
 /** Painel por canal (origem) na aba Conversão, com filtro de período. */
 export function ChannelPanel() {
-  const [from, setFrom] = useState(monthsAgo(5));
+  const [from, setFrom] = useState(monthsAgo(0));
   const [to, setTo] = useState(new Date().toLocaleDateString("en-CA"));
-  const q = useQuery({ queryKey: ["commercial", "channels", from, to], queryFn: () => apiGet<{ data: ChannelData }>("/commercial/channels", { from: from || undefined, to: to || undefined }) });
+  const q = useQuery({ queryKey: ["commercial", "panel", from, to], queryFn: () => apiGet<{ data: PanelData }>("/commercial/panel", { from: from || undefined, to: to || undefined }) });
   const d = q.data?.data;
+  const rows = d?.porOrigem ?? [];
+  const sum = (k: "entrou" | "converteu" | "valorVendido") => rows.reduce((a, r) => a + r[k], 0);
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <CardTitle className="text-base">Por canal (origem)</CardTitle>
-            <p className="text-xs text-muted-foreground">Leads que entraram no período e o que foi vendido nele, por origem.</p>
+            <CardTitle className="text-base">Painel comercial</CardTitle>
+            <p className="text-xs text-muted-foreground">Quem entrou e quem fechou no período. Fechado = oportunidade ganha no período.</p>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <Input type="date" className="h-8 w-36" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -80,10 +92,26 @@ export function ChannelPanel() {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="space-y-3 overflow-x-auto">
+        {d && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              ["Leads que entraram", String(d.leadsEntraram)],
+              ["Clientes novos", String(d.clientesNovos)],
+              ["Fechados", `${d.fechados.quantidade} · ${formatCurrency(d.fechados.valor)}`],
+              ["Taxa de conversão", `${d.taxaConversao}%`],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-md border p-2">
+                <p className="text-xs text-muted-foreground">{k}</p>
+                <p className="text-sm font-semibold tabular-nums">{v}</p>
+              </div>
+            ))}
+            <p className="col-span-full text-[11px] text-muted-foreground">Taxa = fechados ÷ (fechados + perdidos) no período: {d.fechados.quantidade} ÷ ({d.fechados.quantidade} + {d.perdidos}).</p>
+          </div>
+        )}
         {q.isLoading || !d ? (
           <p className="text-sm text-muted-foreground">Carregando…</p>
-        ) : !d.rows.length ? (
+        ) : !rows.length ? (
           <p className="text-sm text-muted-foreground">Nenhum lead ou negócio no período.</p>
         ) : (
           <table className="w-full min-w-[640px] text-sm">
@@ -100,7 +128,7 @@ export function ChannelPanel() {
               </tr>
             </thead>
             <tbody className="tabular-nums">
-              {d.rows.map((r) => (
+              {rows.map((r) => (
                 <tr key={r.origin} className="border-b last:border-0">
                   <td className="py-1.5">{r.label}</td>
                   <td className="text-right">{r.entrou}</td>
@@ -114,13 +142,13 @@ export function ChannelPanel() {
               ))}
               <tr className="font-semibold">
                 <td className="py-1.5">Total</td>
-                <td className="text-right">{d.total.entrou}</td>
+                <td className="text-right">{sum("entrou")}</td>
                 <td />
-                <td className="text-right">{d.total.converteu}</td>
+                <td className="text-right">{sum("converteu")}</td>
                 <td />
-                <td className="text-right">{d.total.taxaConversao}%</td>
+                <td className="text-right">{sum("entrou") ? Math.round((sum("converteu") / sum("entrou")) * 1000) / 10 : 0}%</td>
                 <td />
-                <td className="text-right">{formatCurrency(d.total.valorVendido)}</td>
+                <td className="text-right">{formatCurrency(sum("valorVendido"))}</td>
               </tr>
             </tbody>
           </table>
