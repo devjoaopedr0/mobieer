@@ -28,6 +28,10 @@ model User {
   aiConversations AiConversation[]
   // cargos além do principal (roleId): as permissões são a soma de todos
   extraRoles      UserExtraRole[]
+  inspectionRoomsUpdated  SiteInspectionRoom[]         @relation("SiteInspectionRoomUpdater")
+  inspectionPendencies    InspectionPendency[]         @relation("InspectionPendencyCreator")
+  inspectionPendResolved  InspectionPendency[]         @relation("InspectionPendencyResolver")
+  inspectionPendTransfers InspectionPendencyTransfer[] @relation("InspectionPendencyTransferBy")
   // verificação em duas etapas (TOTP): segredo cifrado, quando foi ativada e hashes dos códigos de recuperação
   mfaSecret        String?
   mfaEnabledAt     DateTime?
@@ -4358,6 +4362,7 @@ model ProjectRoom {
   position     Int                      @default(0)
   measurements MeasurementRoom[]
   diaryEntries InstallationDiaryEntry[]
+  inspectionRooms SiteInspectionRoom[]
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
 
@@ -4969,6 +4974,8 @@ model SiteInspection {
   updatedAt        DateTime         @updatedAt
 
   items SiteInspectionItem[]
+  rooms SiteInspectionRoom[]
+  pendencies InspectionPendency[]
   warranty Warranty?
 
   @@index([organizationId, status])
@@ -4986,6 +4993,91 @@ model SiteInspectionItem {
   note         String?
 
   @@index([inspectionId])
+}
+
+/// Situação de um ambiente na vistoria.
+enum InspectionRoomStatus {
+  NAO_VISTORIADO
+  APROVADO // ambiente entregue (concluído)
+  COM_PENDENCIA
+  REPROVADO
+}
+
+enum InspectionPendencyKind {
+  PECA_FALTANTE // bloqueia a conclusão do ambiente enquanto aberta (a montagem pode seguir)
+  MUDANCA_AMBIENTE // peça ou serviço que é de outro ambiente
+  OUTRA
+}
+
+enum InspectionPendencyStatus {
+  ABERTA
+  RESOLVIDA
+}
+
+/// Uma linha por ambiente da vistoria: situação, observação, fotos (FileRecord
+/// "SiteInspectionRoom") e pendências.
+model SiteInspectionRoom {
+  id            String               @id @default(cuid())
+  inspectionId  String
+  inspection    SiteInspection       @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  projectRoomId String? // ambiente cadastrado no projeto, quando veio de lá
+  projectRoom   ProjectRoom?         @relation(fields: [projectRoomId], references: [id], onDelete: SetNull)
+  name          String
+  status        InspectionRoomStatus @default(NAO_VISTORIADO)
+  note          String?
+  position      Int                  @default(0)
+  updatedById   String?
+  updatedBy     User?                @relation("SiteInspectionRoomUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  pendencies    InspectionPendency[]
+  transfersFrom InspectionPendencyTransfer[] @relation("PendencyTransferFrom")
+  transfersTo   InspectionPendencyTransfer[] @relation("PendencyTransferTo")
+
+  @@index([inspectionId, position])
+}
+
+/// Pendência de um ambiente da vistoria. Pode passar para outro ambiente; cada
+/// passagem fica em InspectionPendencyTransfer.
+model InspectionPendency {
+  id             String                   @id @default(cuid())
+  inspectionId   String
+  inspection     SiteInspection           @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  roomId         String // ambiente onde ela está agora
+  room           SiteInspectionRoom       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  kind           InspectionPendencyKind
+  description    String
+  targetRoomName String? // mudança de ambiente: para onde a peça vai
+  status         InspectionPendencyStatus @default(ABERTA)
+  resolutionNote String?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolvedBy     User?                    @relation("InspectionPendencyResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  createdById    String?
+  createdBy      User?                    @relation("InspectionPendencyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime                 @default(now())
+
+  transfers InspectionPendencyTransfer[]
+
+  @@index([inspectionId, status])
+  @@index([roomId])
+}
+
+model InspectionPendencyTransfer {
+  id          String             @id @default(cuid())
+  pendencyId  String
+  pendency    InspectionPendency @relation(fields: [pendencyId], references: [id], onDelete: Cascade)
+  fromRoomId  String
+  fromRoom    SiteInspectionRoom @relation("PendencyTransferFrom", fields: [fromRoomId], references: [id], onDelete: Cascade)
+  toRoomId    String
+  toRoom      SiteInspectionRoom @relation("PendencyTransferTo", fields: [toRoomId], references: [id], onDelete: Cascade)
+  reason      String?
+  byId        String?
+  by          User?              @relation("InspectionPendencyTransferBy", fields: [byId], references: [id], onDelete: SetNull)
+  createdAt   DateTime           @default(now())
+
+  @@index([pendencyId])
 }
 
 // ============================================================

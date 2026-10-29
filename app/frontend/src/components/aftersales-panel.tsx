@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SignaturePad } from "@/components/signature-pad";
 import { FileAttachments } from "@/components/file-attachments";
+import { InspectionRooms, type InspectionRoom } from "@/components/inspection-rooms";
 
 type ItemStatus = "CONFORME" | "NAO_CONFORME" | "NAO_APLICA";
 type Result = "APPROVED" | "APPROVED_WITH_REMARKS" | "REJECTED";
@@ -37,6 +38,8 @@ type Inspection = {
   progress: { answered: number; total: number; nonConforming: number };
   photoCount: number;
   items: { id: string; section: string; label: string; position: number; status: ItemStatus | null; note: string | null }[];
+  rooms: InspectionRoom[];
+  openPendencies: number;
 };
 type Coverage = { key: string; label: string; detail?: string; months: number; endsAt: string; daysLeft: number; state: "ACTIVE" | "EXPIRING" | "EXPIRED" };
 type Maintenance = { id: string; label: string; dueAt: string; status: "SCHEDULED" | "DONE" | "CANCELLED"; overdue: boolean; remindedAt: string | null; doneAt: string | null; doneBy: { name: string } | null; notes: string | null };
@@ -113,7 +116,7 @@ export function AftersalesPanel({ projectId }: { projectId: string }) {
                     {i.status === "DRAFT" ? <Badge variant="muted">Em preenchimento</Badge> : i.result && <Badge variant={RESULT_VARIANT[i.result]}>{i.resultLabel}</Badge>}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {i.progress.answered}/{i.progress.total} itens · {i.progress.nonConforming} não conforme(s) · {i.photoCount} foto(s)
+                    {i.progress.answered}/{i.progress.total} itens · {i.progress.nonConforming} não conforme(s) · {i.photoCount} foto(s){i.rooms.length ? ` · ${i.rooms.filter((r) => r.status === "APROVADO").length}/${i.rooms.length} ambiente(s) concluído(s)` : ""}{i.openPendencies ? ` · ${i.openPendencies} pendência(s) em aberto` : ""}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -325,7 +328,8 @@ function InspectionDialog({ inspection: i, canEdit, onClose, onChanged }: { insp
               </ul>
             </div>
           ))}
-          <div className="space-y-1"><Label className="text-xs">Pendências</Label><Textarea disabled={!editable} rows={3} value={pendencias} onChange={(e) => setPendencias(e.target.value)} placeholder="Ex.: tapa-furo cinza, regulagem das portas do G-volume" /></div>
+          <InspectionRooms inspectionId={i.id} rooms={i.rooms} canEdit={canEdit} draft={i.status === "DRAFT"} onChanged={onChanged} />
+          <div className="space-y-1"><Label className="text-xs">Pendências (texto livre; em branco, vão as pendências abertas dos ambientes)</Label><Textarea disabled={!editable} rows={3} value={pendencias} onChange={(e) => setPendencias(e.target.value)} placeholder="Ex.: tapa-furo cinza, regulagem das portas do G-volume" /></div>
           <div className="space-y-1"><Label className="text-xs">Observações</Label><Textarea disabled={!editable} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
           <div className="space-y-1">
             <Label className="text-xs">Fotos da vistoria</Label>
@@ -358,7 +362,7 @@ function InspectionDialog({ inspection: i, canEdit, onClose, onChanged }: { insp
         {finishing && (
           <FinishDialog
             inspection={i}
-            nonConforming={items.filter((x) => x.status === "NAO_CONFORME").length}
+            nonConforming={items.filter((x) => x.status === "NAO_CONFORME").length + i.openPendencies}
             pendencias={pendencias}
             onClose={() => setFinishing(false)}
             onDone={() => { setFinishing(false); onChanged(); onClose(); }}
@@ -393,7 +397,7 @@ function FinishDialog({ inspection, nonConforming, pendencias, onClose, onDone }
       <DialogContent className="max-h-[92vh] max-w-xl overflow-y-auto">
         <DialogHeader><DialogTitle>Termo de entrega</DialogTitle></DialogHeader>
         <div className="space-y-4 text-sm">
-          {nonConforming > 0 && <p className="rounded-md bg-warning/10 p-2 text-xs">{nonConforming} item(ns) não conforme(s): a entrega não pode sair "sem ressalvas".</p>}
+          {nonConforming > 0 && <p className="rounded-md bg-warning/10 p-2 text-xs">{nonConforming} item(ns) não conforme(s) ou pendência(s) em aberto nos ambientes: a entrega não pode sair "sem ressalvas".</p>}
           <div className="space-y-2">
             {options.map((o) => (
               <label key={o.key} className={cn("flex items-center gap-2", o.key === "APPROVED" && nonConforming > 0 && "opacity-50")}>

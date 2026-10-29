@@ -70,6 +70,7 @@ import pieceRouteRoutes from "./modules/production/piece-route.routes";
 import productionFrontsRoutes from "./modules/production/fronts.routes";
 import filesRoutes from "./modules/files/files.routes";
 import aftersalesRoutes from "./modules/aftersales/aftersales.routes";
+import inspectionRoomsRoutes from "./modules/aftersales/inspection-rooms.routes";
 import productivityRoutes from "./modules/productivity/productivity.routes";
 import assistanceRoutes from "./modules/assistance/assistance.routes";
 import publicConfirmRoutes from "./modules/assistance/public-confirm.routes";
@@ -233,6 +234,7 @@ export function createApp() {
   app.use("/api/purchases", purchasesRoutes);
   app.use("/api/files", filesRoutes);
   app.use("/api/aftersales", aftersalesRoutes);
+  app.use("/api/aftersales", inspectionRoomsRoutes);
   app.use("/api/productivity", productivityRoutes);
   app.use("/api/work-orders", workOrderRoutes);
   app.use("/api/finance", financeRecurringRoutes);

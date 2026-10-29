@@ -6,6 +6,7 @@
 import type { InspectionItemStatus, SiteInspectionResult } from "@prisma/client";
 import { fmtDate, type BuiltDocument } from "../docgen/docgen.service";
 import { ITEM_STATUS_SHORT, RESULT_LABEL, WARRANTY_CONDITIONS, WARRANTY_EXCLUSIONS, type CoverageItem } from "./aftersales.rules";
+import { PENDENCY_KIND_LABEL, ROOM_STATUS_LABEL } from "./inspection-rooms.rules";
 
 const years = (months: number) => (months % 12 === 0 ? `${months / 12} ${months === 12 ? "ano" : "anos"}` : `${months} meses`);
 /** Relatório e certificado vão para o cliente: dado ausente é só "não informado". */
@@ -20,6 +21,8 @@ export type InspectionReportData = {
   technician: string | null;
   installers: string | null;
   items: { section: string; label: string; status: InspectionItemStatus | null; note: string | null }[];
+  /** vistoria por ambiente (vistorias antigas não têm) */
+  rooms?: { name: string; status: string; note: string | null; pendencies: { kind: string; description: string; status: string; targetRoomName: string | null }[] }[];
   result: SiteInspectionResult;
   pendencias: string | null;
   notes: string | null;
@@ -50,6 +53,16 @@ export function buildInspectionReport(d: InspectionReportData): BuiltDocument {
       lines.push("", section.toUpperCase());
     }
     lines.push(`[${i.status ? ITEM_STATUS_SHORT[i.status] : " "}] ${i.label}${i.note ? ` — ${i.note}` : ""}`);
+  }
+  if (d.rooms?.length) {
+    lines.push("", "AMBIENTES");
+    for (const r of d.rooms) {
+      lines.push(`${r.name}: ${ROOM_STATUS_LABEL[r.status] ?? r.status}${r.note ? ` — ${r.note}` : ""}`);
+      for (const p of r.pendencies) {
+        const target = p.kind === "MUDANCA_AMBIENTE" && p.targetRoomName ? ` (vai para ${p.targetRoomName})` : "";
+        lines.push(`  - ${PENDENCY_KIND_LABEL[p.kind] ?? "Pendência"}: ${p.description}${target}${p.status === "RESOLVIDA" ? " — resolvida" : ""}`);
+      }
+    }
   }
   const nc = d.items.filter((i) => i.status === "NAO_CONFORME").length;
   lines.push(
