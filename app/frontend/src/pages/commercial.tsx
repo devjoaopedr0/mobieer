@@ -27,7 +27,7 @@ import { ReferrersTab } from "@/components/referrers-tab";
 import { TeamsTab } from "@/components/teams-tab";
 import { errorMessage, formatCurrency } from "@/lib/utils";
 import type { CommercialLead, Opportunity, PipelineSummary, SalesStage } from "@/types";
-import { ChannelPanel, TemperatureFilter, TemperatureTag, originLabel } from "@/components/crm-parts";
+import { ChannelPanel, LeadQuickContact, TemperatureFilter, TemperatureTag, originLabel } from "@/components/crm-parts";
 import { LeadDialog } from "@/components/lead-dialog";
 
 const LEAD_STATUS: Record<string, string> = {
@@ -86,6 +86,8 @@ export function CommercialPage() {
   const [leadLostCode, setLeadLostCode] = useState("");
   const [oppTemp, setOppTemp] = useState("");
   const [leadTemp, setLeadTemp] = useState("");
+  // lista de leads: em aberto (novo, contatado, qualificado) por padrão; atrasados à parte
+  const [leadView, setLeadView] = useState<"aberto" | "atrasado" | "todos">("aberto");
 
   const [oppForm, setOppForm] = useState({ title: "", stageId: "", estimatedValue: "", expectedCloseAt: "", nextAction: "" });
   const [convForm, setConvForm] = useState({ title: "", estimatedValue: "", stageId: "", name: "", document: "", email: "", phone: "", address: "" });
@@ -261,14 +263,21 @@ export function CommercialPage() {
         {/* ---- Leads ---- */}
         <TabsContent value="leads" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <TemperatureFilter value={leadTemp} onChange={setLeadTemp} />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex overflow-hidden rounded-md border text-xs">
+                {([["aberto", "Em aberto"], ["atrasado", "Atrasados"], ["todos", "Todos"]] as const).map(([v, l]) => (
+                  <button key={v} type="button" aria-pressed={leadView === v} className={`px-3 py-1.5 ${leadView === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setLeadView(v)}>{l}</button>
+                ))}
+              </div>
+              <TemperatureFilter value={leadTemp} onChange={setLeadTemp} />
+            </div>
             {canLeads && <Button size="sm" onClick={() => setDialog("lead")}><UserPlus className="mr-2 h-4 w-4" /> Lead</Button>}
           </div>
           {leadList.length === 0 ? (
             <EmptyState title="Nenhum lead" />
           ) : (
             <div className="space-y-2">
-              {leadList.filter((l) => !leadTemp || l.temperature === leadTemp).map((l) => (
+              {leadList.filter((l) => (!leadTemp || l.temperature === leadTemp) && (leadView === "todos" || (["NEW", "CONTACTED", "QUALIFIED"].includes(l.status) && (leadView === "aberto" || l.overdue)))).map((l) => (
                 <div key={l.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
@@ -286,6 +295,8 @@ export function CommercialPage() {
                     )}
                   </div>
                   <TemperatureTag value={l.temperature} title={l.temperatureReason ?? undefined} />
+                  {l.overdue && <Badge variant="danger" title="Próximo contato vencido">Atrasado</Badge>}
+                  {canLeads && ["NEW", "CONTACTED", "QUALIFIED"].includes(l.status) && <LeadQuickContact leadId={l.id} nextContactAt={l.nextContactAt} onDone={refresh} />}
                   <Badge variant="secondary">{LEAD_STATUS[l.status] ?? l.status}{l.status === "LOST" && l.lostReasonCode ? ` · ${LOST_REASONS.find(([v]) => v === l.lostReasonCode)?.[1] ?? l.lostReasonCode}` : ""}</Badge>
                   <Button size="sm" variant="ghost" onClick={() => { setBriefLead(l.id); setDialog("briefing"); }}>
                     {l.briefing ? "Ver briefing" : "Briefing"}

@@ -42,20 +42,21 @@ test("temperatura da oportunidade pelas faixas do score; fechada não tem", () =
   assert.equal(opportunityTemperature(score, "OPEN"), "QUENTE");
 });
 
-test("temperatura do lead: tempo sem contato e próximo contato vencido", () => {
-  assert.deepEqual(LEAD_TEMPERATURE, { hotDays: 3, warmDays: 10 });
+test("temperatura do lead: quente até 3 dias, morno de 4 a 15, frio acima ou sem contato; vencido = atrasado", () => {
+  assert.deepEqual(LEAD_TEMPERATURE, { hotDays: 3, warmDays: 15 });
   const lead = (o: Partial<{ status: string; enteredAt: Date; lastContactAt: Date | null; nextContactAt: Date | null }>) => ({ status: "CONTACTED", enteredAt: ago(30), lastContactAt: null, nextContactAt: null, ...o });
-  assert.equal(leadTemperature(lead({ lastContactAt: ago(2) }), now)?.temperature, "QUENTE");
-  assert.equal(leadTemperature(lead({ lastContactAt: ago(7) }), now)?.temperature, "MORNO");
-  assert.equal(leadTemperature(lead({ lastContactAt: ago(15) }), now)?.temperature, "FRIO");
-  // sem contato nenhum: conta da entrada
-  assert.equal(leadTemperature(lead({ status: "NEW", enteredAt: ago(1) }), now)?.temperature, "QUENTE");
-  // próximo contato vencido esfria um nível
+  assert.equal(leadTemperature(lead({ lastContactAt: ago(3) }), now)?.temperature, "QUENTE");
+  assert.equal(leadTemperature(lead({ lastContactAt: ago(4) }), now)?.temperature, "MORNO");
+  assert.equal(leadTemperature(lead({ lastContactAt: ago(15) }), now)?.temperature, "MORNO");
+  assert.equal(leadTemperature(lead({ lastContactAt: ago(16) }), now)?.temperature, "FRIO");
+  // sem contato nenhum: frio, mesmo tendo entrado hoje
+  assert.equal(leadTemperature(lead({ status: "NEW", enteredAt: ago(0) }), now)?.temperature, "FRIO");
+  // próximo contato vencido: marca de atrasado, a temperatura não muda
   const vencido = leadTemperature(lead({ lastContactAt: ago(1), nextContactAt: ago(1) }), now);
-  assert.equal(vencido?.temperature, "MORNO");
+  assert.equal(vencido?.temperature, "QUENTE");
+  assert.equal(vencido?.overdue, true);
   assert.match(vencido!.reason, /vencido/);
-  assert.equal(leadTemperature(lead({ lastContactAt: ago(5), nextContactAt: ago(1) }), now)?.temperature, "FRIO");
-  assert.equal(leadTemperature(lead({ lastContactAt: ago(1), nextContactAt: new Date(now.getTime() + DAY) }), now)?.temperature, "QUENTE");
+  assert.equal(leadTemperature(lead({ lastContactAt: ago(1), nextContactAt: new Date(now.getTime() + DAY) }), now)?.overdue, false);
   assert.equal(leadTemperature(lead({ status: "CONVERTED" }), now), null);
   assert.equal(leadTemperature(lead({ status: "LOST" }), now), null);
 });

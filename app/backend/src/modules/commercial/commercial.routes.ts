@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { CommercialLeadStatus, Prisma } from "@prisma/client";
+import { CommercialInteractionType, CommercialLeadStatus, Prisma } from "@prisma/client";
 import { authenticate } from "../../middlewares/auth";
 import { requirePermission } from "../../middlewares/rbac";
 import { prisma } from "../../prisma";
@@ -29,6 +29,7 @@ function sellerScope(req: { user?: { id: string; permissions: string[] } }) {
   return req.user!.permissions.includes("commercial.read.all") ? {} : { sellerId: req.user!.id };
 }
 
+const OPEN_LEAD: string[] = ["NEW", "CONTACTED", "QUALIFIED"];
 const LOST_REASONS = ["PRECO", "PRAZO", "CONCORRENCIA", "SEM_RESPOSTA", "DESISTIU", "ESCOPO", "OUTRO"] as const;
 const TEMPERATURES = ["QUENTE", "MORNO", "FRIO"] as const;
 const temperatureFilter = (raw: unknown): Temperature | null => (TEMPERATURES as readonly string[]).includes(String(raw ?? "")) ? (String(raw) as Temperature) : null;
@@ -156,9 +157,12 @@ router.get(
     const wanted = temperatureFilter(req.query.temperatura);
     const withTemp = rows.map((l) => {
       const t = leadTemperature(l, now);
-      return { ...l, temperature: t?.temperature ?? null, temperatureReason: t?.reason ?? null };
+      return { ...l, temperature: t?.temperature ?? null, temperatureReason: t?.reason ?? null, overdue: t?.overdue ?? false };
     });
-    return ok(res, wanted ? withTemp.filter((l) => l.temperature === wanted) : withTemp);
+    // ?aberto=1: só os leads em aberto (novo, contatado, qualificado); ?atrasado=1: próximo contato vencido
+    const open = req.query.aberto === "1" ? withTemp.filter((l) => OPEN_LEAD.includes(l.status)) : withTemp;
+    const late = req.query.atrasado === "1" ? open.filter((l) => l.overdue) : open;
+    return ok(res, wanted ? late.filter((l) => l.temperature === wanted) : late);
   })
 );
 
@@ -288,6 +292,38 @@ router.patch(
     });
     if (becomesLost) await audit(req.user!.id, "COMMERCIAL_LEAD_LOST", "CommercialLead", lead.id, { reason: input.lostReasonCode });
     return ok(res, lead, "Lead atualizado");
+  })
+);
+
+// Atualização rápida da lista: registra o contato feito agora e já marca o próximo.
+router.post(
+  "/leads/:id/contact",
+  requirePermission("commercial.leads.manage"),
+  asyncHandler(async (req, res) => {
+    const lead = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId, ...sellerScope(req) } });
+    if (!lead) throw new NotFoundError("Lead não encontrado");
+    if (!OPEN_LEAD.includes(lead.status)) throw new BadRequestError("Este lead não está mais em aberto");
+    const input = z
+      .object({
+        type: z.nativeEnum(CommercialInteractionType).default("WHATSAPP"),
+        summary: z.string().trim().max(500).optional().nullable(),
+        nextContactAt: z.coerce.date().optional().nullable(),
+      })
+      .parse(req.body ?? {});
+    const now = new Date();
+    if (input.nextContactAt && input.nextContactAt.getTime() < now.getTime() - 86_400_000) throw new BadRequestError("O próximo contato precisa ser de hoje em diante", { field: "nextContactAt" }, "VALIDATION_ERROR");
+    const [, updated] = await prisma.$transaction([
+      prisma.commercialInteraction.create({
+        data: { leadId: lead.id, clientId: lead.convertedClientId, type: input.type, summary: input.summary || "Contato registrado", occurredAt: now, nextActionAt: input.nextContactAt ?? null, responsibleId: req.user!.id },
+      }),
+      prisma.commercialLead.update({
+        where: { id: lead.id },
+        // o contato combinado foi feito: o próximo é o novo (ou nenhum)
+        data: { lastContactAt: now, nextContactAt: input.nextContactAt ?? null, status: lead.status === "NEW" ? "CONTACTED" : undefined },
+      }),
+    ]);
+    await audit(req.user!.id, "COMMERCIAL_LEAD_CONTACT", "CommercialLead", lead.id, { type: input.type, next: input.nextContactAt ?? null });
+    return ok(res, updated, input.nextContactAt ? `Contato registrado; próximo em ${input.nextContactAt.toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" })}` : "Contato registrado");
   })
 );
 

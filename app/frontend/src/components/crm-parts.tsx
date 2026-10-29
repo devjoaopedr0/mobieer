@@ -1,8 +1,12 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiGet } from "@/services/api";
+import { apiGet, apiPost } from "@/services/api";
+import { errorMessage } from "@/lib/errors";
 import { cn, formatCurrency } from "@/lib/utils";
 
 /** Lista fixa de origem, a mesma em leads, clientes e negócios (o texto gravado é o rótulo). */
@@ -123,5 +127,39 @@ export function ChannelPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Atualização rápida do lead na lista: registra o contato feito agora (como foi
+ * e uma nota) e já marca o próximo, sem abrir a ficha.
+ */
+export function LeadQuickContact({ leadId, nextContactAt, onDone }: { leadId: string; nextContactAt: string | null; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [type, setType] = useState("WHATSAPP");
+  const [note, setNote] = useState("");
+  const [next, setNext] = useState("");
+  const save = useMutation({
+    mutationFn: () => apiPost<{ message?: string }>(`/commercial/leads/${leadId}/contact`, { type, summary: note || null, nextContactAt: next ? `${next}T12:00:00` : null }),
+    onSuccess: (r) => { toast.success(r.message ?? "Contato registrado"); setOpen(false); setNote(""); setNext(""); onDone(); },
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível registrar o contato")),
+  });
+  if (!open)
+    return (
+      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        {nextContactAt && <span>Próximo: {new Date(nextContactAt).toLocaleDateString("pt-BR")}</span>}
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setOpen(true)}>Registrar contato</Button>
+      </span>
+    );
+  return (
+    <div className="flex w-full flex-wrap items-center gap-1.5 rounded-md bg-muted/50 p-2">
+      <select className="h-8 rounded-md border bg-background px-2 text-xs" aria-label="Como foi o contato" value={type} onChange={(e) => setType(e.target.value)}>
+        {[["WHATSAPP", "WhatsApp"], ["CALL", "Ligação"], ["EMAIL", "E-mail"], ["MEETING", "Reunião"], ["VISIT", "Visita"], ["OTHER", "Outro"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      <Input className="h-8 min-w-[10rem] flex-1 text-xs" placeholder="O que foi falado (opcional)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <label className="flex items-center gap-1 text-xs">Próximo contato <Input type="date" className="h-8 w-36 text-xs" value={next} onChange={(e) => setNext(e.target.value)} /></label>
+      <Button size="sm" className="h-8" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}Salvar</Button>
+      <Button size="sm" variant="ghost" className="h-8" onClick={() => setOpen(false)}>Cancelar</Button>
+    </div>
   );
 }
