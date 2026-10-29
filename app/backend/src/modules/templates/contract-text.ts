@@ -6,6 +6,7 @@
  */
 import { prisma } from "../../prisma";
 import { docBlocksSchema, type DocBlocks } from "./contract-doc";
+import { contractOptionsSchema, type ContractOptions } from "./contract-options";
 
 export type ContractText = {
   templateId: string;
@@ -14,6 +15,8 @@ export type ContractText = {
   savedBy: string | null;
   /** último PDF gerado deste texto */
   documentId: string | null;
+  /** opções escolhidas (tipo de pedido, prazo, pré-montagem): reabrir usa as mesmas */
+  options?: ContractOptions | null;
 };
 
 const keyOf = (clientId: string, projectId: string | null | undefined) => `contract.text:${clientId}:${projectId || "-"}`;
@@ -25,7 +28,8 @@ export async function loadContractText(clientId: string, projectId: string | nul
     const v = JSON.parse(row.value);
     const doc = docBlocksSchema.safeParse(v.doc);
     if (!doc.success || typeof v.templateId !== "string") return null;
-    return { templateId: v.templateId, doc: doc.data, savedAt: String(v.savedAt ?? ""), savedBy: v.savedBy ?? null, documentId: v.documentId ?? null };
+    const options = contractOptionsSchema.safeParse(v.options);
+    return { templateId: v.templateId, doc: doc.data, savedAt: String(v.savedAt ?? ""), savedBy: v.savedBy ?? null, documentId: v.documentId ?? null, options: v.options && options.success ? options.data : null };
   } catch {
     return null;
   }

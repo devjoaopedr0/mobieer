@@ -30,7 +30,8 @@ import { cn } from "@/lib/utils";
  * parágrafo, item de lista, tabela) que o servidor desenha no padrão da loja.
  */
 
-export type DocRun = { text: string; b?: boolean; i?: boolean; u?: boolean };
+/** f/v: campo automático (ex.: "promob.total") e o valor que o sistema pôs nele */
+export type DocRun = { text: string; b?: boolean; i?: boolean; u?: boolean; f?: string; v?: string };
 type Align = "left" | "center" | "right" | "justify";
 export type DocBlock =
   | { t: "h"; runs: DocRun[]; align?: Align }
@@ -53,7 +54,7 @@ function runsOf(node: Node, style: Omit<DocRun, "text"> = {}, out: DocRun[] = []
     const text = (node.textContent ?? "").replace(/ /g, " ").replace(/[\r\n\t]+/g, " ");
     if (text) {
       const last = out[out.length - 1];
-      if (last && !!last.b === !!style.b && !!last.i === !!style.i && !!last.u === !!style.u) last.text += text;
+      if (last && !!last.b === !!style.b && !!last.i === !!style.i && !!last.u === !!style.u && last.f === style.f) last.text += text;
       else out.push({ text, ...style });
     }
     return out;
@@ -69,6 +70,9 @@ function runsOf(node: Node, style: Omit<DocRun, "text"> = {}, out: DocRun[] = []
     b: style.b || ["B", "STRONG"].includes(node.tagName) || weight === "bold" || Number(weight) >= 600 || undefined,
     i: style.i || ["I", "EM"].includes(node.tagName) || s.fontStyle === "italic" || undefined,
     u: style.u || node.tagName === "U" || s.textDecoration.includes("underline") || s.textDecorationLine.includes("underline") || undefined,
+    // trecho de campo automático: o texto de dentro leva o campo e o valor do sistema
+    f: node.dataset.f ?? style.f,
+    v: node.dataset.f ? node.dataset.v ?? "" : style.v,
   };
   // negrito desligado à mão dentro de um negrito ("font-weight: normal")
   if (weight === "normal" || weight === "400") next.b = undefined;
@@ -134,6 +138,7 @@ function runsHtml(runs: DocRun[]) {
       if (r.u) h = `<u>${h}</u>`;
       if (r.i) h = `<em>${h}</em>`;
       if (r.b) h = `<strong>${h}</strong>`;
+      if (r.f) h = `<span data-f="${esc(r.f)}" data-v="${esc(r.v ?? "")}">${h}</span>`;
       return h;
     })
     .join("");
@@ -198,10 +203,49 @@ export function ContractEditor(props: {
   savedAt?: string | null;
   /** joga fora o texto corrigido e remonta pelo modelo */
   onDiscard?: () => void;
+  /** valores de agora no sistema e o nome de cada campo: marca o que foi editado à mão */
+  fields?: { values: Record<string, string>; labels: Record<string, string> };
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [blanks, setBlanks] = useState(0);
   const [inTable, setInTable] = useState(false);
+  // campos automáticos: editados à mão (texto diferente do valor posto) e desatualizados (o sistema mudou)
+  const [marks, setMarks] = useState<{ key: string; label: string; edited: boolean; stale: boolean; text: string; now: string }[]>([]);
+  const [showMarks, setShowMarks] = useState(false);
+  const fieldValues = props.fields?.values;
+  const fieldLabels = props.fields?.labels;
+  const mark = () => {
+    const root = ref.current;
+    if (!root || !fieldValues) return;
+    const byKey = new Map<string, { key: string; label: string; edited: boolean; stale: boolean; text: string; now: string }>();
+    root.querySelectorAll<HTMLElement>("span[data-f]").forEach((el) => {
+      const key = el.dataset.f!;
+      const text = el.textContent ?? "";
+      const now = fieldValues[key];
+      const edited = text !== (el.dataset.v ?? "");
+      const stale = now !== undefined && (el.dataset.v ?? "") !== now;
+      el.dataset.edited = String(edited);
+      el.dataset.stale = String(stale && !edited);
+      el.title = edited ? `Editado à mão. No sistema: ${now ?? el.dataset.v}` : stale ? `Mudou no sistema: agora ${now}` : fieldLabels?.[key] ?? key;
+      const cur = byKey.get(key);
+      if (cur) {
+        cur.edited ||= edited;
+        cur.stale ||= stale;
+      } else byKey.set(key, { key, label: fieldLabels?.[key] ?? key, edited, stale, text, now: now ?? el.dataset.v ?? "" });
+    });
+    setMarks([...byKey.values()].filter((m) => m.edited || m.stale));
+  };
+  /** volta o campo (todas as vezes que aparece) ao valor de agora no sistema */
+  const restore = (key: string) => {
+    const now = fieldValues?.[key];
+    if (now === undefined) return;
+    ref.current?.querySelectorAll<HTMLElement>("span[data-f]").forEach((el) => {
+      if (el.dataset.f !== key) return;
+      el.textContent = now;
+      el.dataset.v = now;
+    });
+    changed();
+  };
   const [save, setSave] = useState<{ state: "idle" | "dirty" | "saving" | "saved" | "error"; at: string | null }>({ state: "idle", at: props.savedAt ?? null });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosave = props.onAutosave;
@@ -244,6 +288,7 @@ export function ContractEditor(props: {
     el.innerHTML = props.html;
     document.execCommand("defaultParagraphSeparator", false, "p");
     setBlanks(el.innerText.split(BLANK).length - 1);
+    mark();
   };
 
   // célula onde está o cursor (para os botões da tabela)
@@ -263,10 +308,11 @@ export function ContractEditor(props: {
     ref.current?.focus();
     document.execCommand(cmd, false, value);
   };
-  const changed = () => {
+  function changed() {
     setBlanks((ref.current?.innerText ?? "").split(BLANK).length - 1);
+    mark();
     schedule();
-  };
+  }
 
   const emptyCell = (tag: "td" | "th") => {
     const c = document.createElement(tag);
@@ -371,6 +417,31 @@ export function ContractEditor(props: {
           <Tool title="Apagar tabela" disabled={!inTable} onClick={removeTable}><Trash2 className="h-4 w-4" /></Tool>
         </div>
 
+        {marks.length > 0 && (
+          <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
+            <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={() => setShowMarks((v) => !v)}>
+              {marks.filter((m) => m.edited).length > 0 && `${marks.filter((m) => m.edited).length} campo(s) do sistema editado(s) à mão`}
+              {marks.some((m) => m.edited) && marks.some((m) => m.stale && !m.edited) && " · "}
+              {marks.some((m) => m.stale && !m.edited) && `${marks.filter((m) => m.stale && !m.edited).length} desatualizado(s)`}
+              {showMarks ? " (esconder)" : " (ver)"}
+            </button>
+            {showMarks && (
+              <ul className="mt-1.5 space-y-1">
+                {marks.map((m) => (
+                  <li key={m.key} className="flex flex-wrap items-center gap-2">
+                    <span className={cn("rounded px-1", m.edited ? "bg-amber-200/70 text-neutral-900" : "bg-sky-200/70 text-neutral-900")}>{m.edited ? "editado à mão" : "mudou no sistema"}</span>
+                    <span className="font-medium">{m.label}</span>
+                    <span className="text-muted-foreground">no sistema: {m.now || "(vazio)"}</span>
+                    <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={props.pending} onClick={() => restore(m.key)}>
+                      {m.edited ? "Voltar ao valor do sistema" : "Atualizar"}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         <div className="min-h-0 flex-1 overflow-y-auto rounded-md bg-muted p-2 sm:p-6">
           <div
             ref={attach}
@@ -389,8 +460,8 @@ export function ContractEditor(props: {
             {autosave && <p className={save.state === "error" ? "text-destructive" : "text-muted-foreground"}>{saveLabel(save)}</p>}
           </div>
           {props.onDiscard && (
-            <Button variant="ghost" disabled={props.pending} onClick={() => confirm("Descartar o texto corrigido e montar o contrato de novo pelo modelo?") && props.onDiscard!()}>
-              Voltar ao modelo
+            <Button variant="ghost" disabled={props.pending} onClick={() => confirm("Regenerar do zero? O texto corrigido é descartado e o contrato é montado de novo pelo modelo, com os dados de agora.") && props.onDiscard!()}>
+              Regenerar do zero
             </Button>
           )}
           <Button variant="outline" disabled={props.pending} onClick={close}>Fechar</Button>
@@ -419,6 +490,9 @@ export function ContractEditor(props: {
         .contract-page th { background: #EFE8E0; font-weight: 700; font-size: 10.5px; text-align: left; }
         .contract-page th, .contract-page td { border-bottom: 1px solid #E4DACF; padding: 4px 6px; vertical-align: top; min-width: 2em; }
         .contract-page td:focus-within, .contract-page th:focus-within { outline: 2px solid #C8551F55; }
+        .contract-page span[data-f] { border-bottom: 1px dotted #C8551F88; }
+        .contract-page span[data-edited="true"] { background: #fde68aaa; }
+        .contract-page span[data-stale="true"] { background: #bae6fdaa; }
       `}</style>
     </Dialog>
   );
