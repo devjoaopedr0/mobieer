@@ -16,7 +16,9 @@ type Data = {
   internal: boolean;
   items: Item[];
   totals: { garantia: number; cobrado: number; total: number };
+  cost: { total: number; doEstoque: number; aLancar: number };
   finance: { id: string; amount: number; status: string; dueDate: string | null } | null;
+  costFinance: { id: string; amount: number; status: string; dueDate: string | null } | null;
   kinds: { code: string; label: string }[];
 };
 
@@ -38,6 +40,8 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   const [search, setSearch] = useState("");
   const found = useQuery({ queryKey: ["assist-products", search], queryFn: () => apiGet<{ data: Product[] }>("/products", { search, perPage: 8 }), enabled: search.trim().length >= 2 && can("products.read") });
   const [due, setDue] = useState(localIsoDate(new Date()));
+  const [costDay, setCostDay] = useState(localIsoDate(new Date()));
+  const [costPaid, setCostPaid] = useState(true);
   const apply = (r: { data: Data; message?: string }) => {
     qc.setQueryData(key, { data: r.data });
     qc.invalidateQueries({ queryKey: ["business-assistances"] });
@@ -52,6 +56,7 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   const patch = useMutation({ mutationFn: (v: { id: string; body: Partial<Item> }) => apiPatch<{ data: Data }>(`/business/assistance-items/${v.id}`, v.body), onSuccess: apply, onError: fail("Não foi possível alterar o item") });
   const remove = useMutation({ mutationFn: (id: string) => apiDelete<{ data: Data }>(`/business/assistance-items/${id}`), onSuccess: apply, onError: fail("Não foi possível remover o item") });
   const charge = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/charge`, { dueDate: due }), onSuccess: apply, onError: fail("Não foi possível lançar no financeiro") });
+  const cost = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/cost`, { date: costDay, paid: costPaid }), onSuccess: apply, onError: fail("Não foi possível lançar o custo") });
   const stockExit = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/stock-exit`, {}), onSuccess: (r) => { apply(r); qc.invalidateQueries({ queryKey: ["assist-products"] }); }, onError: fail("Não foi possível dar baixa no estoque") });
   const order = useMutation({ mutationFn: () => apiOpen(`/business/assistances/${ticketId}/service-order.pdf`), onError: fail("Não foi possível gerar a ordem de serviço") });
 
@@ -61,6 +66,8 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   // a cobrança lançada não bate com o que está marcado agora: avisa para atualizar
   const pendingStock = d.items.filter((i) => i.product && !i.stockMovedAt).length;
   const outdated = d.finance && d.finance.status !== "PAGO" && Math.abs(d.finance.amount - d.totals.cobrado) > 0.004;
+  // o custo lançado (despesa) não bate com os itens de agora
+  const costOutdated = d.costFinance && Math.abs(d.costFinance.amount - d.cost.aLancar) > 0.004;
 
   return (
     <div className="space-y-2 rounded-md border p-3">
@@ -159,6 +166,22 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
               </span>
             )}
           </>
+        )}
+      </div>
+      {/* custo da assistência como despesa no financeiro e na DRE */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span>Custo para a loja: <strong>{formatCurrency(d.cost.total)}</strong></span>
+        {d.cost.doEstoque > 0 && <span className="text-xs text-muted-foreground">({formatCurrency(d.cost.doEstoque)} do almoxarifado, já contado na compra)</span>}
+        {d.costFinance && <Badge variant={d.costFinance.status === "PAGO" ? "success" : "secondary"}>Despesa no financeiro: {formatCurrency(d.costFinance.amount)} · {d.costFinance.status === "PAGO" ? "paga" : "a pagar"}</Badge>}
+        {canCharge && (d.cost.aLancar > 0 || d.costFinance) && (!d.costFinance || costOutdated) && (
+          <span className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Input type="date" className="h-8 w-36 text-xs" aria-label="Data do custo" value={costDay} onChange={(e) => setCostDay(e.target.value)} />
+            <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4" checked={costPaid} onChange={(e) => setCostPaid(e.target.checked)} /> Já pago</label>
+            <Button size="sm" variant="outline" disabled={cost.isPending || !costDay} onClick={() => cost.mutate()}>
+              <Wallet className="mr-1 h-3.5 w-3.5" />
+              {!d.costFinance ? `Lançar custo de ${formatCurrency(d.cost.aLancar)}` : d.cost.aLancar > 0 ? "Atualizar o custo" : "Retirar o custo"}
+            </Button>
+          </span>
         )}
       </div>
     </div>

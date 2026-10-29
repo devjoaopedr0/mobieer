@@ -65,6 +65,8 @@ export function classifyDreLine(type: "RECEITA" | "DESPESA" | string, category: 
   )
     return "DESPESA_FINANCEIRA";
   if (has(c, "depreciac", "amortizac")) return "DEPRECIACAO";
+  // assistência e garantia: custo do pós-venda, despesa com vendas (antes de "montagem" e "material")
+  if (has(c, "assistencia", "garantia", "retrabalho")) return "DESPESA_VENDAS";
   if (
     has(
       c,

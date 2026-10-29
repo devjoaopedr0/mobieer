@@ -12,6 +12,7 @@ import taxRoutes from "./tax.routes";
 import extrasRoutes from "./extras.routes";
 import documentsRoutes from "./documents.routes";
 import { DRE_LINE_KEYS, DRE_LINE_LABEL, buildDre } from "./dre.service";
+import { assistancesSummary } from "../assistance/assistance-items.rules";
 
 const router = Router();
 router.use(authenticate);
@@ -432,19 +433,32 @@ router.get(
     if (from || to) where[dateField] = range;
     if (basis === "cash") where.status = "PAGO";
 
-    const [txs, mappingRows] = await Promise.all([
-      prisma.financeTransaction.findMany({ where, select: { type: true, category: true, amount: true, status: true } }),
+    const ticketRange: Prisma.DateTimeFilter = {};
+    if (from) ticketRange.gte = from;
+    if (to) ticketRange.lte = to;
+    const [txs, mappingRows, tickets] = await Promise.all([
+      prisma.financeTransaction.findMany({ where, select: { type: true, category: true, amount: true, status: true, originAssistanceId: true } }),
       prisma.dreCategoryMapping.findMany({ where: { organizationId }, select: { category: true, dreLine: true } }),
+      // assistências abertas no período (fora as canceladas): o que custaram e o que foi cobrado
+      prisma.assistanceTicket.findMany({
+        where: { organizationId, status: { not: "CANCELLED" }, ...(from || to ? { createdAt: ticketRange } : {}) },
+        select: { internal: true, items: { select: { quantity: true, unitPrice: true, charged: true, productId: true } } },
+      }),
     ]);
 
     const mappings = Object.fromEntries(mappingRows.map((m) => [m.category, m.dreLine]));
     const dre = buildDre(txs, mappings);
+    const assistances = assistancesSummary(
+      tickets.map((t) => ({ internal: t.internal, items: t.items.map((i) => ({ quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), charged: i.charged, productId: i.productId })) })),
+      txs.filter((t) => t.originAssistanceId).map((t) => ({ type: t.type, amount: Number(t.amount) }))
+    );
     return ok(res, {
       from: from ? from.toISOString().slice(0, 10) : null,
       to: to ? to.toISOString().slice(0, 10) : null,
       basis,
       transactionCount: txs.length,
       ...dre,
+      assistances,
     });
   })
 );

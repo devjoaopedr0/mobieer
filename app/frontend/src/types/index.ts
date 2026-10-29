@@ -48,6 +48,11 @@ export type Dre = {
   byCategory: { category: string; type: string; dreLine: DreLineKey; value: number; mapped: boolean }[];
   unmappedCategories: string[];
   margins: { bruta: number | null; operacional: number | null; liquida: number | null };
+  /** assistências abertas no período: custo (despesa) e cobrança (receita) */
+  assistances: {
+    atendimentos: number; garantia: number; cobrado: number; retrabalho: number; custo: number; doEstoque: number;
+    custoLancado: number; receitaLancada: number; custoFaltando: number; receitaFaltando: number; resultado: number;
+  };
 };
 
 export type CashflowPoint = {

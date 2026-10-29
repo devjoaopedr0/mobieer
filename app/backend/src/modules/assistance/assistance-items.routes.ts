@@ -6,6 +6,7 @@
  *   PATCH  /assistance-items/:itemId           altera
  *   DELETE /assistance-items/:itemId           remove
  *   POST   /assistances/:id/charge             lança (ou atualiza) a conta a receber do que é cobrado
+ *   POST   /assistances/:id/cost               lança (ou atualiza) o custo da assistência como despesa
  *   GET    /assistances/:id/service-order.pdf  ordem de serviço
  *   POST   /assistances/:id/stock-exit         dá baixa no estoque dos itens ligados a produto
  */
@@ -19,13 +20,15 @@ import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { createExitWithClient } from "../stock/stock.service";
 import { BRAND, PAGE, brandDocument, brandField, brandSection, brandTitle, ensureSpace } from "../../lib/brand-pdf";
-import { ITEM_KINDS, ITEM_KIND_CODES, chargePlan, itemKindLabel, itemTotals, lineTotal } from "./assistance-items.rules";
+import { ITEM_KINDS, ITEM_KIND_CODES, assistanceCost, chargePlan, costPlan, itemKindLabel, itemTotals, lineTotal } from "./assistance-items.rules";
 import { kindLabel } from "./assistance.rules";
 
 const router = Router();
 router.use(authenticate);
 const canEdit = requirePermission("organization.tasks.edit.all");
 export const CATEGORY_ASSISTANCE = "Assistência técnica";
+/** despesa: o que a loja gastou na assistência (garantia, cobrados e retrabalho) */
+export const CATEGORY_ASSISTANCE_COST = "Custo de assistência técnica";
 
 const num = (v: unknown) => Number(v ?? 0);
 type ItemRow = { id: string; kind: string; description: string; quantity: unknown; unitPrice: unknown; charged: boolean; position: number; productId?: string | null; stockMovedAt?: Date | null; product?: { id: string; code: string; name: string; stock: number } | null };
@@ -33,7 +36,7 @@ const serializeItem = (i: ItemRow) => {
   const quantity = num(i.quantity);
   const unitPrice = num(i.unitPrice);
   return {
-    id: i.id, kind: i.kind, kindLabel: itemKindLabel(i.kind), description: i.description, quantity, unitPrice, charged: i.charged, total: lineTotal({ quantity, unitPrice }), position: i.position,
+    id: i.id, kind: i.kind, kindLabel: itemKindLabel(i.kind), description: i.description, quantity, unitPrice, charged: i.charged, total: lineTotal({ quantity, unitPrice }), position: i.position, productId: i.productId ?? null,
     product: i.product ? { id: i.product.id, code: i.product.code, name: i.product.name, stock: i.product.stock } : null,
     stockMovedAt: i.stockMovedAt ?? null,
   };
@@ -56,12 +59,17 @@ async function ticketFor(id: string, organizationId: string) {
 async function view(ticketId: string, organizationId: string) {
   const t = await ticketFor(ticketId, organizationId);
   const items = t.items.map(serializeItem);
-  const fin = await prisma.financeTransaction.findFirst({ where: { organizationId, originAssistanceId: t.id, type: "RECEITA" }, select: { id: true, amount: true, status: true, dueDate: true } });
+  const [fin, costFin] = await Promise.all([
+    prisma.financeTransaction.findFirst({ where: { organizationId, originAssistanceId: t.id, type: "RECEITA" }, select: { id: true, amount: true, status: true, dueDate: true } }),
+    prisma.financeTransaction.findFirst({ where: { organizationId, originAssistanceId: t.id, type: "DESPESA" }, select: { id: true, amount: true, status: true, dueDate: true } }),
+  ]);
   return {
     internal: t.internal,
     items,
     totals: itemTotals(items),
+    cost: assistanceCost(items),
     finance: fin ? { id: fin.id, amount: num(fin.amount), status: fin.status, dueDate: fin.dueDate } : null,
+    costFinance: costFin ? { id: costFin.id, amount: num(costFin.amount), status: costFin.status, dueDate: costFin.dueDate } : null,
     kinds: ITEM_KINDS,
   };
 }
@@ -157,6 +165,42 @@ router.post(
       message = "Cobrança lançada no financeiro";
     }
     await prisma.auditLog.create({ data: { userId: req.user!.id, action: `ASSISTANCE_CHARGE_${plan.action}`, entity: "AssistanceTicket", entityId: t.id, details: { cobrado, dueDate: input.dueDate } } });
+    return ok(res, await view(t.id, orgId), message);
+  })
+);
+
+// Custo da assistência como despesa: garantia, cobrados e retrabalho. O que saiu do
+// almoxarifado fica de fora (já é despesa desde a compra). Pago = já saiu do caixa.
+router.post(
+  "/assistances/:id/cost",
+  requireAnyPermission(["finance.manage", "organization.manage"]),
+  asyncHandler(async (req, res) => {
+    const input = z
+      .object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida"), paid: z.boolean().default(true), method: z.string().trim().max(40).nullable().optional() })
+      .parse(req.body);
+    const orgId = req.user!.organizationId;
+    const t = await ticketFor(req.params.id, orgId);
+    const { aLancar } = assistanceCost(t.items.map(serializeItem));
+    const existing = await prisma.financeTransaction.findFirst({ where: { organizationId: orgId, originAssistanceId: t.id, type: "DESPESA" } });
+    const plan = costPlan(aLancar, existing ? { status: existing.status, amount: num(existing.amount) } : null);
+    if (plan.action === "NADA") throw new BadRequestError(plan.motivo!);
+    const day = new Date(`${input.date}T12:00:00Z`);
+    const description = `${t.internal ? "Retrabalho" : "Assistência"} ${t.number} — ${t.title}`.slice(0, 250);
+    const status = input.paid ? "PAGO" : "PENDENTE";
+    let message = "";
+    if (plan.action === "REMOVER") {
+      await prisma.financeTransaction.delete({ where: { id: existing!.id } });
+      message = "Nenhum custo a lançar: a despesa da assistência foi retirada";
+    } else if (plan.action === "ATUALIZAR") {
+      await prisma.financeTransaction.update({ where: { id: existing!.id }, data: { amount: aLancar, date: day, dueDate: day, description, status, paidAt: input.paid ? existing!.paidAt ?? day : null, method: input.method ?? existing!.method } });
+      message = "Custo da assistência atualizado no financeiro";
+    } else {
+      await prisma.financeTransaction.create({
+        data: { organizationId: orgId, type: "DESPESA", category: CATEGORY_ASSISTANCE_COST, amount: aLancar, date: day, dueDate: day, description, status, paidAt: input.paid ? day : null, method: input.method ?? null, clientId: t.clientId, projectId: t.projectId, originAssistanceId: t.id, createdById: req.user!.id },
+      });
+      message = "Custo da assistência lançado no financeiro";
+    }
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action: `ASSISTANCE_COST_${plan.action}`, entity: "AssistanceTicket", entityId: t.id, details: { aLancar, date: input.date, paid: input.paid } } });
     return ok(res, await view(t.id, orgId), message);
   })
 );
