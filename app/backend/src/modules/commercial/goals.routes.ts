@@ -3,17 +3,19 @@
  *
  * Quem não tem commercial.read.all (o CONSULTOR) só vê a própria meta e as
  * próprias vendas — o mesmo escopo que o funil já aplica.
+ * Cada consultor define a própria meta (commercial.goals.self); a da loja e a
+ * dos outros consultores é da gestão (commercial.goals.manage).
  */
 import { Router } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { authenticate } from "../../middlewares/auth";
-import { requirePermission } from "../../middlewares/rbac";
+import { requireAnyPermission, requirePermission } from "../../middlewares/rbac";
 import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { conversionRate, goalProgress, monthRange, parseMonth } from "./goals.service";
+import { conversionRate, goalOwner, goalProgress, monthRange, parseMonth } from "./goals.service";
 import { goalSuggestion } from "./reminders.service";
 
 const router = Router();
@@ -70,7 +72,8 @@ router.get(
         where: {
           organizationId,
           status: "ACTIVE",
-          OR: [{ commercialSales: { some: {} } }, { assignedOpportunities: { some: {} } }, { salesGoals: { some: { month } } }],
+          // consultor sem venda ainda aparece: a gestão define a meta dele por aqui
+          OR: [{ commercialSales: { some: {} } }, { assignedOpportunities: { some: {} } }, { salesGoals: { some: { month } } }, { role: { name: "CONSULTOR" } }],
         },
         select: { id: true, name: true },
         orderBy: { name: "asc" },
@@ -109,10 +112,11 @@ router.get(
   })
 );
 
-// PUT /api/commercial/goals  { month, amount, userId? }  userId vazio = meta da loja
+// PUT /api/commercial/goals  { month, amount, userId? }  userId null = meta da loja
+// (sem userId: a gestão grava a da loja; o consultor, a própria)
 router.put(
   "/",
-  requirePermission("commercial.goals.manage"),
+  requireAnyPermission(["commercial.goals.manage", "commercial.goals.self"]),
   asyncHandler(async (req, res) => {
     const input = z
       .object({
@@ -123,7 +127,7 @@ router.put(
       .parse(req.body);
     const month = parseMonth(input.month);
     const organizationId = req.user!.organizationId;
-    const userId = input.userId ?? null;
+    const userId = goalOwner(req.user!.permissions, req.user!.id, input.userId);
 
     if (userId) {
       const u = await prisma.user.findFirst({ where: { id: userId, organizationId }, select: { id: true } });

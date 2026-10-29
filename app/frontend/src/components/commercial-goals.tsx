@@ -57,21 +57,35 @@ const mesAtual = () => new Date().toLocaleDateString("en-CA", { timeZone: "Ameri
 
 /** Metas do mês: meta, vendido, faltante, ritmo e previsão. */
 export function CommercialGoals() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const qc = useQueryClient();
   const [month, setMonth] = useState(mesAtual());
   const [meta, setMeta] = useState("");
+  // a gestão define a da loja e a de cada consultor; o consultor, só a própria
+  const manage = can("commercial.goals.manage");
+  const self = !manage && can("commercial.goals.self");
+  const [sellerMeta, setSellerMeta] = useState<Record<string, string>>({});
 
   const q = useQuery({
     queryKey: ["goals", month],
     queryFn: () => apiGet<{ data: Dashboard }>("/commercial/goals/dashboard", { month }),
   });
 
+  const valor = (v: string) => Number(v.replace(/\./g, "").replace(",", "."));
   const salvar = useMutation({
-    mutationFn: () => apiPut("/commercial/goals", { month, amount: Number(meta.replace(/\./g, "").replace(",", ".")), userId: null }),
+    mutationFn: () => apiPut("/commercial/goals", { month, amount: valor(meta), userId: self ? user!.id : null }),
     onSuccess: () => {
-      toast.success("Meta da loja salva");
+      toast.success(self ? "Sua meta foi salva" : "Meta da loja salva");
       setMeta("");
+      qc.invalidateQueries({ queryKey: ["goals", month] });
+    },
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível salvar a meta")),
+  });
+  const salvarConsultor = useMutation({
+    mutationFn: (v: { userId: string; amount: number }) => apiPut("/commercial/goals", { month, ...v }),
+    onSuccess: (_r, v) => {
+      toast.success("Meta do consultor salva");
+      setSellerMeta((m) => ({ ...m, [v.userId]: "" }));
       qc.invalidateQueries({ queryKey: ["goals", month] });
     },
     onError: (e) => toast.error(errorMessage(e, "Não foi possível salvar a meta")),
@@ -88,7 +102,7 @@ export function CommercialGoals() {
             <Label htmlFor="g-mes" className="text-xs">Mês</Label>
             <Input id="g-mes" type="month" value={month} onChange={(e) => setMonth(e.target.value || mesAtual())} className="w-[170px]" />
           </div>
-          {can("commercial.goals.manage") && (
+          {(manage || self) && (
             <form
               className="flex items-end gap-2"
               onSubmit={(e) => {
@@ -97,7 +111,7 @@ export function CommercialGoals() {
               }}
             >
               <div>
-                <Label htmlFor="g-valor" className="text-xs">Meta da loja no mês</Label>
+                <Label htmlFor="g-valor" className="text-xs">{self ? "Sua meta no mês" : "Meta da loja no mês"}</Label>
                 <Input id="g-valor" value={meta} onChange={(e) => setMeta(e.target.value)} placeholder={d?.goal ? String(d.goal) : "0,00"} inputMode="decimal" className="w-[170px]" />
               </div>
               <Button type="submit" size="sm" disabled={salvar.isPending || !meta}>
@@ -108,7 +122,7 @@ export function CommercialGoals() {
         </CardContent>
       </Card>
 
-      {can("commercial.goals.manage") && <GoalSuggestion month={month} />}
+      {manage && <GoalSuggestion month={month} />}
 
       {q.isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
@@ -130,7 +144,7 @@ export function CommercialGoals() {
             <CardContent className="space-y-3">
               {d.goal === null ? (
                 <p className="text-sm text-muted-foreground">
-                  Nenhuma meta definida para este mês{can("commercial.goals.manage") ? " — informe o valor acima." : "."} Vendido até agora: <strong>{brl(d.sold)}</strong>.
+                  Nenhuma meta definida para este mês{manage || self ? " — informe o valor acima." : "."} Vendido até agora: <strong>{brl(d.sold)}</strong>.
                 </p>
               ) : (
                 <>
@@ -178,7 +192,23 @@ export function CommercialGoals() {
                     {d.bySeller.map((s) => (
                       <TableRow key={s.sellerId}>
                         <TableCell>{s.name}</TableCell>
-                        <TableCell className="text-right tabular-nums">{brl(s.goal)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {manage ? (
+                            <form
+                              className="flex items-center justify-end gap-1"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                const v = sellerMeta[s.sellerId];
+                                if (v) salvarConsultor.mutate({ userId: s.sellerId, amount: valor(v) });
+                              }}
+                            >
+                              <Input aria-label={`Meta de ${s.name}`} value={sellerMeta[s.sellerId] ?? ""} onChange={(e) => setSellerMeta((m) => ({ ...m, [s.sellerId]: e.target.value }))} placeholder={s.goal === null ? "0,00" : brl(s.goal)} inputMode="decimal" className="h-8 w-[120px] text-right" />
+                              {sellerMeta[s.sellerId] && <Button type="submit" size="sm" variant="outline" className="h-8" disabled={salvarConsultor.isPending}>Salvar</Button>}
+                            </form>
+                          ) : (
+                            brl(s.goal)
+                          )}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">{brl(s.sold)}</TableCell>
                         <TableCell className="text-right tabular-nums">{s.percent === null ? "—" : `${s.percent.toLocaleString("pt-BR")}%`}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{brl(s.projected)}</TableCell>
