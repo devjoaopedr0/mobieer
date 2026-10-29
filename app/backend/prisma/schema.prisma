@@ -1242,6 +1242,7 @@ model Project {
   maintenances    PreventiveMaintenance[]
 
   reworks             ProductionRework[]
+  planTasks           ProductionPlanTask[]
   @@unique([organizationId, code])
   @@index([organizationId, status])
   @@index([clientId])
@@ -4043,6 +4044,8 @@ model ProductionPlanTask {
   person         String // nome como a loja escreve; não exige usuário
   title          String
   reference      String? // cliente ou projeto, quando quiser dizer de quem é
+  projectId      String? // obra cadastrada: limita os dias em que a tarefa pode ficar
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   items          Json         @default("[]") // subtarefas: [{ text, done }]
   done           Boolean      @default(false)
   doneAt         DateTime?
@@ -4058,6 +4061,7 @@ model ProductionPlanTask {
   updatedAt      DateTime     @default(now())
 
   @@index([organizationId, date])
+  @@index([projectId])
 }
 
 /// Frente de produção que corre em paralelo à marcenaria no mesmo pedido.
