@@ -23,7 +23,7 @@ export type QuoteForFinance = {
   version: number;
   total: number;
   payment: { method: PaymentMethod; planName: string | null; installments: number; downPayment: number; feePercent: number };
-  commissions: { name: string; percent: number; amount: number; role?: string; referrerId?: string | null }[];
+  commissions: { name: string; percent: number; amount: number; role?: string; referrerId?: string | null; userId?: string | null }[];
 };
 
 export type PlannedEntry = {
@@ -38,6 +38,8 @@ export type PlannedEntry = {
   installmentTotal: number | null;
   /** reserva técnica: a quem pagar */
   referrerId?: string | null;
+  /** comissão: o usuário que recebe */
+  payeeUserId?: string | null;
   /** comissão paga conforme recebe: posição, na lista, do recebível que ela acompanha */
   follows?: number;
   /** linha de comissão: posição da comissão na lista do orçamento */
@@ -159,6 +161,7 @@ export function planCommissions(
         installmentNumber: null,
         installmentTotal: null,
         referrerId: rt ? c.referrerId ?? null : null,
+        payeeUserId: rt ? null : c.userId ?? null,
         follows: s.x?.index,
         commission: k,
       })

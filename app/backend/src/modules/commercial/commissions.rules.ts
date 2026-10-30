@@ -20,6 +20,13 @@ export type CommissionLine = {
 export const seesAllCommissions = (permissions: string[]) =>
   ["finance.read", "organization.manage", "commercial.commissions.manage"].some((p) => permissions.includes(p));
 
+/**
+ * De quem é a comissão que a pessoa pede: quem vê todos escolhe (null = todos);
+ * o vendedor recebe sempre a própria, peça o que pedir.
+ */
+export const commissionViewer = (permissions: string[], selfId: string, requested?: string | null) =>
+  seesAllCommissions(permissions) ? requested || null : selfId;
+
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Soma por vendedor (pelo usuário; linha sem usuário, pelo nome escrito). */

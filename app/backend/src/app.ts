@@ -88,6 +88,7 @@ import quoteRoutes from "./modules/commercial/quote.routes";
 import referrerRoutes from "./modules/commercial/referrers.routes";
 import remindersRoutes from "./modules/commercial/reminders.routes";
 import teamsRoutes from "./modules/commercial/teams.routes";
+import myDayRoutes from "./modules/commercial/my-day.routes";
 import portalFinanceRoutes from "./modules/portal/portal-finance.routes";
 import { portalChatClientRouter, portalChatStaffRouter } from "./modules/portal/portal-chat.routes";
 import agendaResponseRoutes from "./modules/agenda/response.routes";
@@ -208,6 +209,7 @@ export function createApp() {
   app.use("/api/commercial/quotes", quoteRoutes);
   app.use("/api/referrers", referrerRoutes);
   app.use("/api/commercial", teamsRoutes);
+  app.use("/api/commercial", myDayRoutes);
   app.use("/api/commercial", commercialRoutes);
   app.use("/api/briefing", briefingRoutes);
   app.use("/api/appliances", appliancesRoutes);

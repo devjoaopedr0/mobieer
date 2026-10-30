@@ -179,6 +179,10 @@ model User {
   goalProposals         SalesGoalProposal[] @relation("SalesGoalProposalSeller")
   goalProposalsDecided  SalesGoalProposal[] @relation("SalesGoalProposalDecider")
   goalProposalsAdjusted SalesGoalProposal[] @relation("SalesGoalProposalAdjuster")
+  commissionPolicies      CommissionPolicy[]     @relation("CommissionPolicyCreator")
+  commissionSettlements   CommissionSettlement[] @relation("CommissionSettlementUser")
+  commissionsConsolidated CommissionSettlement[] @relation("CommissionSettlementConsolidator")
+  financePayeeEntries     FinanceTransaction[]   @relation("FinancePayeeUser")
   requisitionItemsSeparated RequisitionItem[] @relation("RequisitionItemSeparator")
   assistanceTasksDone AssistanceTask[] @relation("AssistanceTaskDoneBy")
 }
@@ -309,6 +313,8 @@ model Organization {
   productionPlanTasks ProductionPlanTask[]
   portalMessages PortalMessage[]
   salesGoalProposals SalesGoalProposal[]
+  commissionPolicies    CommissionPolicy[]
+  commissionSettlements CommissionSettlement[]
 }
 
 model Role {
@@ -1658,6 +1664,9 @@ enum CommercialInteractionType {
   VISIT
   INTERNAL_MESSAGE
   OTHER
+  FOLLOW_UP
+  PROPOSAL
+  NEGOTIATION
 }
 
 /// Despesa ou receita fixa (aluguel, internet, pró-labore...): gera uma
@@ -1777,6 +1786,110 @@ model CommercialQuoteCommission {
 
   @@index([quoteId])
   @@index([userId])
+}
+
+/// Comissão do consultor por faixa do total vendido no mês (commission-tiers.rules.ts).
+/// Cada linha é uma vigência: vale para um mês a ativa com o maior validFrom
+/// até ele. Depois de usada numa apuração não se edita — cria-se outra vigência.
+enum CommissionMode {
+  PROGRESSIVE // cada faixa paga o seu % só sobre a parte do total dentro dela
+  FLAT_ON_TOTAL // o % da faixa atingida vale para o total do mês
+}
+
+model CommissionPolicy {
+  id             String                 @id @default(cuid())
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  mode           CommissionMode         @default(PROGRESSIVE)
+  /// papel da linha de comissão do orçamento que a faixa substitui
+  role           String                 @default("VENDEDOR")
+  validFrom      String // aaaa-mm
+  active         Boolean                @default(true)
+  notes          String?
+  createdById    String?
+  createdBy      User?                  @relation("CommissionPolicyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  tiers          CommissionTier[]
+  settlements    CommissionSettlement[]
+
+  @@index([organizationId, validFrom])
+}
+
+/// Faixa: total do mês acima de minAmount e até maxAmount (vazio = sem teto).
+model CommissionTier {
+  id        String           @id @default(cuid())
+  policyId  String
+  policy    CommissionPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  position  Int
+  minAmount Decimal          @db.Decimal(14, 2)
+  maxAmount Decimal?         @db.Decimal(14, 2)
+  percent   Decimal          @db.Decimal(6, 3)
+
+  @@index([policyId, position])
+}
+
+enum CommissionSettlementStatus {
+  CONSOLIDADA
+  REABERTA
+}
+
+enum CommissionSettlementItemKind {
+  SALE // contrato aceito do mês
+  MANUAL_ADJUSTMENT // ajuste autorizado: positivo vira conta a pagar, negativo desconta na próxima
+}
+
+/// Apuração consolidada de um consultor num mês. As faixas ficam copiadas em
+/// policySnapshot: mudar a regra depois não altera o que já foi fechado.
+model CommissionSettlement {
+  id                  String                     @id @default(cuid())
+  organizationId      String
+  organization        Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User                       @relation("CommissionSettlementUser", fields: [userId], references: [id], onDelete: Restrict)
+  month               String // aaaa-mm
+  policyId            String?
+  policy              CommissionPolicy?          @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  policySnapshot      Json
+  mode                CommissionMode
+  baseTotal           Decimal                    @db.Decimal(14, 2)
+  commissionTotal     Decimal                    @db.Decimal(14, 2)
+  effectivePercent    Decimal                    @db.Decimal(7, 4)
+  /// a descontar, trazido de apurações anteriores e usado aqui
+  creditIn            Decimal                    @default(0) @db.Decimal(14, 2)
+  /// pago a mais (ou ajuste negativo) que fica a descontar na próxima
+  creditOut           Decimal                    @default(0) @db.Decimal(14, 2)
+  status              CommissionSettlementStatus @default(CONSOLIDADA)
+  consolidatedById    String?
+  consolidatedBy      User?                      @relation("CommissionSettlementConsolidator", fields: [consolidatedById], references: [id], onDelete: SetNull)
+  consolidatedAt      DateTime                   @default(now())
+  reopenedAt          DateTime?
+  notes               String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  items               CommissionSettlementItem[]
+  financeTransactions FinanceTransaction[]
+
+  @@unique([organizationId, userId, month])
+  @@index([organizationId, month])
+}
+
+model CommissionSettlementItem {
+  id               String                       @id @default(cuid())
+  settlementId     String
+  settlement       CommissionSettlement         @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  kind             CommissionSettlementItemKind
+  quoteId          String?
+  quote            CommercialQuote?             @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  baseAmount       Decimal                      @default(0) @db.Decimal(14, 2)
+  commissionAmount Decimal                      @db.Decimal(14, 2)
+  reason           String?
+  createdById      String?
+  createdAt        DateTime                     @default(now())
+
+  @@index([settlementId])
+  @@index([quoteId])
 }
 
 enum QuoteStatus {
@@ -2078,6 +2191,7 @@ model CommercialQuote {
   proposals      CommercialProposal[]
   history        CommercialHistory[]
   kanbanTasks    KanbanTask[]
+  commissionSettlementItems CommissionSettlementItem[]
 
   @@unique([organizationId, number, version])
   @@index([organizationId, status, issuedAt])
@@ -2768,6 +2882,12 @@ model FinanceTransaction {
 
   responsibleId String?
   responsible   User?   @relation("FinanceResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+
+  // comissão: quem recebe e a apuração por faixa que gerou ou ajustou a linha
+  payeeUserId            String?
+  payeeUser              User?                 @relation("FinancePayeeUser", fields: [payeeUserId], references: [id], onDelete: SetNull)
+  commissionSettlementId String?
+  commissionSettlement   CommissionSettlement? @relation(fields: [commissionSettlementId], references: [id], onDelete: SetNull)
 
   // uma NF pode apontar para o boleto/fatura que ela cobre
   relatedId String?

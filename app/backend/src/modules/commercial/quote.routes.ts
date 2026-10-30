@@ -20,6 +20,7 @@ import { brl } from "../templates/contract.service";
 import { PAYMENT_METHODS, QuoteRuleError, computeQuote, normalizePricing, type PricingConfig } from "./quote.rules";
 import { CATEGORY_COMMISSION, CATEGORY_SALE, CATEGORY_TECHNICAL_RESERVE, FinanceAdjustError, applyAdjustments, planCommissions, planFinance, type FinanceAdjustment } from "./quote.finance";
 import { hasBudgetValues, roomsFromParsed } from "./quote.promob";
+import { closedMonthFor, settledQuote } from "./commission-tiers.service";
 import { PRICING_SETTING, calcToData, loadPricing, nextQuoteNumber, quoteInclude, quotePdf, serializeQuote } from "./quote.service";
 
 const router = Router();
@@ -634,6 +635,7 @@ async function generateFinance(tx: Tx, q: ReturnType<typeof serializeQuote> & { 
       installmentTotal: e.installmentTotal,
       originQuoteId: q.id,
       referrerId: e.referrerId ?? null,
+      payeeUserId: e.payeeUserId ?? null,
       originOpportunityId: q.opportunity?.id ?? null,
       clientId: q.client.id,
       projectId: q.project?.id ?? null,
@@ -747,6 +749,11 @@ router.post(
     const cur = await findQuote(req, req.params.id);
     if (cur.status !== "APPROVED") throw new BadRequestError("Só contrato aceito tem competência");
     const when = new Date(`${date}T12:00:00.000Z`);
+    // comissão por faixa: mês já apurado não ganha nem perde contrato por fora
+    const settled = await settledQuote(cur.id);
+    if (settled) throw new BadRequestError(`Este contrato está na comissão consolidada de ${settled.settlement.user.name} (${settled.settlement.month.slice(5)}/${settled.settlement.month.slice(0, 4)}) — reabra a apuração antes de transferir`);
+    const closed = await closedMonthFor(cur.organizationId, date.slice(0, 7), cur.commissions.map((c) => c.userId).filter((x): x is string => Boolean(x)));
+    if (closed) throw new BadRequestError(`A comissão de ${closed.user.name} em ${date.slice(5, 7)}/${date.slice(0, 4)} já foi consolidada — reabra a apuração antes de transferir para esse mês`);
     const [, moved] = await prisma.$transaction([
       prisma.commercialQuote.update({ where: { id: cur.id }, data: { competenceDate: when } }),
       // competência (date) dos lançamentos do contrato; o vencimento não muda
@@ -793,6 +800,8 @@ router.put(
     const cur = await findQuote(req, req.params.id);
     if (EDITABLE.includes(cur.status)) throw new BadRequestError("Orçamento em rascunho ou negociação: ajuste a comissão editando o orçamento");
     if (!["SENT", "VIEWED", "APPROVED"].includes(cur.status)) throw new BadRequestError("Orçamento recusado ou cancelado não tem comissão a acertar");
+    const settled = await settledQuote(cur.id);
+    if (settled) throw new BadRequestError(`A comissão deste contrato já foi consolidada na apuração de ${settled.settlement.user.name} (${settled.settlement.month.slice(5)}/${settled.settlement.month.slice(0, 4)}) — use um ajuste na apuração ou reabra-a`);
     await checkRefs(req.user!.organizationId, { clientId: cur.clientId, commissions });
     const { list, data } = commissionUpdate(cur, commissions);
     const updated = await prisma.$transaction(async (tx) => {
@@ -821,6 +830,7 @@ router.put(
               method: e.method,
               originQuoteId: cur.id,
               referrerId: e.referrerId ?? null,
+              payeeUserId: e.payeeUserId ?? null,
               originOpportunityId: base.originOpportunityId,
               clientId: base.clientId,
               projectId: base.projectId,

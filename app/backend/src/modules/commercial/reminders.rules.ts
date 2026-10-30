@@ -58,7 +58,7 @@ export function buildReminders(data: ReminderData, now = new Date()): Reminder[]
 
   for (const o of data.opportunities) {
     const client = o.client ?? "Sem cliente";
-    const link = "/comercial";
+    const link = "/comercial?aba=funil";
     if (o.nextActionAt && o.nextActionAt < now) {
       const d = daysBetween(o.nextActionAt, now);
       add("ACAO_VENCIDA", o.seller, { client, title: o.title, detail: `${o.nextAction ?? "Próxima ação"} — ${d === 0 ? "era para hoje" : `atrasada há ${plural(d)}`}`, days: d, link });
