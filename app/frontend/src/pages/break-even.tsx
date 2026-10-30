@@ -17,7 +17,7 @@ import { errorMessage, formatCurrency } from "@/lib/utils";
 type Data = {
   year: number;
   month: number;
-  config: { fixedCost: number; profitGoal: number; taxPct: number; suggestedFixedCost: number; saved: boolean };
+  config: { fixedCost: number; profitGoal: number; taxPct: number; suggestedFixedCost: number; saved: boolean; taxSource: "MANUAL" | "SIMPLES" | null; simplesTaxPct: number | null };
   input: { fixedCost: number; profitGoal: number; taxPct: number };
   totals: { count: number; totalSold: number; financing: number; net: number; cost: number; commissions: number; freightOther: number; taxes: number; margin: number; marginPct: number | null; score: number | null; avgTicket: number | null; avgMargin: number | null };
   analysis: {
@@ -124,8 +124,10 @@ export function BreakEvenPage() {
     if (d && !form) setForm({ fixed: show(d.input.fixedCost), profit: show(d.input.profitGoal), tax: String(d.input.taxPct).replace(".", ",") });
   }, [d, form]);
 
+  // imposto igual ao do Simples (ou vazio) fica automático: acompanha o faturamento dos 12 meses
+  const taxToSave = (tax: number) => (d?.config.simplesTaxPct !== null && d?.config.simplesTaxPct !== undefined && tax === d.config.simplesTaxPct ? 0 : tax);
   const save = useMutation({
-    mutationFn: () => apiPut<{ message?: string }>("/overview/break-even", { fixedCost: parse(form!.fixed), profitGoal: parse(form!.profit), taxPct: parse(form!.tax) }),
+    mutationFn: () => apiPut<{ message?: string }>("/overview/break-even", { fixedCost: parse(form!.fixed), profitGoal: parse(form!.profit), taxPct: taxToSave(parse(form!.tax)) }),
     onSuccess: (r) => { toast.success(r.message ?? "Salvo"); setApplied(null); qc.invalidateQueries({ queryKey: ["overview", "break-even"] }); },
     onError: (e) => toast.error(errorMessage(e, "Não foi possível salvar")),
   });
@@ -171,6 +173,10 @@ export function BreakEvenPage() {
           </div>
           <div className="space-y-1"><Label className="text-xs" title="Previsão de impostos sobre a venda líquida">Impostos (%)</Label>
             <Input className="w-24" inputMode="decimal" value={form?.tax ?? ""} disabled={!simulate && !can("finance.manage")} onChange={(e) => form && setForm({ ...form, tax: e.target.value })} onBlur={commit} />
+            {d && d.config.taxSource === "SIMPLES" && <p className="text-[11px] text-muted-foreground">automático: Simples</p>}
+            {d && d.config.taxSource === "MANUAL" && d.config.simplesTaxPct !== null && (
+              <p className="text-[11px] text-muted-foreground">Simples daria {pct(d.config.simplesTaxPct)}</p>
+            )}
           </div>
           <label className="ml-auto flex items-center gap-2"><input type="checkbox" className="h-4 w-4" checked={simulate} onChange={(e) => leaveSimulation(e.target.checked)} />Modo simulação</label>
           {!simulate && can("finance.manage") && <Button size="sm" variant="outline" disabled={save.isPending || !form} onClick={() => save.mutate()}><Save className="mr-1 h-4 w-4" />Salvar</Button>}
@@ -179,6 +185,8 @@ export function BreakEvenPage() {
           <p className="px-6 pb-4 text-xs text-muted-foreground">
             {simulate ? "Simulação: mude os valores e saia do campo para recalcular. Nada é salvo." : "Mude os valores e saia do campo para salvar."}
             {!d.config.saved && d.config.suggestedFixedCost > 0 ? ` Custos fixos sugeridos pelas despesas de Financeiro → Fixos (${formatCurrency(d.config.suggestedFixedCost)}).` : ""}
+            {d.config.taxSource === "SIMPLES" ? ` Impostos: alíquota efetiva do Simples Nacional (${pct(d.config.simplesTaxPct)}), pelo faturamento dos últimos 12 meses — ajuste o faturamento em Financeiro → Impostos.` : ""}
+            {d.config.taxSource === "MANUAL" && d.config.simplesTaxPct !== null ? " Impostos digitados à mão: apague o campo (ou use 0) para voltar ao automático do Simples." : ""}
           </p>
         )}
       </Card>

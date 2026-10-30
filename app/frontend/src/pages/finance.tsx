@@ -123,6 +123,20 @@ export function FinancePage() {
 
   const [comp, setComp] = useState<TaxCompany | null>(null);
   const currentComp = comp ?? company.data?.data ?? null;
+  // faturamento dos últimos 12 meses informado à mão (vazio = o do sistema)
+  const [rbt12, setRbt12] = useState<string | null>(null);
+  const simples = company.data?.data.simples ?? null;
+  const saveRbt12 = useMutation({
+    mutationFn: () => apiPatch("/finance/tax/company", { rbt12Informado: rbt12?.trim() ? Number(rbt12.replace(/\./g, "").replace(",", ".")) : null }),
+    onSuccess: () => {
+      toast.success("Faturamento dos 12 meses salvo");
+      setRbt12(null);
+      qc.invalidateQueries({ queryKey: ["finance", "tax"] });
+      qc.invalidateQueries({ queryKey: ["overview", "break-even"] });
+      setApuracao(null);
+    },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao salvar")),
+  });
   const saveCompany = useMutation({
     mutationFn: () =>
       apiPatch("/finance/tax/company", {
@@ -1011,6 +1025,51 @@ export function FinancePage() {
               )}
             </CardContent>
           </Card>
+
+          {simples && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Simples Nacional — alíquota efetiva</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {!simples.anexo ? (
+                  <p className="text-muted-foreground">O CNAE principal não é de indústria (Anexo II) nem de comércio (Anexo I): a apuração usa as regras cadastradas abaixo.</p>
+                ) : simples.foraDoSimples ? (
+                  <p className="text-destructive">Faturamento dos últimos 12 meses acima de R$ 4,8 milhões: a empresa sai do Simples Nacional.</p>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div><p className="text-xs text-muted-foreground">Anexo</p><p className="font-medium">{simples.anexo === "II" ? "II — Indústria" : "I — Comércio"}</p></div>
+                    <div><p className="text-xs text-muted-foreground">Faixa</p><p className="font-medium">{simples.faixa}ª · nominal {simples.nominal?.toLocaleString("pt-BR")}%</p></div>
+                    <div><p className="text-xs text-muted-foreground">Parcela a deduzir</p><p className="font-medium tabular-nums">{formatCurrency(simples.deduzir ?? 0)}</p></div>
+                    <div><p className="text-xs text-muted-foreground">Alíquota efetiva</p><p className="text-lg font-semibold tabular-nums">{simples.efetiva?.toLocaleString("pt-BR")}%</p></div>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-end gap-3 border-t pt-3">
+                  <Field label="Faturamento dos últimos 12 meses (RBT12)">
+                    <Input
+                      className="w-48"
+                      inputMode="decimal"
+                      disabled={!canManage}
+                      placeholder={`do sistema: ${formatCurrency(simples.rbt12Sistema)}`}
+                      value={rbt12 ?? (simples.rbt12Informado !== null ? String(simples.rbt12Informado).replace(".", ",") : "")}
+                      onChange={(e) => setRbt12(e.target.value)}
+                    />
+                  </Field>
+                  {canManage && (
+                    <Button variant="outline" disabled={rbt12 === null || saveRbt12.isPending} onClick={() => saveRbt12.mutate()}>
+                      {saveRbt12.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Salvar
+                    </Button>
+                  )}
+                  <p className="basis-full text-xs text-muted-foreground">
+                    {simples.rbt12Fonte === "INFORMADO"
+                      ? `Usando o valor informado (${formatCurrency(simples.rbt12)}). Apague o campo e salve para voltar a usar as receitas pagas do sistema.`
+                      : `Usando as receitas pagas lançadas no sistema nos 12 meses anteriores (${formatCurrency(simples.rbt12)}). Se o sistema ainda não tem o ano todo, informe o valor do PGDAS ou do contador.`}{" "}
+                    Efetiva = (RBT12 × nominal − parcela a deduzir) ÷ RBT12. É a alíquota usada na apuração e no ponto de equilíbrio.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

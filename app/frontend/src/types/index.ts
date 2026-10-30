@@ -258,6 +258,19 @@ export type TaxCompany = {
   uf: string | null;
   municipio: string | null;
   inscricaoEstadual: string | null;
+  /** Simples Nacional: anexo pelo CNAE e alíquota efetiva pelo RBT12 (null fora do Simples) */
+  simples?: {
+    anexo: "I" | "II" | null;
+    rbt12: number;
+    rbt12Fonte: "INFORMADO" | "SISTEMA";
+    rbt12Informado: number | null;
+    rbt12Sistema: number;
+    faixa: number | null;
+    nominal: number | null;
+    deduzir: number | null;
+    efetiva: number | null;
+    foraDoSimples: boolean;
+  } | null;
 };
 
 export type TaxRule = {
