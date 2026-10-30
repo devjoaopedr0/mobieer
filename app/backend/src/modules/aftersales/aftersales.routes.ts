@@ -18,6 +18,7 @@ import { assinaturaCabe, isAssinaturaValida } from "../contractors/documents.ser
 import { registerFileEntity } from "../files/files.service";
 import { RESULT_LABEL, checklistRows, coverageState, maintenanceSchedule, type CoverageItem } from "./aftersales.rules";
 import { MAINTENANCE_MONTHS_SETTING, completeInspection, issueCertificate, loadMaintenanceMonths, openWarranty } from "./aftersales.service";
+import { initialRooms } from "./inspection-rooms.rules";
 
 // fotos da vistoria no registro central de arquivos
 registerFileEntity("SiteInspection", {
@@ -47,11 +48,25 @@ const inspectionInclude = {
   createdBy: { select: { id: true, name: true } },
   items: { orderBy: { position: "asc" as const } },
   reportDocument: { select: { id: true, title: true, version: true } },
+  rooms: {
+    orderBy: { position: "asc" as const },
+    include: {
+      updatedBy: { select: { name: true } },
+      pendencies: {
+        orderBy: { createdAt: "asc" as const },
+        include: {
+          createdBy: { select: { name: true } },
+          resolvedBy: { select: { name: true } },
+          transfers: { orderBy: { createdAt: "asc" as const }, include: { fromRoom: { select: { name: true } }, toRoom: { select: { name: true } }, by: { select: { name: true } } } },
+        },
+      },
+    },
+  },
 } as const;
 
 type InspectionRow = NonNullable<Awaited<ReturnType<typeof prisma.siteInspection.findFirst<{ include: typeof inspectionInclude }>>>>;
 
-function serializeInspection(i: InspectionRow, photoCount = 0) {
+function serializeInspection(i: InspectionRow, photoCount = 0, roomPhotos: Map<string, number> = new Map()) {
   const answered = i.items.filter((x) => x.status).length;
   return {
     id: i.id,
@@ -74,6 +89,17 @@ function serializeInspection(i: InspectionRow, photoCount = 0) {
     progress: { answered, total: i.items.length, nonConforming: i.items.filter((x) => x.status === "NAO_CONFORME").length },
     photoCount,
     items: i.items.map((x) => ({ id: x.id, section: x.section, label: x.label, position: x.position, status: x.status, note: x.note })),
+    // vistoria por ambiente: situação, fotos e pendências (com as passagens de um ambiente para outro)
+    rooms: i.rooms.map((r) => ({
+      id: r.id, name: r.name, projectRoomId: r.projectRoomId, status: r.status, note: r.note, updatedAt: r.updatedAt, updatedBy: r.updatedBy?.name ?? null,
+      photoCount: roomPhotos.get(r.id) ?? 0,
+      pendencies: r.pendencies.map((p) => ({
+        id: p.id, kind: p.kind, description: p.description, targetRoomName: p.targetRoomName, status: p.status, resolutionNote: p.resolutionNote,
+        createdAt: p.createdAt, createdBy: p.createdBy?.name ?? null, resolvedAt: p.resolvedAt, resolvedBy: p.resolvedBy?.name ?? null,
+        transfers: p.transfers.map((t) => ({ from: t.fromRoom.name, to: t.toRoom.name, reason: t.reason, by: t.by?.name ?? null, at: t.createdAt })),
+      })),
+    })),
+    openPendencies: i.rooms.reduce((n, r) => n + r.pendencies.filter((p) => p.status === "ABERTA").length, 0),
   };
 }
 
@@ -94,9 +120,15 @@ router.get(
       _count: { _all: true },
     });
     const pc = new Map(photos.map((p) => [p.entityId, p._count._all]));
+    const roomPhotos = await prisma.fileRecord.groupBy({
+      by: ["entityId"],
+      where: { entity: "SiteInspectionRoom", entityId: { in: inspections.flatMap((i) => i.rooms.map((r) => r.id)) } },
+      _count: { _all: true },
+    });
+    const rp = new Map(roomPhotos.map((p) => [p.entityId, p._count._all]));
     const now = new Date();
     return ok(res, {
-      inspections: inspections.map((i) => serializeInspection(i, pc.get(i.id) ?? 0)),
+      inspections: inspections.map((i) => serializeInspection(i, pc.get(i.id) ?? 0, rp)),
       warranty: warranty
         ? {
             id: warranty.id,
@@ -144,6 +176,9 @@ router.post(
         installerNames: z.string().trim().max(500).optional().nullable(),
       })
       .parse(req.body ?? {});
+    // uma linha por ambiente: os cadastrados no projeto ou, sem eles, o texto informado
+    const projectRooms = await prisma.projectRoom.findMany({ where: { projectId: project.id }, select: { id: true, name: true }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] });
+    const rooms = initialRooms(projectRooms, input.ambientes);
     const created = await prisma.siteInspection.create({
       data: {
         organizationId: req.user!.organizationId,
@@ -154,6 +189,7 @@ router.post(
         technicianId: req.user!.id,
         createdById: req.user!.id,
         items: { create: checklistRows() },
+        rooms: { create: rooms.map((r, position) => ({ ...r, position, updatedById: req.user!.id })) },
       },
       include: inspectionInclude,
     });

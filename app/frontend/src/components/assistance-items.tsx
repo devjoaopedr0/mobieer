@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Loader2, Package, Plus, Trash2, Wallet } from "lucide-react";
+import { CheckSquare, FileText, Loader2, Package, Plus, Trash2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,18 @@ import { errorMessage } from "@/lib/errors";
 import { useAuth } from "@/hooks/use-auth";
 import { formatCurrency, localIsoDate } from "@/lib/utils";
 
-type Item = { id: string; kind: string; kindLabel: string; description: string; quantity: number; unitPrice: number; charged: boolean; total: number; product: { id: string; code: string; name: string; stock: number } | null; stockMovedAt: string | null };
+type Item = { id: string; kind: string; kindLabel: string; description: string; quantity: number; unitPrice: number; charged: boolean; total: number; product: { id: string; code: string; name: string; stock: number } | null; stockMovedAt: string | null; taskIds: string[] };
+type Task = { id: string; text: string; position: number; done: boolean; doneAt: string | null; doneBy: string | null; itemCount: number };
 type Product = { id: string; code: string; name: string; stock: number; unitValue: string | number | null };
 type Data = {
   internal: boolean;
   items: Item[];
   totals: { garantia: number; cobrado: number; total: number };
+  cost: { total: number; doEstoque: number; aLancar: number };
   finance: { id: string; amount: number; status: string; dueDate: string | null } | null;
+  costFinance: { id: string; amount: number; status: string; dueDate: string | null } | null;
+  tasks: Task[];
+  checklist: { done: number; total: number };
   kinds: { code: string; label: string }[];
 };
 
@@ -38,6 +43,13 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   const [search, setSearch] = useState("");
   const found = useQuery({ queryKey: ["assist-products", search], queryFn: () => apiGet<{ data: Product[] }>("/products", { search, perPage: 8 }), enabled: search.trim().length >= 2 && can("products.read") });
   const [due, setDue] = useState(localIsoDate(new Date()));
+  const [costDay, setCostDay] = useState(localIsoDate(new Date()));
+  const [costPaid, setCostPaid] = useState(true);
+  // várias peças escolhidas de uma vez na busca, e os serviços do checklist a que elas vão
+  const [picked, setPicked] = useState<Product[]>([]);
+  const [pickTasks, setPickTasks] = useState<string[]>([]);
+  const [newTask, setNewTask] = useState("");
+  const canCheck = can("organization.tasks.edit.all") || can("organization.tasks.edit") || can("activities.complete");
   const apply = (r: { data: Data; message?: string }) => {
     qc.setQueryData(key, { data: r.data });
     qc.invalidateQueries({ queryKey: ["business-assistances"] });
@@ -45,13 +57,26 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   };
   const fail = (msg: string) => (e: unknown) => toast.error(errorMessage(e, msg));
   const add = useMutation({
-    mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/items`, { kind: draft.kind, description: draft.description.trim(), quantity: money(draft.quantity) || 1, unitPrice: money(draft.unitPrice) || 0, charged: draft.charged, productId: draft.product?.id ?? null }),
+    mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/items`, { kind: draft.kind, description: draft.description.trim(), quantity: money(draft.quantity) || 1, unitPrice: money(draft.unitPrice) || 0, charged: draft.charged, productId: draft.product?.id ?? null, taskIds: pickTasks }),
     onSuccess: (r) => { apply(r); setDraft((d) => ({ ...d, description: "", quantity: "1", unitPrice: "", charged: false, product: null })); setSearch(""); },
     onError: fail("Não foi possível acrescentar o item"),
   });
+  const addMany = useMutation({
+    mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/items/batch`, {
+      items: picked.map((p) => ({ kind: draft.kind, description: p.name, quantity: 1, unitPrice: p.unitValue != null ? Number(p.unitValue) : 0, charged: draft.charged, productId: p.id })),
+      taskIds: pickTasks,
+    }),
+    onSuccess: (r) => { apply(r); setPicked([]); setSearch(""); },
+    onError: fail("Não foi possível acrescentar as peças"),
+  });
+  const taskAdd = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/tasks`, { text: newTask.trim() }), onSuccess: (r) => { apply(r); setNewTask(""); }, onError: fail("Não foi possível acrescentar o serviço") });
+  const taskPatch = useMutation({ mutationFn: (v: { id: string; done: boolean }) => apiPatch<{ data: Data; message?: string }>(`/business/assistance-tasks/${v.id}`, { done: v.done }), onSuccess: apply, onError: fail("Não foi possível marcar o serviço") });
+  const taskRemove = useMutation({ mutationFn: (id: string) => apiDelete<{ data: Data; message?: string }>(`/business/assistance-tasks/${id}`), onSuccess: apply, onError: fail("Não foi possível tirar o serviço") });
+  const togglePick = (p: Product) => setPicked((l) => (l.some((x) => x.id === p.id) ? l.filter((x) => x.id !== p.id) : [...l, p]));
   const patch = useMutation({ mutationFn: (v: { id: string; body: Partial<Item> }) => apiPatch<{ data: Data }>(`/business/assistance-items/${v.id}`, v.body), onSuccess: apply, onError: fail("Não foi possível alterar o item") });
   const remove = useMutation({ mutationFn: (id: string) => apiDelete<{ data: Data }>(`/business/assistance-items/${id}`), onSuccess: apply, onError: fail("Não foi possível remover o item") });
   const charge = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/charge`, { dueDate: due }), onSuccess: apply, onError: fail("Não foi possível lançar no financeiro") });
+  const cost = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/cost`, { date: costDay, paid: costPaid }), onSuccess: apply, onError: fail("Não foi possível lançar o custo") });
   const stockExit = useMutation({ mutationFn: () => apiPost<{ data: Data; message?: string }>(`/business/assistances/${ticketId}/stock-exit`, {}), onSuccess: (r) => { apply(r); qc.invalidateQueries({ queryKey: ["assist-products"] }); }, onError: fail("Não foi possível dar baixa no estoque") });
   const order = useMutation({ mutationFn: () => apiOpen(`/business/assistances/${ticketId}/service-order.pdf`), onError: fail("Não foi possível gerar a ordem de serviço") });
 
@@ -61,6 +86,8 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
   // a cobrança lançada não bate com o que está marcado agora: avisa para atualizar
   const pendingStock = d.items.filter((i) => i.product && !i.stockMovedAt).length;
   const outdated = d.finance && d.finance.status !== "PAGO" && Math.abs(d.finance.amount - d.totals.cobrado) > 0.004;
+  // o custo lançado (despesa) não bate com os itens de agora
+  const costOutdated = d.costFinance && Math.abs(d.costFinance.amount - d.cost.aLancar) > 0.004;
 
   return (
     <div className="space-y-2 rounded-md border p-3">
@@ -73,6 +100,27 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
       </div>
       {!internal && <p className="text-xs text-muted-foreground">A assistência é na garantia. Marque <span className="font-medium">Cobrar</span> só no que o cliente vai pagar (ex.: um acessório novo).</p>}
 
+      {/* checklist dos serviços: marcar feito grava quem e a data, para medir o tempo */}
+      <div className="space-y-1 rounded-md bg-muted/40 p-2">
+        <p className="flex items-center gap-1.5 text-xs font-medium"><CheckSquare className="h-3.5 w-3.5" /> Serviços {d.checklist.total > 0 && <span className="text-muted-foreground">· {d.checklist.done} de {d.checklist.total} feitos</span>}</p>
+        {d.tasks.length === 0 && <p className="text-xs text-muted-foreground">Nenhum serviço no checklist. Linhas numeradas da descrição (1. … 2. …) entram sozinhas; acrescente abaixo.</p>}
+        {d.tasks.map((k, n) => (
+          <div key={k.id} className="flex flex-wrap items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4" aria-label={`Feito: ${k.text}`} checked={k.done} disabled={!canCheck || taskPatch.isPending} onChange={(e) => taskPatch.mutate({ id: k.id, done: e.target.checked })} />
+            <span className={k.done ? "text-muted-foreground line-through" : ""}>{n + 1}. {k.text}</span>
+            {k.done && k.doneAt && <span className="text-xs text-success">concluído {new Date(k.doneAt).toLocaleDateString("pt-BR")}{k.doneBy ? ` · ${k.doneBy}` : ""}</span>}
+            {k.itemCount > 0 && <span className="text-[11px] text-muted-foreground">{k.itemCount} peça(s)</span>}
+            {canEdit && <button type="button" className="ml-auto text-muted-foreground hover:text-destructive" aria-label={`Tirar ${k.text}`} disabled={taskRemove.isPending} onClick={() => taskRemove.mutate(k.id)}><Trash2 className="h-3.5 w-3.5" /></button>}
+          </div>
+        ))}
+        {canEdit && (
+          <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); if (newTask.trim().length >= 2) taskAdd.mutate(); }}>
+            <Input className="h-8 text-xs" placeholder="Acrescentar serviço (ex.: regular portas do aéreo)" value={newTask} onChange={(e) => setNewTask(e.target.value)} />
+            <Button type="submit" size="sm" variant="outline" className="h-8" disabled={newTask.trim().length < 2 || taskAdd.isPending}><Plus className="h-3.5 w-3.5" /></Button>
+          </form>
+        )}
+      </div>
+
       {d.items.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-xs">
@@ -84,6 +132,16 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
                 <tr key={i.id} className="border-t">
                   <td className="py-1.5">
                     {i.description} <span className="text-muted-foreground">({i.kindLabel})</span>
+                    {d.tasks.length > 0 && (
+                      <span className="mt-0.5 flex flex-wrap items-center gap-1">
+                        {d.tasks.map((k, n) => {
+                          const on = i.taskIds.includes(k.id);
+                          return canEdit ? (
+                            <button key={k.id} type="button" title={k.text} aria-pressed={on} className={`rounded border px-1.5 text-[10px] ${on ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} disabled={patch.isPending} onClick={() => patch.mutate({ id: i.id, body: { taskIds: on ? i.taskIds.filter((x) => x !== k.id) : [...i.taskIds, k.id] } as Partial<Item> })}>{n + 1}</button>
+                          ) : on ? <span key={k.id} title={k.text} className="rounded border px-1.5 text-[10px]">{n + 1}</span> : null;
+                        })}
+                      </span>
+                    )}
                     {i.product && <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground"><Package className="h-3 w-3" />{i.product.code}{i.stockMovedAt ? ` · baixado do estoque em ${new Date(i.stockMovedAt).toLocaleDateString("pt-BR")}` : ` · no estoque: ${i.product.stock}`}</span>}
                   </td>
                   <td className="py-1.5 text-right tabular-nums">{String(i.quantity).replace(".", ",")}</td>
@@ -119,10 +177,14 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
               )}
               {!draft.product && search.trim().length >= 2 && (found.data?.data ?? []).length > 0 && (
                 <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-y-auto rounded-md border bg-popover p-1 shadow">
+                  <p className="px-2 py-1 text-[11px] text-muted-foreground">Marque várias para acrescentar de uma vez, ou clique no nome para lançar só uma.</p>
                   {(found.data?.data ?? []).map((p) => (
-                    <button key={p.id} type="button" className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted" onClick={() => { setDraft({ ...draft, product: p, description: draft.description.trim() || p.name, unitPrice: draft.unitPrice || (p.unitValue != null ? String(p.unitValue).replace(".", ",") : "") }); setSearch(""); }}>
-                      <span className="font-medium">{p.code}</span> {p.name} <span className="text-muted-foreground">· estoque {p.stock}</span>
-                    </button>
+                    <div key={p.id} className="flex items-center gap-1.5 rounded px-2 py-1 text-xs hover:bg-muted">
+                      <input type="checkbox" className="h-3.5 w-3.5" aria-label={`Escolher ${p.name}`} checked={picked.some((x) => x.id === p.id)} onChange={() => togglePick(p)} />
+                      <button type="button" className="flex-1 text-left" onClick={() => { setDraft({ ...draft, product: p, description: draft.description.trim() || p.name, unitPrice: draft.unitPrice || (p.unitValue != null ? String(p.unitValue).replace(".", ",") : "") }); setSearch(""); }}>
+                        <span className="font-medium">{p.code}</span> {p.name} <span className="text-muted-foreground">· estoque {p.stock}</span>
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -132,6 +194,28 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
           <Input className="h-8 w-24 text-right text-xs" inputMode="decimal" placeholder="Valor R$" aria-label="Valor unitário" value={draft.unitPrice} onChange={(e) => setDraft({ ...draft, unitPrice: e.target.value })} />
           {!internal && <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4" checked={draft.charged} onChange={(e) => setDraft({ ...draft, charged: e.target.checked })} /> Cobrar</label>}
           <Button size="sm" variant="outline" className="h-8" disabled={!draft.description.trim() || add.isPending} onClick={() => add.mutate()}><Plus className="mr-1 h-3.5 w-3.5" />Acrescentar</Button>
+        </div>
+      )}
+      {canEdit && (d.tasks.length > 0 || picked.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {d.tasks.length > 0 && (
+            <>
+              <span className="text-muted-foreground">Peça para o(s) serviço(s):</span>
+              {d.tasks.map((k, n) => (
+                <label key={k.id} className="flex items-center gap-1 rounded border px-1.5 py-0.5" title={k.text}>
+                  <input type="checkbox" className="h-3.5 w-3.5" checked={pickTasks.includes(k.id)} onChange={(e) => setPickTasks((l) => (e.target.checked ? [...l, k.id] : l.filter((x) => x !== k.id)))} />
+                  {n + 1}. {k.text.length > 28 ? `${k.text.slice(0, 28)}…` : k.text}
+                </label>
+              ))}
+            </>
+          )}
+          {picked.length > 0 && (
+            <span className="ml-auto flex items-center gap-1.5">
+              <span>{picked.length} peça(s) escolhida(s): {picked.map((p) => p.code).join(", ")}</span>
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => setPicked([])}>Limpar</Button>
+              <Button size="sm" className="h-7" disabled={addMany.isPending} onClick={() => addMany.mutate()}>{addMany.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}Acrescentar {picked.length} peça(s)</Button>
+            </span>
+          )}
         </div>
       )}
 
@@ -159,6 +243,22 @@ export function AssistanceItemsPanel({ ticketId, canEdit, canCharge }: { ticketI
               </span>
             )}
           </>
+        )}
+      </div>
+      {/* custo da assistência como despesa no financeiro e na DRE */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span>Custo para a loja: <strong>{formatCurrency(d.cost.total)}</strong></span>
+        {d.cost.doEstoque > 0 && <span className="text-xs text-muted-foreground">({formatCurrency(d.cost.doEstoque)} do almoxarifado, já contado na compra)</span>}
+        {d.costFinance && <Badge variant={d.costFinance.status === "PAGO" ? "success" : "secondary"}>Despesa no financeiro: {formatCurrency(d.costFinance.amount)} · {d.costFinance.status === "PAGO" ? "paga" : "a pagar"}</Badge>}
+        {canCharge && (d.cost.aLancar > 0 || d.costFinance) && (!d.costFinance || costOutdated) && (
+          <span className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Input type="date" className="h-8 w-36 text-xs" aria-label="Data do custo" value={costDay} onChange={(e) => setCostDay(e.target.value)} />
+            <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4" checked={costPaid} onChange={(e) => setCostPaid(e.target.checked)} /> Já pago</label>
+            <Button size="sm" variant="outline" disabled={cost.isPending || !costDay} onClick={() => cost.mutate()}>
+              <Wallet className="mr-1 h-3.5 w-3.5" />
+              {!d.costFinance ? `Lançar custo de ${formatCurrency(d.cost.aLancar)}` : d.cost.aLancar > 0 ? "Atualizar o custo" : "Retirar o custo"}
+            </Button>
+          </span>
         )}
       </div>
     </div>

@@ -818,6 +818,34 @@ export function FinancePage() {
                   </CardContent>
                 </Card>
 
+                {d.assistances.atendimentos > 0 && (
+                  <Card>
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-sm">
+                        Assistências no período
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">({d.assistances.atendimentos} atendimento(s) abertos no período)</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <div><p className="text-xs text-muted-foreground">Na garantia</p><p className="tabular-nums font-medium">{formatCurrency(d.assistances.garantia)}</p></div>
+                        <div><p className="text-xs text-muted-foreground">Cobrado do cliente</p><p className="tabular-nums font-medium">{formatCurrency(d.assistances.cobrado)}</p></div>
+                        <div><p className="text-xs text-muted-foreground">Retrabalho interno</p><p className="tabular-nums font-medium">{formatCurrency(d.assistances.retrabalho)}</p></div>
+                        <div><p className="text-xs text-muted-foreground">Resultado (cobrado − custo)</p><p className={`tabular-nums font-semibold ${d.assistances.resultado < 0 ? "text-destructive" : "text-success"}`}>{formatCurrency(d.assistances.resultado)}</p></div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Na DRE: custo lançado {formatCurrency(d.assistances.custoLancado)} (despesas com vendas) e cobrança lançada {formatCurrency(d.assistances.receitaLancada)} (receita bruta).
+                        {d.assistances.doEstoque > 0 && ` ${formatCurrency(d.assistances.doEstoque)} saíram do almoxarifado e já entraram na despesa pela compra.`}
+                      </p>
+                      {(d.assistances.custoFaltando > 0 || d.assistances.receitaFaltando > 0) && (
+                        <p className="text-xs text-warning">
+                          Ainda fora do financeiro: {d.assistances.custoFaltando > 0 ? `${formatCurrency(d.assistances.custoFaltando)} de custo` : ""}{d.assistances.custoFaltando > 0 && d.assistances.receitaFaltando > 0 ? " e " : ""}{d.assistances.receitaFaltando > 0 ? `${formatCurrency(d.assistances.receitaFaltando)} a cobrar` : ""}. Lance pela tela de cada assistência.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
                 <Card>
                   <CardHeader className="py-3"><CardTitle className="text-sm">Cascata do resultado</CardTitle></CardHeader>
                   <CardContent>

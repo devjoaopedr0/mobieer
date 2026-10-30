@@ -12,7 +12,7 @@ import { z } from "zod";
 import { BRAND, PAGE, brandDocument, brandSection, brandTitle, ensureSpace } from "../../lib/brand-pdf";
 import { BLOCK, type ContractOrder } from "./contract-order";
 import { obsLabel } from "../commercial/quote.rules";
-import { contractLines } from "./contract.service";
+import { FIELD_MARK, contractLines } from "./contract.service";
 
 /** Tamanho do título "Contrato Nº …": o mesmo do orçamento (o padrão, 23, saía grande demais). */
 export const CONTRACT_TITLE_SIZE = 16;
@@ -48,8 +48,15 @@ function paymentHtml(o: ContractOrder) {
   return parts.join("");
 }
 
-/** HTML inicial do editor, com a mesma leitura de linhas que o PDF usa. */
-export function contractHtml(text: string, order: ContractOrder | null): string {
+const MARKED = new RegExp(`${FIELD_MARK.open}(\\d+)${FIELD_MARK.sep}([^${FIELD_MARK.open}${FIELD_MARK.sep}${FIELD_MARK.close}]*)${FIELD_MARK.close}`, "g");
+
+/** Valores marcados (renderContractBody com `mark`) viram o trecho que o editor acompanha. */
+export function fieldSpans(html: string, keys: string[]): string {
+  return html.replace(MARKED, (_m, i: string, v: string) => (keys[Number(i)] ? `<span data-f="${keys[Number(i)]}" data-v="${v}">${v}</span>` : v));
+}
+
+/** HTML inicial do editor, com a mesma leitura de linhas que o PDF usa. `keys`: campos marcados no texto. */
+export function contractHtml(text: string, order: ContractOrder | null, keys: string[] = []): string {
   const blocks: Record<string, string> = order ? { [BLOCK.pedido]: orderHtml(order), [BLOCK.pagamento]: paymentHtml(order) } : {};
   const out: string[] = [];
   let list: string[] = [];
@@ -71,12 +78,13 @@ export function contractHtml(text: string, order: ContractOrder | null): string 
     else out.push(`<p style="text-align: justify">${esc(l.text)}</p>`);
   }
   flush();
-  return out.join("");
+  return fieldSpans(out.join(""), keys);
 }
 
 // ---------------- Documento editado → PDF ----------------
 
-const run = z.object({ text: z.string().max(20_000), b: z.boolean().optional(), i: z.boolean().optional(), u: z.boolean().optional() });
+// f/v: campo automático e o valor que o sistema pôs (para marcar edição à mão e atualizar)
+const run = z.object({ text: z.string().max(20_000), b: z.boolean().optional(), i: z.boolean().optional(), u: z.boolean().optional(), f: z.string().max(80).optional(), v: z.string().max(2000).optional() });
 const align = z.enum(["left", "center", "right", "justify"]).optional();
 export const docBlocksSchema = z
   .array(

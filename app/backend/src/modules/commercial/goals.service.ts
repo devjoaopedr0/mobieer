@@ -5,7 +5,7 @@
  * "Vendido" é a Venda registrada (valor fechado), não o valor estimado da
  * oportunidade: é o número que a loja fecha no caixa.
  */
-import { ValidationError } from "../../utils/ApiError";
+import { ForbiddenError, ValidationError } from "../../utils/ApiError";
 
 const FORTALEZA_TZ = "America/Fortaleza";
 
@@ -84,4 +84,18 @@ export function goalProgress(input: {
 export function conversionRate(proposals: number, won: number): number | null {
   if (proposals <= 0) return null;
   return Math.round((won / proposals) * 1000) / 10;
+}
+
+/**
+ * De quem é a meta que a pessoa está salvando. A gestão (commercial.goals.manage)
+ * define a da loja (null) e a de qualquer consultor; quem só tem
+ * commercial.goals.self define a própria e nada mais.
+ */
+export function goalOwner(permissions: string[], actorId: string, requested: string | null | undefined): string | null {
+  if (permissions.includes("commercial.goals.manage")) return requested ?? null;
+  if (!permissions.includes("commercial.goals.self")) throw new ForbiddenError("Você não pode definir metas");
+  if (requested === undefined) return actorId;
+  if (requested === null) throw new ForbiddenError("Só a gestão define a meta da loja");
+  if (requested !== actorId) throw new ForbiddenError("Só a gestão define a meta de outro consultor");
+  return actorId;
 }

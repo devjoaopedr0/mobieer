@@ -11,22 +11,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PageSkeleton } from "@/components/ui/states";
+import { ProjectPicker } from "@/features/requisitions/requisition-parts";
 import { useAuth } from "@/hooks/use-auth";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 
 type Item = { text: string; done: boolean };
-type Task = { id: string; date: string; person: string; title: string; reference: string | null; items: Item[]; done: boolean; missedReason: string | null; missedNote: string | null; movedTo: string | null; moved: boolean };
+type ProjectRef = { id: string; code: string; name: string; client?: { name: string } | null };
+type Task = { id: string; date: string; person: string; title: string; reference: string | null; project: ProjectRef | null; items: Item[]; done: boolean; missedReason: string | null; missedNote: string | null; movedTo: string | null; moved: boolean };
 type Reason = { code: string; label: string };
 type WeekSummary = { total: number; done: number; missed: number; late: number; open: number; reasons: (Reason & { count: number })[] };
 type Plan = { weekStart: string; days: string[]; today: string; people: string[]; tasks: Task[]; summary: { person: string; total: number; done: number }[]; week: WeekSummary; reasons: Reason[]; suggestions: string[] };
 type Missing = { task: Task; reason: string; note: string; moveTo: string };
 type Parsed = { weekStart: string; tasks: { date: string; person: string; title: string; items: Item[] }[]; warnings: string[] };
-type Editing = { id: string | null; date: string; person: string; title: string; reference: string; items: string };
+type Editing = { id: string | null; date: string; person: string; title: string; reference: string; project: ProjectRef | null; items: string };
 
 const WEEKDAY = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 const br = (iso: string) => iso.slice(5).split("-").reverse().join("/");
 const shift = (iso: string, days: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+const mondayOf = (iso: string) => shift(iso, -((new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7));
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
 
 /** Planejamento da semana da produção: quem faz o quê em cada dia. */
@@ -74,19 +77,29 @@ export function ProductionWeekPlanPage() {
     onError: fail("Não foi possível adicionar a tarefa"),
   });
   const moveDay = useMutation({
-    mutationFn: (v: { id: string; date: string }) => apiPatch(`/production/week-plan/tasks/${v.id}`, { date: v.date }),
-    onSuccess: refresh,
+    mutationFn: (v: { id: string; date: string }) => apiPatch<{ message?: string }>(`/production/week-plan/tasks/${v.id}`, { date: v.date }),
+    // o aviso de prazo da obra vem na mensagem
+    onSuccess: (r) => { if (r.message?.includes("Atenção")) toast.warning(r.message); refresh(); },
     onError: fail("Não foi possível mover a tarefa"),
   });
   const save = useMutation({
     mutationFn: (e: Editing) => {
-      const body = { date: e.date, person: e.person.trim(), title: e.title.trim(), reference: e.reference.trim() || null, items: e.items.split("\n").map((l) => l.replace(/^[-–•\s]+/, "").trim()).filter(Boolean).map((text) => ({ text, done: false })) };
-      if (!e.id) return apiPost("/production/week-plan/tasks", body);
+      const body = { date: e.date, person: e.person.trim(), title: e.title.trim(), reference: e.reference.trim() || null, projectId: e.project?.id ?? null, items: e.items.split("\n").map((l) => l.replace(/^[-–•\s]+/, "").trim()).filter(Boolean).map((text) => ({ text, done: false })) };
+      if (!e.id) return apiPost<{ message?: string }>("/production/week-plan/tasks", body);
       // ao editar, a subtarefa que continua com o mesmo texto mantém a marca de feita
       const old = q.data?.data.tasks.find((t) => t.id === e.id)?.items ?? [];
-      return apiPatch(`/production/week-plan/tasks/${e.id}`, { ...body, items: body.items.map((i) => ({ ...i, done: old.find((o) => o.text === i.text)?.done ?? false })) });
+      return apiPatch<{ message?: string }>(`/production/week-plan/tasks/${e.id}`, { ...body, items: body.items.map((i) => ({ ...i, done: old.find((o) => o.text === i.text)?.done ?? false })) });
     },
-    onSuccess: () => { toast.success("Tarefa salva"); setEditing(null); refresh(); },
+    onSuccess: (r, e) => {
+      const message = r.message ?? "Tarefa salva";
+      // foi para outra semana: oferece abrir a semana dela
+      const other = q.data && !q.data.data.days.includes(e.date);
+      const opts = other ? { action: { label: "Ver a semana", onClick: () => setWeek(mondayOf(e.date)) } } : undefined;
+      if (message.includes("Atenção")) toast.warning(message, opts);
+      else toast.success(message, opts);
+      setEditing(null);
+      refresh();
+    },
     onError: fail("Não foi possível salvar a tarefa"),
   });
   const remove = useMutation({
@@ -125,10 +138,10 @@ export function ProductionWeekPlanPage() {
 
   const total = d.tasks.length;
   const done = d.tasks.filter((t) => t.done).length;
-  const blank = (date: string, person = ""): Editing => ({ id: null, date, person, title: "", reference: "", items: "" });
+  const blank = (date: string, person = ""): Editing => ({ id: null, date, person, title: "", reference: "", project: null, items: "" });
   const reasonLabel = (code: string | null) => d.reasons.find((r) => r.code === code)?.label ?? "Outro";
   const day = dayPick && days.includes(dayPick) ? dayPick : days.includes(d.today) ? d.today : days[0];
-  // para onde passar a tarefa não cumprida: os próximos dias úteis, desta semana e da seguinte
+  // para onde passar a tarefa não cumprida: atalhos dos próximos dias úteis; a data livre aceita qualquer semana
   const moveOptions = (from: string) => [...d.days.slice(0, 5), ...d.days.slice(0, 5).map((x) => shift(x, 7))].filter((x) => x > from && x >= d.today);
   const weekdayOf = (iso: string) => WEEKDAY[(new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7] ?? "";
 
@@ -142,11 +155,11 @@ export function ProductionWeekPlanPage() {
           <input type="checkbox" className={`mt-0.5 shrink-0 ${big ? "h-5 w-5" : "h-5 w-5 sm:h-4 sm:w-4"}`} checked={t.done} disabled={check.isPending} title={t.done ? "Desmarcar" : "Marcar como feito"} onChange={(e) => check.mutate({ id: t.id, done: e.target.checked })} />
           <div className="min-w-0 flex-1">
             <p className={`break-words leading-snug ${big ? "text-base" : ""} ${t.done ? "text-muted-foreground line-through" : "font-medium"}`}>{t.title}</p>
-            {t.reference && <p className="text-xs text-muted-foreground">{t.reference}</p>}
+            {t.project ? <p className="text-xs text-muted-foreground">{t.project.code} — {t.project.name}</p> : t.reference && <p className="text-xs text-muted-foreground">{t.reference}</p>}
             {t.moved && <p className="text-xs text-muted-foreground">veio de outro dia</p>}
           </div>
           {canManage && (
-            <button type="button" className="shrink-0 text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100" title="Editar tarefa" onClick={() => setEditing({ id: t.id, date: t.date, person: t.person, title: t.title, reference: t.reference ?? "", items: t.items.map((i) => i.text).join("\n") })}>
+            <button type="button" className="shrink-0 text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100" title="Editar tarefa" onClick={() => setEditing({ id: t.id, date: t.date, person: t.person, title: t.title, reference: t.reference ?? "", project: t.project, items: t.items.map((i) => i.text).join("\n") })}>
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
@@ -345,14 +358,28 @@ export function ProductionWeekPlanPage() {
                   <datalist id="wp-people">{d.suggestions.map((s) => <option key={s} value={s} />)}</datalist>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Dia</Label>
-                  <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={editing.date} onChange={(e) => setEditing({ ...editing, date: e.target.value })}>
-                    {d.days.map((day, i) => <option key={day} value={day}>{WEEKDAY[i]} {br(day)}</option>)}
-                  </select>
+                  <Label className="text-xs" htmlFor="wp-date">Dia</Label>
+                  <Input id="wp-date" type="date" value={editing.date} onChange={(e) => e.target.value && setEditing({ ...editing, date: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">
+                    {weekdayOf(editing.date)} {br(editing.date)}
+                    {!d.days.includes(editing.date) && <span className="text-warning"> · outra semana (de {br(mondayOf(editing.date))})</span>}
+                    {new Date(`${editing.date}T12:00:00Z`).getUTCDay() === 0 && <span className="text-destructive"> · domingo não entra no planejamento</span>}
+                  </p>
                 </div>
               </div>
+              <div className="flex flex-wrap gap-1">
+                {d.days.map((day, i) => (
+                  <button key={day} type="button" aria-pressed={editing.date === day} className={`rounded-full border px-2.5 py-0.5 text-xs ${editing.date === day ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setEditing({ ...editing, date: day })}>{WEEKDAY[i].slice(0, 3)} {br(day)}</button>
+                ))}
+                <button type="button" className="rounded-full border px-2.5 py-0.5 text-xs hover:bg-muted" onClick={() => setEditing({ ...editing, date: shift(editing.date, 7) })}>+1 semana</button>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Obra (projeto cadastrado, opcional)</Label>
+                <ProjectPicker endpoint="/production/week-plan/projects" value={editing.project} onChange={(p) => setEditing({ ...editing, project: p ? { id: p.id, code: p.code, name: p.name, client: p.client } : null, reference: p && !editing.reference ? p.client?.name ?? p.name : editing.reference })} />
+                <p className="text-xs text-muted-foreground">Com a obra ligada, o dia não pode ficar antes do início dela nem depois de concluída.</p>
+              </div>
               <div className="space-y-1"><Label className="text-xs">Tarefa</Label><Input value={editing.title} placeholder="Ex.: Finalizar a cozinha" onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></div>
-              <div className="space-y-1"><Label className="text-xs">Cliente ou projeto (opcional)</Label><Input value={editing.reference} placeholder="Ex.: David Bruno" onChange={(e) => setEditing({ ...editing, reference: e.target.value })} /></div>
+              <div className="space-y-1"><Label className="text-xs">Cliente ou projeto em texto (opcional)</Label><Input value={editing.reference} placeholder="Ex.: David Bruno" onChange={(e) => setEditing({ ...editing, reference: e.target.value })} /></div>
               <div className="space-y-1">
                 <Label className="text-xs">Passos (opcional, um por linha)</Label>
                 <Textarea rows={4} value={editing.items} placeholder={"corte da viga" + String.fromCharCode(10) + "rasgo de fundo" + String.fromCharCode(10) + "pré montar"} onChange={(e) => setEditing({ ...editing, items: e.target.value })} />
@@ -392,11 +419,14 @@ export function ProductionWeekPlanPage() {
               </div>
               {canManage && !missing.task.movedTo && (
                 <div className="space-y-1">
-                  <Label className="text-xs">Passar para outro dia</Label>
-                  <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={missing.moveTo} onChange={(e) => setMissing({ ...missing, moveTo: e.target.value })}>
-                    <option value="">Não passar</option>
-                    {moveOptions(missing.task.date).map((x) => <option key={x} value={x}>{weekdayOf(x)} {br(x)}</option>)}
-                  </select>
+                  <Label className="text-xs" htmlFor="wp-move">Passar para outro dia</Label>
+                  <div className="flex flex-wrap gap-1">
+                    <button type="button" aria-pressed={!missing.moveTo} className={`rounded-full border px-2.5 py-0.5 text-xs ${!missing.moveTo ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setMissing({ ...missing, moveTo: "" })}>Não passar</button>
+                    {moveOptions(missing.task.date).map((x) => (
+                      <button key={x} type="button" aria-pressed={missing.moveTo === x} className={`rounded-full border px-2.5 py-0.5 text-xs ${missing.moveTo === x ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setMissing({ ...missing, moveTo: x })}>{weekdayOf(x).slice(0, 3)} {br(x)}</button>
+                    ))}
+                  </div>
+                  <Input id="wp-move" type="date" min={[shift(missing.task.date, 1), d.today].sort()[1]} value={missing.moveTo} onChange={(e) => setMissing({ ...missing, moveTo: e.target.value })} />
                   <p className="text-xs text-muted-foreground">A tarefa é criada no novo dia só com os passos que faltaram; esta fica registrada como não cumprida.</p>
                 </div>
               )}

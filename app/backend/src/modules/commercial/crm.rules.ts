@@ -53,11 +53,11 @@ export const TEMPERATURE_LABEL: Record<Temperature, string> = { QUENTE: "Quente"
 export const OPPORTUNITY_TEMPERATURE = { hotFrom: 70, warmFrom: 40 };
 
 /**
- * Lead não tem score: vale o tempo sem contato (sem nenhum contato, conta da
- * entrada) — quente até 3 dias, morno até 10 — e o próximo contato vencido
- * esfria um nível.
+ * Lead não tem score: vale o tempo desde o último contato — quente até 3 dias,
+ * morno de 4 a 15, frio acima de 15 ou sem contato nenhum. Próximo contato
+ * vencido não muda a temperatura: vira a marca "atrasado".
  */
-export const LEAD_TEMPERATURE = { hotDays: 3, warmDays: 10 };
+export const LEAD_TEMPERATURE = { hotDays: 3, warmDays: 15 };
 
 const DAY = 86_400_000;
 
@@ -81,20 +81,17 @@ export function opportunityTemperature(score: number, status: string): Temperatu
   return score >= OPPORTUNITY_TEMPERATURE.hotFrom ? "QUENTE" : score >= OPPORTUNITY_TEMPERATURE.warmFrom ? "MORNO" : "FRIO";
 }
 
-const cooler = (t: Temperature): Temperature => (t === "QUENTE" ? "MORNO" : "FRIO");
-
 export function leadTemperature(
   lead: { status: string; enteredAt: Date; lastContactAt: Date | null; nextContactAt: Date | null },
   now = new Date()
-): { temperature: Temperature; reason: string } | null {
+): { temperature: Temperature; overdue: boolean; reason: string } | null {
   if (lead.status === "CONVERTED" || lead.status === "LOST") return null;
-  const since = lead.lastContactAt ?? lead.enteredAt;
-  const days = Math.max(0, Math.floor((now.getTime() - since.getTime()) / DAY));
-  let t: Temperature = days <= LEAD_TEMPERATURE.hotDays ? "QUENTE" : days <= LEAD_TEMPERATURE.warmDays ? "MORNO" : "FRIO";
-  const base = lead.lastContactAt ? `${days} dia(s) sem contato` : `${days} dia(s) desde a entrada, sem contato`;
   const overdue = lead.nextContactAt != null && lead.nextContactAt.getTime() < now.getTime();
-  if (overdue) t = cooler(t);
-  return { temperature: t, reason: overdue ? `${base}; próximo contato vencido` : base };
+  const late = overdue ? "; próximo contato vencido" : "";
+  if (!lead.lastContactAt) return { temperature: "FRIO", overdue, reason: `sem contato desde a entrada${late}` };
+  const days = Math.max(0, Math.floor((now.getTime() - lead.lastContactAt.getTime()) / DAY));
+  const t: Temperature = days <= LEAD_TEMPERATURE.hotDays ? "QUENTE" : days <= LEAD_TEMPERATURE.warmDays ? "MORNO" : "FRIO";
+  return { temperature: t, overdue, reason: `${days} dia(s) sem contato${late}` };
 }
 
 // ---------------------------------------------------------------- painel por canal
@@ -142,4 +139,17 @@ export function channelPanel(leads: ChannelLead[], opps: ChannelOpportunity[]): 
     };
   });
   return rows.filter((r) => r.entrou || r.oportunidades || r.ganhos).sort((a, b) => b.valorVendido - a.valorVendido || b.entrou - a.entrou);
+}
+
+// ---------------------------------------------------------------- lead
+
+/**
+ * Situação que o lead pode receber. Ele entra como lead (novo, contatado ou
+ * qualificado); convertido só pela conversão, que cria a oportunidade; perdido
+ * exige o motivo. `current` vazio = cadastro novo.
+ */
+export function leadStatusProblem(next: string | undefined, lostReasonCode: string | null | undefined, current?: string | null): string | null {
+  if (next === "CONVERTED" && current !== "CONVERTED") return current == null ? "O lead entra como lead: a conversão cria a oportunidade depois" : "Use Converter: a conversão cria a oportunidade e liga o cliente";
+  if (next === "LOST" && current !== "LOST" && !lostReasonCode) return "Informe o motivo da perda";
+  return null;
 }

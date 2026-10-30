@@ -12,6 +12,7 @@ import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { storeGeneratedPdf } from "../docgen/docgen.service";
 import { ROOM_LABEL } from "../contractors/productivity.service";
 import { buildInspectionReport } from "./aftersales.docs";
+import { pendencyText, roomsCompleteProblem } from "./inspection-rooms.rules";
 import { warrantyManualPdf } from "./warranty-manual";
 import { splitCityFromAddress } from "./warranty-manual.rules";
 import {
@@ -115,11 +116,18 @@ export async function completeInspection(opts: {
 }) {
   const insp = await prisma.siteInspection.findFirst({
     where: { id: opts.inspectionId, organizationId: opts.organizationId },
-    include: { items: { orderBy: { position: "asc" } }, technician: { select: { name: true } } },
+    include: {
+      items: { orderBy: { position: "asc" } },
+      technician: { select: { name: true } },
+      rooms: { orderBy: [{ position: "asc" }, { createdAt: "asc" }], include: { pendencies: { orderBy: { createdAt: "asc" } } } },
+    },
   });
   if (!insp) throw new NotFoundError("Vistoria não encontrada");
   if (insp.status === "COMPLETED") throw new BadRequestError("Esta vistoria já foi concluída");
-  const pendencias = opts.pendencias ?? insp.pendencias;
+  const roomProblem = roomsCompleteProblem(insp.rooms, insp.rooms.flatMap((r) => r.pendencies), opts.result);
+  if (roomProblem) throw new BadRequestError(roomProblem);
+  // sem texto escrito à mão, as pendências abertas dos ambientes viram o texto do relatório
+  const pendencias = (opts.pendencias ?? insp.pendencias)?.trim() || pendencyText(insp.rooms) || null;
   const chk = canComplete(insp.items, opts.result, pendencias);
   if (!chk.ok) throw new BadRequestError(chk.motivo);
 
@@ -144,6 +152,7 @@ export async function completeInspection(opts: {
       technician: insp.technician?.name ?? null,
       installers: insp.installerNames ?? ctx.installers,
       items: insp.items,
+      rooms: insp.rooms,
       result: opts.result,
       pendencias,
       notes: opts.notes ?? insp.notes,

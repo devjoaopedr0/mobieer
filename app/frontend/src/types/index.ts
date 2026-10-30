@@ -48,6 +48,11 @@ export type Dre = {
   byCategory: { category: string; type: string; dreLine: DreLineKey; value: number; mapped: boolean }[];
   unmappedCategories: string[];
   margins: { bruta: number | null; operacional: number | null; liquida: number | null };
+  /** assistências abertas no período: custo (despesa) e cobrança (receita) */
+  assistances: {
+    atendimentos: number; garantia: number; cobrado: number; retrabalho: number; custo: number; doEstoque: number;
+    custoLancado: number; receitaLancada: number; custoFaltando: number; receitaFaltando: number; resultado: number;
+  };
 };
 
 export type CashflowPoint = {
@@ -571,6 +576,9 @@ export type Requisition = {
     receivedQuantity?: number | null;
     receivedAt?: string | null;
     receivedBy?: { id: string; name: string } | null;
+    separatedQuantity?: number | null;
+    separatedAt?: string | null;
+    separatedBy?: { id: string; name: string } | null;
     photos?: { id: string; kind: RequisitionPhotoKind; createdAt: string; ocrConfirmedAt: string | null }[];
     status: RequisitionItemStatus;
     reservedQuantity: number;
@@ -748,6 +756,12 @@ export type CommercialLead = {
   seller: { id: string; name: string } | null;
   briefing: { id: string; submittedAt: string; environments: string[]; origin: "PUBLIC" | "CONSULTANT" } | null;
   _count: { opportunities: number; interactions: number };
+  /** cliente ligado: já era cliente ou virou na conversão */
+  convertedClient?: { id: string; name: string } | null;
+  opportunities?: { id: string; title: string; status: string }[];
+  lastContactAt?: string | null;
+  /** próximo contato vencido */
+  overdue?: boolean;
 };
 
 export type LeadBriefing = {

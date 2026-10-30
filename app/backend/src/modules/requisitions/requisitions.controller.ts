@@ -6,7 +6,7 @@ import { BadRequestError } from "../../utils/ApiError";
 import { pipeToResponse } from "../../utils/stream";
 import { storage } from "../../lib/storage";
 import { visionProvider } from "../ai/provider/vision";
-import { createRequisitionSchema, inspectionSchema, itemCancelSchema, itemMissingSchema, itemReceiveSchema, itemRoomSchema, requisitionsQuery, reservationSchema, updateItemStatusSchema, updateRequisitionSchema, updateStatusSchema } from "./requisitions.schema";
+import { createRequisitionSchema, inspectionSchema, itemCancelSchema, itemMissingSchema, itemReceiveSchema, itemRoomSchema, itemSeparateSchema, requisitionsQuery, reservationSchema, updateItemStatusSchema, updateRequisitionSchema, updateStatusSchema } from "./requisitions.schema";
 import { isEmptySuggestion, labelPrompt, parseLabelReading } from "./requisitions.label";
 import * as service from "./requisitions.service";
 
@@ -29,6 +29,7 @@ export const updateRequisition = asyncHandler(async (req: Request, res: Response
 export const changeItemRoom = asyncHandler(async (req: Request, res: Response) => { const input = itemRoomSchema.parse(req.body); return ok(res, await service.changeItemRoom(req.params.id, req.params.itemId, input.room, input.note, req.user!.id), "Ambiente do item alterado"); });
 export const markItemMissing = asyncHandler(async (req: Request, res: Response) => { const input = itemMissingSchema.parse(req.body ?? {}); return ok(res, await service.markItemMissing(req.params.id, req.params.itemId, input.missingQuantity, input.note, req.file, req.user!.id), "Falta registrada"); });
 export const cancelMissingItem = asyncHandler(async (req: Request, res: Response) => { const input = itemCancelSchema.parse(req.body ?? {}); return ok(res, await service.cancelMissingItem(req.params.id, req.params.itemId, input.note, req.user!.id), "Peça cancelada"); });
+export const separateItem = asyncHandler(async (req: Request, res: Response) => { const input = itemSeparateSchema.parse(req.body ?? {}); return ok(res, await service.separateItem(req.params.id, req.params.itemId, input.separatedQuantity, input.note, req.user!.id), input.separatedQuantity > 0 ? "Separação registrada" : "Separação desfeita"); });
 export const receiveItem = asyncHandler(async (req: Request, res: Response) => { const input = itemReceiveSchema.parse(req.body ?? {}); return ok(res, await service.receiveItem(req.params.id, req.params.itemId, input.receivedQuantity, input.note, req.file, req.user!.id), "Recebimento registrado"); });
 export const projects = asyncHandler(async (req: Request, res: Response) => ok(res, await service.listProjectsForRequisition(req.user!.organizationId, typeof req.query.search === "string" ? req.query.search : undefined)));
 // foto da etiqueta: a leitura volta como sugestão; o item só recebe os dados quando o montador salva

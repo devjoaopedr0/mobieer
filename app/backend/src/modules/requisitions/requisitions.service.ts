@@ -24,6 +24,7 @@ const include = {
       product: { select: { id: true, name: true, code: true, unit: true, stock: true, reservedStock: true } },
       reservations: { where: { status: ReservationStatus.ACTIVE }, select: { id: true, quantity: true, status: true } },
       receivedBy: { select: { id: true, name: true } },
+      separatedBy: { select: { id: true, name: true } },
       photos: { select: { id: true, kind: true, createdAt: true, ocrConfirmedAt: true }, orderBy: { createdAt: "asc" as const } },
     },
   },
@@ -347,6 +348,28 @@ export async function receiveItem(requisitionId: string, itemId: string, receive
     await logHistory(tx, requisitionId, actorId, "REQUISITION_ITEM_RECEIVED", { itemId, receivedQuantity: item.receivedQuantity }, { itemId, receivedQuantity, photo: Boolean(photo) }, note ?? `${item.description}: recebido ${receivedQuantity} de ${item.quantity}`);
   });
   return getRequisition(requisitionId);
+}
+
+/** Separação: quantas peças do item já foram separadas. Separar só parte do pedido é normal; zero desfaz. */
+export async function separateItem(requisitionId: string, itemId: string, separatedQuantity: number, note: string | null | undefined, actorId: string) {
+  const req = await requireRequisition(requisitionId);
+  assertItemFollowUp(req.status);
+  const item = req.items.find((entry) => entry.id === itemId); if (!item) throw new NotFoundError("Item não encontrado");
+  if (item.status === RequisitionItemStatus.CANCELLED) throw new BadRequestError("Peça cancelada");
+  const problem = separationProblem(separatedQuantity, item.quantity);
+  if (problem) throw new BadRequestError(problem);
+  await prisma.$transaction(async (tx) => {
+    await tx.requisitionItem.update({ where: { id: itemId }, data: separatedQuantity > 0 ? { separatedQuantity, separatedAt: new Date(), separatedById: actorId } : { separatedQuantity: null, separatedAt: null, separatedById: null } });
+    await logHistory(tx, requisitionId, actorId, "REQUISITION_ITEM_SEPARATED", { itemId, separatedQuantity: item.separatedQuantity }, { itemId, separatedQuantity }, note ?? `${item.description}: separado ${separatedQuantity} de ${item.quantity}`);
+  });
+  return getRequisition(requisitionId);
+}
+
+/** Quantidade separada válida (null = ok). */
+export function separationProblem(separated: number, ordered: number): string | null {
+  if (!Number.isInteger(separated) || separated < 0) return "Quantidade inválida";
+  if (separated > ordered) return `Separado mais do que o pedido (${ordered})`;
+  return null;
 }
 
 /**

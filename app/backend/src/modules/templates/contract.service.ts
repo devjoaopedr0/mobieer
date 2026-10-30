@@ -10,6 +10,9 @@ import { BRAND, PAGE, brandDocument, brandField, brandSection, brandTitle, ensur
 import { prisma } from "../../prisma";
 import { NotFoundError } from "../../utils/ApiError";
 import { BLOCK, type ContractOrder } from "./contract-order";
+import { DEFAULT_OPTIONS, applySections, optionValues, type ContractOptions } from "./contract-options";
+import { addendaClauseText, addendaForClause } from "../commercial/addenda";
+import { renderTemplate as render } from "../../utils/template";
 
 // ---------------- Formatação ----------------
 
@@ -164,7 +167,44 @@ export const MERGE_FIELDS: { key: string; label: string; example: string }[] = [
   { key: "contrato.inicio", label: "Início da vigência (escolhido ao gerar)", example: "15/10/2026" },
   { key: "contrato.fim", label: "Fim da vigência (escolhido ao gerar)", example: "15/10/2027" },
   { key: "quadro.pagamento", label: "Quadro do pagamento: condição, forma e parcelas (sozinho na linha)", example: "(tabela)" },
+  { key: "pedido.tipo", label: "Tipo de pedido (escolhido ao gerar)", example: "Pedido padrão" },
+  { key: "contrato.preMontagem", label: "Pré-montagem na fábrica: Sim ou Não (escolhido ao gerar)", example: "Sim" },
+  { key: "clausula.adendos", label: "Cláusula dos adendos aceitos (sem o marcador, entra sozinha depois do pagamento)", example: "Adendo ORC-00012-A1: acrescenta…" },
 ];
+
+/**
+ * Onde se corrige cada dado que falta, para a lista que aparece antes de abrir
+ * o contrato. A chave mais específica vale; depois o prefixo.
+ */
+const FIELD_SOURCE: Record<string, string> = {
+  "cliente.documento": "CPF/CNPJ no cadastro do cliente",
+  "cliente.enderecoEntrega": "endereço de entrega (ou o endereço) no cadastro do cliente",
+  "cliente.endereco": "endereço no cadastro do cliente",
+  "venda.vendedor": "vendedor do orçamento ou do cadastro do cliente",
+  "pedido.prazoFabricacao": "prazo de fabricação no orçamento ou nas opções do contrato",
+  cliente: "cadastro do cliente",
+  projeto: "cadastro do projeto",
+  empresa: "dados da empresa (Configurações)",
+  promob: "orçamento",
+  pagamento: "orçamento (pagamento)",
+  venda: "orçamento",
+  pedido: "orçamento",
+  contrato: "dados do contrato",
+  montador: "cadastro do montador",
+};
+/** Campos que podem ficar vazios sem faltar nada (ex.: contrato sem adendo). */
+const OPTIONAL_FIELDS = new Set(["clausula.adendos", "projeto.descricao", "cliente.contato"]);
+
+/** O que falta cadastrar para o contrato sair completo, com onde corrigir. */
+export function contractChecklist(missing: string[]): { key: string; label: string; where: string }[] {
+  return missing
+    .filter((k) => !OPTIONAL_FIELDS.has(k))
+    .map((key) => ({
+      key,
+      label: MERGE_FIELDS.find((f) => f.key === key)?.label ?? key,
+      where: FIELD_SOURCE[key] ?? FIELD_SOURCE[key.split(".")[0]] ?? "cadastro",
+    }));
+}
 
 export type ContractOverrides = {
   entrada?: number | null;
@@ -175,10 +215,15 @@ export type ContractOverrides = {
   cidade?: string | null;
   /** Sobrescreve o total do Promob (ex.: valor negociado). */
   totalOverride?: number | null;
+  /** cláusulas variáveis: tipo de pedido (prazo) e pré-montagem */
+  opcoes?: ContractOptions | null;
 };
 
 export type ContractContext = {
   values: Record<string, string>;
+  /** seções do modelo ligadas pelas opções ({{#opcao.preMontagem}} …) */
+  flags: Record<string, boolean>;
+  options: ContractOptions;
   meta: {
     clientId: string;
     clientName: string;
@@ -202,7 +247,7 @@ export async function buildContractContext(
 ): Promise<ContractContext> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, organizationId },
-    include: { organization: { include: { enterprise: true } } },
+    include: { organization: { include: { enterprise: true } }, seller: { select: { name: true } } },
   });
   if (!client) throw new NotFoundError("Cliente não encontrado");
 
@@ -255,6 +300,11 @@ export async function buildContractContext(
     .join(" — ");
   const endereco = client.street ? structured : client.address ?? structured;
 
+  const options = input.opcoes ?? DEFAULT_OPTIONS;
+  const opt = optionValues(options, order?.deliveryDays ?? input.prazoEntregaDias);
+  // ambiente acrescentado depois (adendo aceito): a cláusula entra sozinha
+  const adendos = addendaClauseText(await addendaForClause(organizationId, order?.number));
+
   const tabelaAmbientes = (parsed?.valoresPorAmbiente ?? [])
     .map((a) => `${a.ambiente} — ${brl(a.valor)}`)
     .join("\n");
@@ -294,10 +344,13 @@ export async function buildContractContext(
     "contrato.prazoEntregaDias": input.prazoEntregaDias != null ? String(input.prazoEntregaDias) : "",
     "cliente.enderecoEntrega": client.deliveryAddress?.trim() || endereco,
     "venda.numero": order?.number ?? "",
-    "venda.vendedor": order?.seller ?? "",
+    // sem orçamento (ou sem vendedor nele), o vendedor do cadastro do cliente
+    "venda.vendedor": order?.seller || client.seller?.name || "",
     "venda.data": order ? brDate(order.soldAt) : "",
     "pagamento.forma": order?.method ?? "",
-    "pedido.prazoFabricacao": prazoUteis(order?.deliveryDays ?? input.prazoEntregaDias),
+    "pedido.prazoFabricacao": prazoUteis(opt.days),
+    ...opt.values,
+    "clausula.adendos": adendos,
     // com orçamento, a linha vira tabela no PDF; sem ele, sai o texto que houver
     "quadro.pedido": order ? BLOCK.pedido : tabelaAmbientes,
     "quadro.pagamento": order ? BLOCK.pagamento : (input.condicaoPagamento ?? ""),
@@ -305,6 +358,8 @@ export async function buildContractContext(
 
   return {
     values,
+    flags: opt.flags,
+    options,
     meta: {
       clientId: client.id,
       clientName: client.name,
@@ -319,6 +374,43 @@ export async function buildContractContext(
 
 // Substituição de marcadores compartilhada com as automações de mensagem.
 export { renderTemplate } from "../../utils/template";
+
+/**
+ * Marcas do valor automático no texto (caracteres de uso privado: não mudam
+ * maiúsculas/minúsculas nem a leitura das linhas). O editor troca por um trecho
+ * que guarda o campo e o valor do sistema — é o que permite marcar o que foi
+ * editado à mão e voltar ao valor do sistema.
+ */
+export const FIELD_MARK = { open: "\uE000", sep: "\uE001", close: "\uE002" } as const;
+const NOT_MARKED = new Set(["quadro.pedido", "quadro.pagamento", "clausula.adendos"]);
+
+/**
+ * Texto do contrato a partir do modelo: tira as seções das opções que não
+ * valem, põe a cláusula dos adendos (no marcador ou depois do quadro do
+ * pagamento) e troca os marcadores. `mark` embrulha cada valor de uma linha só.
+ */
+export function renderContractBody(body: string, ctx: Pick<ContractContext, "values" | "flags">, opts: { mark?: boolean } = {}) {
+  let text = applySections(body, ctx.flags);
+  if (ctx.values["clausula.adendos"] && !/\{\{\s*clausula\.adendos\s*\}\}/.test(text)) {
+    const lines = text.split(/\r?\n/);
+    const at = lines.findIndex((l) => /\{\{\s*quadro\.pagamento\s*\}\}/.test(l));
+    const clause = ["", "ADENDOS", "{{clausula.adendos}}"];
+    if (at >= 0) lines.splice(at + 1, 0, ...clause);
+    else lines.push(...clause);
+    text = lines.join("\n");
+  }
+  const keys = Object.keys(ctx.values);
+  const values = opts.mark
+    ? Object.fromEntries(
+        keys.map((k, i) => {
+          const v = ctx.values[k];
+          return [k, !v || NOT_MARKED.has(k) || /[\r\n]/.test(v) ? v : `${FIELD_MARK.open}${i}${FIELD_MARK.sep}${v}${FIELD_MARK.close}`];
+        })
+      )
+    : ctx.values;
+  const r = render(text, values);
+  return { text: r.text, missing: r.missing.filter((k) => !OPTIONAL_FIELDS.has(k)), keys };
+}
 
 export type ContractLine =
   | { kind: "gap" }
@@ -469,11 +561,15 @@ CLÁUSULA QUARTA — DOS PRAZOS DE FABRICAÇÃO, PRÉ-MONTAGEM, ENTREGA E INSTAL
 
 Fabricação: O prazo para conclusão da fabricação industrial dos móveis é de até {{pedido.prazoFabricacao}}, conforme o resumo do pedido, contados do primeiro dia útil seguinte à aprovação final do Projeto Executivo e Liberação da Medição Definitiva (além da confirmação do pagamento de entrada, se houver).
 
+{{^opcao.preMontagem}}
 Início da Montagem: Os serviços de montagem serão iniciados em até 08 (oito) dias úteis após a entrega efetiva de 100% dos móveis no local da obra, mediante cronograma alinhado com o CONTRATANTE, caso não haja pré-montagem no espaço fabril.
+{{/opcao.preMontagem}}
 
+{{#opcao.preMontagem}}
 Pré-Montagem em Fábrica: Concluída a fase de fabricação (após o prazo de {{pedido.prazoFabricacao}}), a CONTRATADA iniciará a pré-montagem do mobiliário nas dependências de sua fábrica, a qual será concluída dentro do prazo previamente estabelecido entre as partes.
 
 Cronograma de Entrega e Instalação In Loco: Após a pré-montagem fabril, a CONTRATADA enviará ao CONTRATANTE um cronograma detalhado prevendo as datas de entrega e instalação no local (in loco). O prazo final de entrega e montagem no imóvel será alinhado com o cliente a depender da quantidade de ambientes e da complexidade técnica do projeto.
+{{/opcao.preMontagem}}
 
 Pré-requisitos do Local (Obrigação do Contratante): O CONTRATANTE deverá disponibilizar o imóvel totalmente limpo, desocupado, com fornecimento de energia elétrica (110V/220V), iluminação adequada e sanitários funcionais para a equipe de montagem. Caso haja necessidade de proteção de piso, esta deverá ser realizada previamente pelo CONTRATANTE.
 

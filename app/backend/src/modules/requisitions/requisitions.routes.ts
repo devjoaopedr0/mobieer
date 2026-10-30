@@ -26,6 +26,8 @@ router.patch("/:id/items/:itemId/status", requireAnyPermission(["requisitions.cu
 router.patch("/:id/items/:itemId/room", requireAnyPermission(["requisitions.cut", "requisitions.inspect", "requisitions.edit", "requisitions.edit.all", "stock.exit.supplies"]), controller.changeItemRoom);
 router.post("/:id/items/:itemId/missing", requireAnyPermission(["requisitions.create", "requisitions.cut", "requisitions.inspect", "stock.exit.supplies"]), uploadPhoto.single("photo"), controller.markItemMissing);
 router.post("/:id/items/:itemId/cancel", requireAnyPermission(["requisitions.cut", "requisitions.inspect", "requisitions.cancel", "stock.exit.supplies"]), controller.cancelMissingItem);
+// separação: marcar quantas peças do item já foram separadas (só parte do pedido também)
+router.post("/:id/items/:itemId/separate", requireAnyPermission(["requisitions.cut", "requisitions.inspect", "requisitions.release", "stock.exit.supplies"]), controller.separateItem);
 router.post("/:id/items/:itemId/receive", requireAnyPermission(["requisitions.create", "requisitions.cut", "requisitions.inspect", "stock.exit.supplies"]), uploadPhoto.single("photo"), controller.receiveItem);
 router.post("/:id/reservations", requirePermission("requisitions.reserve"), controller.reserve);
 router.post("/:id/inspection", requirePermission("requisitions.inspect"), controller.inspect);

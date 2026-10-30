@@ -28,6 +28,10 @@ model User {
   aiConversations AiConversation[]
   // cargos além do principal (roleId): as permissões são a soma de todos
   extraRoles      UserExtraRole[]
+  inspectionRoomsUpdated  SiteInspectionRoom[]         @relation("SiteInspectionRoomUpdater")
+  inspectionPendencies    InspectionPendency[]         @relation("InspectionPendencyCreator")
+  inspectionPendResolved  InspectionPendency[]         @relation("InspectionPendencyResolver")
+  inspectionPendTransfers InspectionPendencyTransfer[] @relation("InspectionPendencyTransferBy")
   // verificação em duas etapas (TOTP): segredo cifrado, quando foi ativada e hashes dos códigos de recuperação
   mfaSecret        String?
   mfaEnabledAt     DateTime?
@@ -172,6 +176,11 @@ model User {
   @@index([organizationId])
   productionPlanTasks ProductionPlanTask[] @relation("ProductionPlanTaskCreator")
   portalMessages PortalMessage[] @relation("PortalMessageAuthor")
+  goalProposals         SalesGoalProposal[] @relation("SalesGoalProposalSeller")
+  goalProposalsDecided  SalesGoalProposal[] @relation("SalesGoalProposalDecider")
+  goalProposalsAdjusted SalesGoalProposal[] @relation("SalesGoalProposalAdjuster")
+  requisitionItemsSeparated RequisitionItem[] @relation("RequisitionItemSeparator")
+  assistanceTasksDone AssistanceTask[] @relation("AssistanceTaskDoneBy")
 }
 
 enum EnterpriseStatus {
@@ -299,6 +308,7 @@ model Organization {
   @@index([enterpriseId])
   productionPlanTasks ProductionPlanTask[]
   portalMessages PortalMessage[]
+  salesGoalProposals SalesGoalProposal[]
 }
 
 model Role {
@@ -906,6 +916,11 @@ model RequisitionItem {
   missingQuantity Int?
   /// recebimento pelo montador
   receivedQuantity Int?
+  /// separação: quantas peças do item já foram separadas (pode ser só parte do pedido)
+  separatedQuantity Int?
+  separatedAt       DateTime?
+  separatedById     String?
+  separatedBy       User?    @relation("RequisitionItemSeparator", fields: [separatedById], references: [id], onDelete: SetNull)
   receivedAt       DateTime?
   receivedById     String?
   receivedBy       User?    @relation("RequisitionItemReceiver", fields: [receivedById], references: [id], onDelete: SetNull)
@@ -1242,6 +1257,7 @@ model Project {
   maintenances    PreventiveMaintenance[]
 
   reworks             ProductionRework[]
+  planTasks           ProductionPlanTask[]
   @@unique([organizationId, code])
   @@index([organizationId, status])
   @@index([clientId])
@@ -1293,6 +1309,9 @@ model AssistanceTicket {
   @@index([clientId])
   @@index([projectId])
   @@index([assigneeId])
+  tasks                   AssistanceTask[]
+  /// o checklist já foi montado pela descrição (não remonta se a equipe apagar os itens)
+  checklistSeededAt       DateTime?
 }
 
 /// Item da assistência: o que foi usado ou feito. Em garantia por padrão; `charged` = cobrado do cliente.
@@ -1311,8 +1330,28 @@ model AssistanceItem {
   product      Product?         @relation("AssistanceItemProduct", fields: [productId], references: [id], onDelete: SetNull)
   stockMovedAt DateTime? // quando saiu do estoque
   createdAt   DateTime         @default(now())
+  /// serviços do checklist a que a peça pertence (pode ser mais de um)
+  tasks       AssistanceTask[] @relation("AssistanceItemTasks")
 
   @@index([ticketId])
+}
+
+/// Checklist da assistência: um serviço por linha (nasce das linhas numeradas da
+/// descrição). Feito guarda quem e quando, para medir o tempo de cada serviço.
+model AssistanceTask {
+  id        String           @id @default(cuid())
+  ticketId  String
+  ticket    AssistanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  position  Int              @default(0)
+  text      String
+  done      Boolean          @default(false)
+  doneAt    DateTime?
+  doneById  String?
+  doneBy    User?            @relation("AssistanceTaskDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  createdAt DateTime         @default(now())
+  items     AssistanceItem[] @relation("AssistanceItemTasks")
+
+  @@index([ticketId, position])
 }
 
 model KanbanBoard {
@@ -4043,6 +4082,8 @@ model ProductionPlanTask {
   person         String // nome como a loja escreve; não exige usuário
   title          String
   reference      String? // cliente ou projeto, quando quiser dizer de quem é
+  projectId      String? // obra cadastrada: limita os dias em que a tarefa pode ficar
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   items          Json         @default("[]") // subtarefas: [{ text, done }]
   done           Boolean      @default(false)
   doneAt         DateTime?
@@ -4058,6 +4099,7 @@ model ProductionPlanTask {
   updatedAt      DateTime     @default(now())
 
   @@index([organizationId, date])
+  @@index([projectId])
 }
 
 /// Frente de produção que corre em paralelo à marcenaria no mesmo pedido.
@@ -4354,6 +4396,7 @@ model ProjectRoom {
   position     Int                      @default(0)
   measurements MeasurementRoom[]
   diaryEntries InstallationDiaryEntry[]
+  inspectionRooms SiteInspectionRoom[]
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
 
@@ -4371,6 +4414,41 @@ model SalesGoal {
   amount         Decimal      @db.Decimal(14, 2)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, userId, month])
+  @@index([organizationId, month])
+}
+
+enum SalesGoalProposalStatus {
+  PENDENTE
+  APROVADA // aprovada com o valor proposto
+  AJUSTADA // aprovada com outro valor
+  RECUSADA
+}
+
+/// Meta adaptativa proposta pelo sistema a um vendedor (adaptive-goal.rules).
+/// Nunca vira meta sozinha: a gestão aprova. Quem aprovou, quando, e os ajustes
+/// feitos depois ficam aqui e alimentam a próxima proposta.
+model SalesGoalProposal {
+  id             String                  @id @default(cuid())
+  organizationId String
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                    @relation("SalesGoalProposalSeller", fields: [userId], references: [id], onDelete: Cascade)
+  month          String // aaaa-mm
+  proposedAmount Decimal                 @db.Decimal(14, 2)
+  basis          Json // os números usados no cálculo
+  status         SalesGoalProposalStatus @default(PENDENTE)
+  approvedAmount Decimal?                @db.Decimal(14, 2)
+  decidedById    String?
+  decidedBy      User?                   @relation("SalesGoalProposalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt      DateTime?
+  /// meta mudada pela equipe depois da aprovação
+  adjustedAmount Decimal?                @db.Decimal(14, 2)
+  adjustedById   String?
+  adjustedBy     User?                   @relation("SalesGoalProposalAdjuster", fields: [adjustedById], references: [id], onDelete: SetNull)
+  adjustedAt     DateTime?
+  createdAt      DateTime                @default(now())
 
   @@unique([organizationId, userId, month])
   @@index([organizationId, month])
@@ -4965,6 +5043,8 @@ model SiteInspection {
   updatedAt        DateTime         @updatedAt
 
   items SiteInspectionItem[]
+  rooms SiteInspectionRoom[]
+  pendencies InspectionPendency[]
   warranty Warranty?
 
   @@index([organizationId, status])
@@ -4982,6 +5062,91 @@ model SiteInspectionItem {
   note         String?
 
   @@index([inspectionId])
+}
+
+/// Situação de um ambiente na vistoria.
+enum InspectionRoomStatus {
+  NAO_VISTORIADO
+  APROVADO // ambiente entregue (concluído)
+  COM_PENDENCIA
+  REPROVADO
+}
+
+enum InspectionPendencyKind {
+  PECA_FALTANTE // bloqueia a conclusão do ambiente enquanto aberta (a montagem pode seguir)
+  MUDANCA_AMBIENTE // peça ou serviço que é de outro ambiente
+  OUTRA
+}
+
+enum InspectionPendencyStatus {
+  ABERTA
+  RESOLVIDA
+}
+
+/// Uma linha por ambiente da vistoria: situação, observação, fotos (FileRecord
+/// "SiteInspectionRoom") e pendências.
+model SiteInspectionRoom {
+  id            String               @id @default(cuid())
+  inspectionId  String
+  inspection    SiteInspection       @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  projectRoomId String? // ambiente cadastrado no projeto, quando veio de lá
+  projectRoom   ProjectRoom?         @relation(fields: [projectRoomId], references: [id], onDelete: SetNull)
+  name          String
+  status        InspectionRoomStatus @default(NAO_VISTORIADO)
+  note          String?
+  position      Int                  @default(0)
+  updatedById   String?
+  updatedBy     User?                @relation("SiteInspectionRoomUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  pendencies    InspectionPendency[]
+  transfersFrom InspectionPendencyTransfer[] @relation("PendencyTransferFrom")
+  transfersTo   InspectionPendencyTransfer[] @relation("PendencyTransferTo")
+
+  @@index([inspectionId, position])
+}
+
+/// Pendência de um ambiente da vistoria. Pode passar para outro ambiente; cada
+/// passagem fica em InspectionPendencyTransfer.
+model InspectionPendency {
+  id             String                   @id @default(cuid())
+  inspectionId   String
+  inspection     SiteInspection           @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  roomId         String // ambiente onde ela está agora
+  room           SiteInspectionRoom       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  kind           InspectionPendencyKind
+  description    String
+  targetRoomName String? // mudança de ambiente: para onde a peça vai
+  status         InspectionPendencyStatus @default(ABERTA)
+  resolutionNote String?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolvedBy     User?                    @relation("InspectionPendencyResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  createdById    String?
+  createdBy      User?                    @relation("InspectionPendencyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime                 @default(now())
+
+  transfers InspectionPendencyTransfer[]
+
+  @@index([inspectionId, status])
+  @@index([roomId])
+}
+
+model InspectionPendencyTransfer {
+  id          String             @id @default(cuid())
+  pendencyId  String
+  pendency    InspectionPendency @relation(fields: [pendencyId], references: [id], onDelete: Cascade)
+  fromRoomId  String
+  fromRoom    SiteInspectionRoom @relation("PendencyTransferFrom", fields: [fromRoomId], references: [id], onDelete: Cascade)
+  toRoomId    String
+  toRoom      SiteInspectionRoom @relation("PendencyTransferTo", fields: [toRoomId], references: [id], onDelete: Cascade)
+  reason      String?
+  byId        String?
+  by          User?              @relation("InspectionPendencyTransferBy", fields: [byId], references: [id], onDelete: SetNull)
+  createdAt   DateTime           @default(now())
+
+  @@index([pendencyId])
 }
 
 // ============================================================

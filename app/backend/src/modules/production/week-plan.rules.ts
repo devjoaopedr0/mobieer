@@ -201,3 +201,34 @@ export function summarize(tasks: { person: string; done: boolean; items: PlanIte
   }
   return [...map.values()];
 }
+
+/** A obra a que a tarefa pertence: as datas que limitam onde ela pode ficar. */
+export type PlanProject = { code: string; status: string; startAt: Date | null; dueAt: Date | null; completedAt: Date | null; createdAt: Date };
+
+/** Até onde dá para mover uma tarefa, para frente ou para trás (erro de digitação no ano). */
+export const MAX_PLAN_DAYS = 366;
+
+/**
+ * Por que o dia não serve para a tarefa (null = serve). Dia inválido: data que
+ * não existe, domingo ou longe demais de hoje. Fora da obra: obra cancelada,
+ * antes do início dela ou depois de concluída. O prazo de entrega não trava —
+ * tarefa atrasada continua sendo trabalho de verdade; vira só um aviso.
+ */
+export function planDateProblem(day: string, today: string, project?: PlanProject | null): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(at(day).getTime()) || iso(at(day)) !== day) return "Data inválida";
+  if (at(day).getUTCDay() === 0) return "O planejamento vai de segunda a sábado: escolha outro dia";
+  if (Math.abs(at(day).getTime() - at(today).getTime()) / DAY > MAX_PLAN_DAYS) return "Escolha um dia até um ano antes ou depois de hoje";
+  if (!project) return null;
+  if (project.status === "CANCELLED") return `A obra ${project.code} está cancelada`;
+  const start = dateToDay(project.startAt ?? project.createdAt);
+  if (day < start) return `A obra ${project.code} começa em ${start.split("-").reverse().join("/")}`;
+  if (project.completedAt && day > dateToDay(project.completedAt)) return `A obra ${project.code} foi concluída em ${dateToDay(project.completedAt).split("-").reverse().join("/")}`;
+  return null;
+}
+
+/** Aviso (não trava): o dia passa do prazo de entrega da obra. */
+export function planDateWarning(day: string, project?: PlanProject | null): string | null {
+  if (!project?.dueAt || project.completedAt) return null;
+  const due = dateToDay(project.dueAt);
+  return day > due ? `Passa do prazo de entrega da obra ${project.code} (${due.split("-").reverse().join("/")})` : null;
+}

@@ -13,6 +13,8 @@ import {
   MERGE_FIELDS,
   DEFAULT_CONTRACT_BODY,
   buildContractContext,
+  contractChecklist,
+  renderContractBody,
   renderTemplate,
   CONTRACT_CONTACTS,
   contractPdf,
@@ -20,6 +22,7 @@ import {
 import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder, mergeOrders, quotesForProjects } from "./contract-order";
 import { CONTRACT_TITLE_SIZE, contractDocPdf, contractHtml, docBlocksSchema, docHasBlanks } from "./contract-doc";
 import { discardContractText, loadContractText, saveContractText } from "./contract-text";
+import { ORDER_TYPES, contractOptionsSchema, suggestedDays } from "./contract-options";
 import { contractNumberFor, nextContractNumber, nextQuoteSequence, peekContractNumber, renumberOldQuotes, setNextContractNumber, setNextQuoteNumber } from "./contract-number";
 import { pipeToResponse } from "../../utils/stream";
 
@@ -99,10 +102,10 @@ router.put(
   "/contract-text",
   requirePermission("documents.manage"),
   asyncHandler(async (req, res) => {
-    const input = textTarget.extend({ templateId: z.string().min(1), doc: docBlocksSchema }).parse(req.body);
+    const input = textTarget.extend({ templateId: z.string().min(1), doc: docBlocksSchema, options: contractOptionsSchema.nullable().optional() }).parse(req.body);
     await ensureTextTarget(req.user!.organizationId, input.clientId, input.projectId);
     const prev = await loadContractText(input.clientId, input.projectId);
-    const saved = await saveContractText(input.clientId, input.projectId, { templateId: input.templateId, doc: input.doc, savedBy: req.user!.name, documentId: prev?.documentId ?? null });
+    const saved = await saveContractText(input.clientId, input.projectId, { templateId: input.templateId, doc: input.doc, savedBy: req.user!.name, documentId: prev?.documentId ?? null, options: input.options ?? prev?.options ?? null });
     return ok(res, saved, "Texto do contrato salvo");
   })
 );
@@ -429,6 +432,8 @@ const contractInput = z.object({
   visibleToClient: z.boolean().optional(),
   /** contrato corrigido no editor: o PDF sai deste documento, não do modelo */
   doc: docBlocksSchema.optional().nullable(),
+  /** cláusulas variáveis: tipo de pedido, prazo e pré-montagem */
+  opcoes: contractOptionsSchema.optional().nullable(),
 });
 
 /** Orçamento do contrato, conferindo que é do mesmo cliente. */
@@ -475,7 +480,11 @@ router.post(
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
     const numero = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId) : "";
     ctx.values["contrato.numero"] = numero;
-    const rendered = renderTemplate(t.bodyHtml!, ctx.values);
+    const rendered = renderContractBody(t.bodyHtml!, ctx);
+    const marked = renderContractBody(t.bodyHtml!, ctx, { mark: true });
+    // orçamento alterado depois do texto salvo: a tela compara com a data do texto
+    const quote = order ? await prisma.commercialQuote.findUnique({ where: { id: order.quoteId }, select: { updatedAt: true } }) : null;
+    const baseDays = order?.deliveryDays ?? input.prazoEntregaDias ?? null;
     // na prévia em texto, o quadro vira um resumo
     const text = order
       ? rendered.text
@@ -483,7 +492,18 @@ router.post(
           .replace(BLOCK.pagamento, order.installments.map((p) => `${p.label}: ${p.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
       : rendered.text;
     // `html`: o contrato inteiro, com os quadros como tabelas, para corrigir no editor
-    return ok(res, { title: numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || t.name, text, html: contractHtml(rendered.text, order), missing: rendered.missing, meta: ctx.meta, values: ctx.values });
+    return ok(res, {
+      title: numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || t.name,
+      text,
+      html: contractHtml(marked.text, order, marked.keys),
+      missing: rendered.missing,
+      // o que falta cadastrar, com onde corrigir (aparece antes de abrir o editor)
+      checklist: contractChecklist(rendered.missing),
+      meta: { ...ctx.meta, quoteUpdatedAt: quote?.updatedAt ?? null },
+      values: ctx.values,
+      fieldLabels: Object.fromEntries(MERGE_FIELDS.map((f) => [f.key, f.label])),
+      options: { chosen: ctx.options, orderTypes: ORDER_TYPES.map((o) => ({ code: o.code, label: o.label, days: suggestedDays(o.code, baseDays) })), baseDays },
+    });
   })
 );
 
@@ -499,7 +519,7 @@ router.post(
     // contrato da loja: número na sequência dos contratos antigos
     const numero = t.type === "CONTRATO" ? (await contractNumberFor(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId)).number : null;
     ctx.values["contrato.numero"] = numero ?? "";
-    const rendered = renderTemplate(t.bodyHtml!, ctx.values);
+    const rendered = renderContractBody(t.bodyHtml!, ctx);
     const { text } = rendered;
     // editado: o que faltava pode ter sido preenchido à mão; sobra o que ainda tem "____"
     const missing = input.doc ? (docHasBlanks(input.doc) ? rendered.missing : []) : rendered.missing;

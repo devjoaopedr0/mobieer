@@ -32,12 +32,12 @@ export function pieceSize(i: { length: number | null; width: number | null; thic
  * Obra: busca os projetos cadastrados. Escolher um preenche cliente e projeto;
  * o texto livre continua valendo para quem não tem projeto no sistema.
  */
-export function ProjectPicker({ value, onChange }: { value: RequisitionProjectOption | null; onChange: (p: RequisitionProjectOption | null) => void }) {
+export function ProjectPicker({ value, onChange, endpoint = "/requisitions/projects" }: { value: Pick<RequisitionProjectOption, "id" | "code" | "name" | "client"> | null; onChange: (p: RequisitionProjectOption | null) => void; endpoint?: string }) {
   const [term, setTerm] = useState("");
   const [open, setOpen] = useState(false);
   const q = useQuery({
-    queryKey: ["requisition-projects", term],
-    queryFn: () => apiGet<{ data: RequisitionProjectOption[] }>("/requisitions/projects", { search: term || undefined }),
+    queryKey: ["requisition-projects", endpoint, term],
+    queryFn: () => apiGet<{ data: RequisitionProjectOption[] }>(endpoint, { search: term || undefined }),
     enabled: open,
     staleTime: 60_000,
   });
@@ -60,7 +60,7 @@ export function ProjectPicker({ value, onChange }: { value: RequisitionProjectOp
           {(q.data?.data ?? []).map((p) => (
             <button key={p.id} type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(p); setTerm(""); setOpen(false); }}>
               <span className="font-medium">{p.code} — {p.name}</span>
-              <span className="block text-xs text-muted-foreground">{p.client?.name ?? "Sem cliente"} · {p.rooms.length} ambiente(s)</span>
+              <span className="block text-xs text-muted-foreground">{p.client?.name ?? "Sem cliente"}{p.rooms.length ? ` · ${p.rooms.length} ambiente(s)` : ""}</span>
             </button>
           ))}
         </div>

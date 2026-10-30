@@ -55,6 +55,8 @@ const FactoryBoardPage = lazy(() => import("@/pages/production-items").then((m) 
 const PieceRouteConfigPage = lazy(() => import("@/pages/piece-route-config").then((m) => ({ default: m.PieceRouteConfigPage })));
 const HrPage = lazy(() => import("@/pages/hr").then((m) => ({ default: m.HrPage })));
 const CommercialPage = lazy(() => import("@/pages/commercial").then((m) => ({ default: m.CommercialPage })));
+const ClientsCentralPage = lazy(() => import("@/pages/clients-central").then((m) => ({ default: m.ClientsCentralPage })));
+const ClientDetailPage = lazy(() => import("@/pages/client-detail").then((m) => ({ default: m.ClientDetailPage })));
 const ForcePasswordChangePage = lazy(() => import("@/pages/password-pages").then((m) => ({ default: m.ForcePasswordChangePage })));
 const ForgotPasswordPage = lazy(() => import("@/pages/password-pages").then((m) => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import("@/pages/password-pages").then((m) => ({ default: m.ResetPasswordPage })));
@@ -160,6 +162,8 @@ export const router = createBrowserRouter([
           { path: "/alertas", element: <PermissionGate permission="stock.read"><AlertsPage /></PermissionGate> },
           { path: "/rh", element: <PermissionGate permission="hr.read"><HrPage /></PermissionGate> },
           { path: "/comercial", element: <PermissionGate permission="commercial.read"><CommercialPage /></PermissionGate> },
+          { path: "/clientes", element: <PermissionGate permission="commercial.read"><ClientsCentralPage /></PermissionGate> },
+          { path: "/clientes/:id", element: <PermissionGate permission="commercial.read"><ClientDetailPage /></PermissionGate> },
           { path: "/comercial/orcamentos/:id", element: <PermissionGate permission="commercial.read"><QuoteEditorPage /></PermissionGate> },
           { path: "/financeiro", element: <PermissionGate permission="finance.read"><FinancePage /></PermissionGate> },
           { path: "/financeiro/planner", element: <PermissionGate permission="finance.read"><FinancePlannerPage /></PermissionGate> },
