@@ -200,7 +200,7 @@ router.post(
   "/leads/:id/briefing",
   requirePermission("commercial.leads.manage"),
   asyncHandler(async (req, res) => {
-    const lead = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+    const lead = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId, ...sellerScope(req) } });
     if (!lead) throw new NotFoundError("Lead não encontrado");
     const input = briefingBody.parse(req.body);
     const data = {
@@ -261,7 +261,7 @@ router.patch(
   "/leads/:id",
   requirePermission("commercial.leads.manage"),
   asyncHandler(async (req, res) => {
-    const cur = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId } });
+    const cur = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId, ...sellerScope(req) } });
     if (!cur) throw new NotFoundError("Lead não encontrado");
     const input = leadSchema.partial().parse(req.body);
     if (input.clientId) await ensureLeadClient(input.clientId, req);
@@ -578,7 +578,7 @@ router.patch(
   requirePermission("commercial.manage"),
   asyncHandler(async (req, res) => {
     const cur = await prisma.commercialOpportunity.findFirst({
-      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      where: { id: req.params.id, organizationId: req.user!.organizationId, ...sellerScope(req) },
     });
     if (!cur) throw new NotFoundError("Oportunidade não encontrada");
 
@@ -674,13 +674,13 @@ router.post(
   requirePermission("commercial.manage"),
   asyncHandler(async (req, res) => {
     const opp = await prisma.commercialOpportunity.findFirst({
-      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      where: { id: req.params.id, organizationId: req.user!.organizationId, ...sellerScope(req) },
       select: { id: true, leadId: true, clientId: true },
     });
     if (!opp) throw new NotFoundError("Oportunidade não encontrada");
     const input = z
       .object({
-        type: z.enum(["CALL", "WHATSAPP", "EMAIL", "MEETING", "VISIT", "INTERNAL_MESSAGE", "OTHER"]),
+        type: z.enum(["CALL", "WHATSAPP", "EMAIL", "MEETING", "VISIT", "FOLLOW_UP", "PROPOSAL", "NEGOTIATION", "INTERNAL_MESSAGE", "OTHER"]),
         summary: z.string().trim().min(2).max(2000),
         result: nullable(500),
         occurredAt: z.coerce.date().optional(),
@@ -718,7 +718,7 @@ router.get(
   requirePermission("commercial.read"),
   asyncHandler(async (req, res) => {
     const opp = await prisma.commercialOpportunity.findFirst({
-      where: { id: req.params.id, organizationId: req.user!.organizationId },
+      where: { id: req.params.id, organizationId: req.user!.organizationId, ...sellerScope(req) },
       include: {
         ...oppInclude,
         interactions: {

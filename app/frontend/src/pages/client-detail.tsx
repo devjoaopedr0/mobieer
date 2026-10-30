@@ -34,7 +34,7 @@ const OPP_STATUS: Record<string, string> = { OPEN: "Em aberto", WON: "Ganha", LO
 const QUOTE_STATUS: Record<string, string> = { DRAFT: "Rascunho", SENT: "Enviado", VIEWED: "Visto", NEGOTIATION: "Em negociação", APPROVED: "Aceito", REJECTED: "Recusado", EXPIRED: "Vencido", CANCELLED: "Cancelado" };
 const SIGN_STATUS: Record<string, string> = { NOT_REQUIRED: "Sem assinatura", PENDING: "Aguardando assinatura", PARTIAL: "Assinado em parte", SIGNED: "Assinado" };
 const AT_STATUS: Record<string, string> = { OPEN: "Aberta", TRIAGE: "Triagem", SCHEDULED: "Visita marcada", IN_PROGRESS: "Em atendimento", WAITING_CLIENT: "Aguardando cliente", RESOLVED: "Resolvida", CANCELLED: "Cancelada" };
-const CONTACT: Record<string, string> = { CALL: "Ligação", WHATSAPP: "WhatsApp", EMAIL: "E-mail", MEETING: "Reunião", VISIT: "Visita", INTERNAL_MESSAGE: "Mensagem interna", OTHER: "Outro" };
+const CONTACT: Record<string, string> = { CALL: "Ligação", WHATSAPP: "WhatsApp", EMAIL: "E-mail", MEETING: "Reunião", VISIT: "Visita", FOLLOW_UP: "Follow-up", PROPOSAL: "Proposta", NEGOTIATION: "Negociação", INTERNAL_MESSAGE: "Mensagem interna", OTHER: "Outro" };
 
 function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (

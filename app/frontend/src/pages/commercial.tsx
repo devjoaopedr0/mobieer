@@ -30,12 +30,15 @@ import type { CommercialLead, Opportunity, PipelineSummary, SalesStage } from "@
 import { ChannelPanel, LeadQuickContact, TemperatureFilter, TemperatureTag, originLabel } from "@/components/crm-parts";
 import { LeadDialog } from "@/components/lead-dialog";
 import { CommissionsPanel } from "@/components/crm-commissions";
+import { CommercialMyDay } from "@/components/commercial-my-day";
+import { CommercialActivities } from "@/components/commercial-activities";
 
 const LEAD_STATUS: Record<string, string> = {
   NEW: "Novo", CONTACTED: "Contatado", QUALIFIED: "Qualificado", CONVERTED: "Convertido", LOST: "Perdido",
 };
 const INTERACTION_TYPES = [
-  ["CALL", "Ligação"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "E-mail"], ["MEETING", "Reunião"], ["VISIT", "Visita"], ["OTHER", "Outro"],
+  ["CALL", "Ligação"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "E-mail"], ["MEETING", "Reunião"], ["VISIT", "Visita"],
+  ["FOLLOW_UP", "Follow-up"], ["PROPOSAL", "Proposta"], ["NEGOTIATION", "Negociação"], ["OTHER", "Outro"],
 ] as const;
 const LOST_REASONS = [
   ["PRECO", "Preço"], ["PRAZO", "Prazo"], ["CONCORRENCIA", "Concorrência"], ["SEM_RESPOSTA", "Sem resposta"],
@@ -50,6 +53,9 @@ export function CommercialPage() {
   const { can } = useAuth();
   const canManage = can("commercial.manage");
   const canLeads = can("commercial.leads.manage");
+  const canSeeAll = can("commercial.read.all");
+  // o consultor abre no dia dele; quem acompanha a equipe, no funil (como sempre foi)
+  const defaultTab = canSeeAll ? "funil" : "meudia";
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
 
@@ -181,8 +187,9 @@ export function CommercialPage() {
         </div>
       )}
 
-      <Tabs value={params.get("aba") ?? "funil"} onValueChange={(v) => setParams(v === "funil" ? {} : { aba: v }, { replace: true })}>
+      <Tabs value={params.get("aba") ?? defaultTab} onValueChange={(v) => setParams(v === defaultTab ? {} : { aba: v }, { replace: true })}>
         <TabsList>
+          <TabsTrigger value="meudia">Meu dia</TabsTrigger>
           <TabsTrigger value="funil">Funil ({oppList.length})</TabsTrigger>
           <TabsTrigger value="lembretes">Lembretes{reminders.data?.data.total ? ` (${reminders.data.data.total})` : ""}</TabsTrigger>
           <TabsTrigger value="orcamentos">Orçamentos</TabsTrigger>
@@ -195,6 +202,7 @@ export function CommercialPage() {
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
           <TabsTrigger value="metas">Metas</TabsTrigger>
           <TabsTrigger value="comissoes">Comissões</TabsTrigger>
+          {canSeeAll && <TabsTrigger value="atividades">Atividades da equipe</TabsTrigger>}
         </TabsList>
 
         {/* ---- Funil (kanban) ---- */}
@@ -242,6 +250,16 @@ export function CommercialPage() {
             </div>
           )}
         </TabsContent>
+
+        <TabsContent value="meudia">
+          <CommercialMyDay canSeeAll={canSeeAll} />
+        </TabsContent>
+
+        {canSeeAll && (
+          <TabsContent value="atividades">
+            <CommercialActivities />
+          </TabsContent>
+        )}
 
         <TabsContent value="lembretes">
           <CommercialReminders />

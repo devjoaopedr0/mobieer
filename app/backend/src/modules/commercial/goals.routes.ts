@@ -19,6 +19,7 @@ import { conversionRate, goalOwner, goalProgress, monthRange, parseMonth } from 
 import { goalSuggestion } from "./reminders.service";
 import { adaptiveProposal, explainProposal, shiftMonth, type MonthStat, type PastProposal } from "./adaptive-goal.rules";
 import { closedWhere } from "./closed.rules";
+import { signedContracts } from "../overview/overview.routes";
 
 const router = Router();
 router.use(authenticate);
@@ -29,9 +30,11 @@ async function monthNumbers(organizationId: string, month: string, sellerId: str
   const { from, to } = monthRange(month);
   const bySeller = sellerId ? { sellerId } : {};
 
-  const [sales, proposals, openOpps, goalRow] = await Promise.all([
-    prisma.sale.findMany({ where: { organizationId, soldAt: { gte: from, lt: to }, ...bySeller }, select: { value: true } }),
-    prisma.commercialProposal.count({ where: { organizationId, createdAt: { gte: from, lt: to }, ...bySeller } }),
+  // vendido = contratos aceitos no mês da venda (a mesma conta do painel comercial e da DRE);
+  // propostas = orçamentos enviados no mês, um por número (as versões não contam de novo)
+  const [sales, sent, openOpps, goalRow] = await Promise.all([
+    signedContracts(organizationId, from, to, sellerId),
+    prisma.commercialQuote.findMany({ where: { organizationId, kind: "PADRAO", sentAt: { gte: from, lt: to }, ...bySeller }, select: { number: true }, distinct: ["number"] }),
     prisma.commercialOpportunity.findMany({
       where: { organizationId, status: { notIn: ["WON", "LOST"] }, expectedCloseAt: { gte: from, lt: to }, ...bySeller },
       select: { estimatedValue: true, probability: true },
@@ -39,7 +42,8 @@ async function monthNumbers(organizationId: string, month: string, sellerId: str
     prisma.salesGoal.findFirst({ where: { organizationId, month, userId: sellerId } }),
   ]);
 
-  const sold = sales.reduce((s, v) => s + money(v.value), 0);
+  const proposals = sent.length;
+  const sold = sales.reduce((s, v) => s + v.total, 0);
   const weighted = openOpps.reduce((s, o) => s + money(o.estimatedValue) * (o.probability / 100), 0);
   const progress = goalProgress({ goal: goalRow ? money(goalRow.amount) : null, sold, weightedPipeline: weighted, month });
 
@@ -75,7 +79,7 @@ router.get(
           organizationId,
           status: "ACTIVE",
           // consultor sem venda ainda aparece: a gestão define a meta dele por aqui
-          OR: [{ commercialSales: { some: {} } }, { assignedOpportunities: { some: {} } }, { salesGoals: { some: { month } } }, { role: { name: "CONSULTOR" } }],
+          OR: [{ createdQuotes: { some: { status: "APPROVED" } } }, { assignedOpportunities: { some: {} } }, { salesGoals: { some: { month } } }, { role: { name: "CONSULTOR" } }],
         },
         select: { id: true, name: true },
         orderBy: { name: "asc" },

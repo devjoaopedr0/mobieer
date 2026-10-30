@@ -2,8 +2,9 @@
  * Metas comerciais: meta do mês, quanto já foi vendido, quanto falta e a
  * previsão. Funções puras.
  *
- * "Vendido" é a Venda registrada (valor fechado), não o valor estimado da
- * oportunidade: é o número que a loja fecha no caixa.
+ * "Vendido" é o contrato aceito (orçamento APPROVED, no mês da venda), não o
+ * valor estimado da oportunidade: é o mesmo número do painel comercial, da DRE
+ * e da comissão por faixa.
  */
 import { ForbiddenError, ValidationError } from "../../utils/ApiError";
 

@@ -127,9 +127,13 @@ export async function goalSuggestion(organizationId: string, month: string, prof
       where: { organizationId, status: "APPROVED", approvedAt: { gte: since }, costTotal: { gt: 0 } },
       select: { total: true, result: true },
     }),
-    prisma.sale.findMany({ where: { organizationId, soldAt: { gte: since } }, select: { value: true, sellerId: true } }),
+    // vendas = contratos aceitos (mês da venda: competência; sem ela, o aceite)
+    prisma.commercialQuote.findMany({
+      where: { organizationId, status: "APPROVED", OR: [{ competenceDate: { gte: since } }, { competenceDate: null, approvedAt: { gte: since } }] },
+      select: { total: true, sellerId: true },
+    }),
     prisma.user.findMany({
-      where: { organizationId, status: "ACTIVE", OR: [{ commercialSales: { some: { soldAt: { gte: since } } } }, { assignedOpportunities: { some: { status: { notIn: ["WON", "LOST"] } } } }] },
+      where: { organizationId, status: "ACTIVE", OR: [{ createdQuotes: { some: { status: "APPROVED", approvedAt: { gte: since } } } }, { assignedOpportunities: { some: { status: { notIn: ["WON", "LOST"] } } } }] },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -146,8 +150,8 @@ export async function goalSuggestion(organizationId: string, month: string, prof
       : { percent: marginFromMarkup(pricing.defaultMarkup, defaultCommission), source: "PRECIFICACAO" as const, sample: accepted.length };
 
   const soldBy = new Map<string, number>();
-  for (const s of sales) soldBy.set(s.sellerId, (soldBy.get(s.sellerId) ?? 0) + n(s.value));
-  const soldTotal = sales.reduce((s, v) => s + n(v.value), 0);
+  for (const s of sales) soldBy.set(s.sellerId, (soldBy.get(s.sellerId) ?? 0) + n(s.total));
+  const soldTotal = sales.reduce((s, v) => s + n(v.total), 0);
   const avgTicket = sales.length ? soldTotal / sales.length : accepted.length ? acceptedTotal / accepted.length : null;
 
   const suggestion = suggestGoal({
