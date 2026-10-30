@@ -240,7 +240,7 @@ function PeopleView({ people, loading, canPay, onPay, onOpen }: { people?: Perso
             </button>
             {open === p.person && (
               <div className="grid gap-2 border-t p-3 sm:grid-cols-2 lg:grid-cols-3">
-                {p.items.map((i) => <div key={i.id} className="space-y-0.5"><p className="text-[11px] text-muted-foreground">{i.type === "RECEITA" ? "desconto · " : ""}vence {ddmm(i.dueDay)}</p><Row onAmount={canManage ? (it, amount) => changeAmount.mutate({ id: it.id, amount }) : undefined} i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>)}
+                {p.items.map((i) => <div key={i.id} className="space-y-0.5"><p className="text-[11px] text-muted-foreground">{i.type === "RECEITA" ? "desconto · " : ""}vence {ddmm(i.dueDay)}</p><Row i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>)}
               </div>
             )}
           </CardContent>
@@ -291,7 +291,7 @@ function ListView({ canPay, onPay, onOpen }: { canPay: boolean; onPay: (i: Item)
             <div key={i.id} className="flex items-center gap-2">
               <input type="checkbox" className="h-4 w-4 shrink-0" checked={sel.has(i.id)} onChange={() => toggle(i.id)} aria-label="Somar esta conta" />
               <span className={cn("w-12 shrink-0 text-xs tabular-nums", i.late && "font-semibold text-destructive")}>{ddmm(i.dueDay)}</span>
-              <div className="min-w-0 flex-1"><Row onAmount={canManage ? (it, amount) => changeAmount.mutate({ id: it.id, amount }) : undefined} i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>
+              <div className="min-w-0 flex-1"><Row i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>
             </div>
           ))}
         </div>

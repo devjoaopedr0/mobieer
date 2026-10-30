@@ -41,7 +41,7 @@ const taskInput = z.object({
   items: z.array(itemInput).max(30).default([]),
 });
 
-const include = { project: { select: { id: true, code: true, name: true } } } satisfies Prisma.ProductionPlanTaskInclude;
+const include = { project: { select: { id: true, code: true, name: true, client: { select: { name: true } } } } } satisfies Prisma.ProductionPlanTaskInclude;
 type Row = Prisma.ProductionPlanTaskGetPayload<{ include: typeof include }>;
 const serialize = (t: Row) => {
   const items = normalizeItems(t.items);
