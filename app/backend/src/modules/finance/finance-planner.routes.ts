@@ -6,7 +6,7 @@
  *   GET   /planner/people            pendências por pessoa (a pagar, a descontar, saldo)
  *   GET   /planner/list              lista com filtro, para somar o que estiver marcado
  *   POST  /planner/quick             { day, text, type } — "NOME: descrição valor" vira uma conta
- *   PATCH /planner/:id               { dueDay?, payee? } — arrastar para outro dia, trocar a pessoa
+ *   PATCH /planner/:id               { dueDay?, payee?, amount? } — arrastar para outro dia, trocar a pessoa, mudar o valor
  *
  * Pagar é o mesmo "Marcar pago" dos lançamentos (POST /finance/documents/:id/payments).
  */
@@ -169,15 +169,24 @@ router.patch(
   "/planner/:id",
   requirePermission("finance.manage"),
   asyncHandler(async (req, res) => {
-    const input = z.object({ dueDay: z.string().regex(dayRe).optional(), payee: z.string().trim().max(80).nullable().optional() }).parse(req.body);
-    const t = await prisma.financeTransaction.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId }, select: { id: true, status: true } });
+    const input = z
+      .object({ dueDay: z.string().regex(dayRe).optional(), payee: z.string().trim().max(80).nullable().optional(), amount: z.coerce.number().positive("Valor inválido").max(100_000_000).optional() })
+      .parse(req.body);
+    const t = await prisma.financeTransaction.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId }, select: { id: true, status: true, amount: true, paidAmount: true } });
     if (!t) throw new NotFoundError("Lançamento não encontrado");
     if (input.dueDay && t.status === "PAGO") throw new BadRequestError("Conta já paga não muda de vencimento");
+    // o valor muda mesmo com a conta já no calendário; só não fica abaixo do que já foi pago
+    const paid = Number(t.paidAmount ?? 0);
+    if (input.amount !== undefined && Math.round(input.amount * 100) < Math.round(paid * 100)) throw new BadRequestError(`O valor não pode ficar abaixo dos ${paid.toFixed(2).replace(".", ",")} já pagos`);
+    const amount = input.amount === undefined ? undefined : new Prisma.Decimal(input.amount.toFixed(2));
+    // valor igual ao já pago: a conta fica quitada; maior: volta a ter saldo em aberto
+    const status = input.amount === undefined ? undefined : paid <= 0 ? undefined : Math.round(input.amount * 100) === Math.round(paid * 100) ? ("PAGO" as const) : ("PARCIAL" as const);
     const updated = await prisma.financeTransaction.update({
       where: { id: t.id },
-      data: { ...(input.dueDay ? { dueDate: dayToDate(input.dueDay) } : {}), ...(input.payee !== undefined ? { payee: input.payee || null } : {}) },
+      data: { ...(input.dueDay ? { dueDate: dayToDate(input.dueDay) } : {}), ...(input.payee !== undefined ? { payee: input.payee || null } : {}), ...(amount ? { amount, status } : {}) },
       select,
     });
+    if (amount) await prisma.auditLog.create({ data: { userId: req.user!.id, action: "FINANCE_TX_AMOUNT_CHANGED", entity: "FinanceTransaction", entityId: t.id, details: { from: Number(t.amount), to: input.amount } } });
     return ok(res, view(updated, today()), "Lançamento atualizado");
   })
 );

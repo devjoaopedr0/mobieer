@@ -26,8 +26,15 @@ const addDays = (day: string, n: number) => new Date(new Date(`${day}T12:00:00Z`
 const todayIso = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
 
 /** Uma conta no planner: quem, do que é, o valor e a caixinha de pago. */
-function Row({ i, canPay, onPay, onOpen, draggable }: { i: Item; canPay: boolean; onPay: (i: Item) => void; onOpen: (i: Item) => void; draggable?: boolean }) {
+function Row({ i, canPay, onPay, onOpen, draggable, onAmount }: { i: Item; canPay: boolean; onPay: (i: Item) => void; onOpen: (i: Item) => void; draggable?: boolean; onAmount?: (i: Item, amount: number) => void }) {
   const paid = i.open <= 0;
+  // valor: clicar abre para corrigir, mesmo com a conta já no calendário
+  const [editing, setEditing] = useState<string | null>(null);
+  const save = () => {
+    const v = Number((editing ?? "").replace(/\./g, "").replace(",", "."));
+    setEditing(null);
+    if (v > 0 && Math.abs(v - i.amount) > 0.004) onAmount?.(i, v);
+  };
   return (
     <div
       draggable={draggable && !paid}
@@ -48,7 +55,24 @@ function Row({ i, canPay, onPay, onOpen, draggable }: { i: Item; canPay: boolean
           <p className={cn("leading-snug", paid && "line-through")}>{i.description || i.category}</p>
           <p className="text-xs text-muted-foreground">{i.type === "RECEITA" ? "a receber · " : ""}{i.category}{i.paidAmount > 0 && !paid ? ` · pago ${formatCurrency(i.paidAmount)}` : ""}</p>
         </button>
-        <span className={cn("shrink-0 font-semibold tabular-nums", i.type === "RECEITA" && "text-success")}>{formatCurrency(paid ? i.amount : i.open)}</span>
+        {editing !== null ? (
+          <input
+            autoFocus
+            inputMode="decimal"
+            aria-label="Novo valor"
+            className="h-7 w-24 shrink-0 rounded border px-1 text-right text-sm tabular-nums"
+            value={editing}
+            onChange={(e) => setEditing(e.target.value)}
+            onBlur={save}
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(null); }}
+          />
+        ) : onAmount && !paid ? (
+          <button type="button" title={`Mudar o valor (total ${formatCurrency(i.amount)})`} className={cn("shrink-0 font-semibold tabular-nums underline-offset-2 hover:underline", i.type === "RECEITA" && "text-success")} onClick={() => setEditing(String(i.amount).replace(".", ","))}>
+            {formatCurrency(i.open)}
+          </button>
+        ) : (
+          <span className={cn("shrink-0 font-semibold tabular-nums", i.type === "RECEITA" && "text-success")}>{formatCurrency(paid ? i.amount : i.open)}</span>
+        )}
       </div>
     </div>
   );
@@ -84,6 +108,11 @@ export function FinancePlannerPage() {
     mutationFn: (v: { id: string; dueDay: string }) => apiPatch(`/finance/planner/${v.id}`, { dueDay: v.dueDay }),
     onSuccess: () => { toast.success("Vencimento mudado"); refresh(); },
     onError: (e) => toast.error(errorMessage(e, "Não foi possível mudar o dia")),
+  });
+  const changeAmount = useMutation({
+    mutationFn: (v: { id: string; amount: number }) => apiPatch(`/finance/planner/${v.id}`, { amount: v.amount }),
+    onSuccess: () => { toast.success("Valor atualizado"); refresh(); },
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível mudar o valor")),
   });
   const payAll = useMutation({
     mutationFn: (i: Item) => {
@@ -144,7 +173,7 @@ export function FinancePlannerPage() {
                   <ChevronDown className={cn("h-4 w-4 transition-transform", !showLate && "-rotate-90")} />
                   Atrasadas de antes desta semana: {d.late.items.length} · {formatCurrency(d.late.totals.toPay)} a pagar
                 </button>
-                {showLate && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{d.late.items.map((i) => <div key={i.id} className="space-y-0.5"><p className="text-[11px] text-muted-foreground">venceu {ddmm(i.dueDay)}</p><Row i={i} canPay={canPay} onPay={pay} onOpen={setPaying} /></div>)}</div>}
+                {showLate && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{d.late.items.map((i) => <div key={i.id} className="space-y-0.5"><p className="text-[11px] text-muted-foreground">venceu {ddmm(i.dueDay)}</p><Row onAmount={canManage ? (it, amount) => changeAmount.mutate({ id: it.id, amount }) : undefined} i={i} canPay={canPay} onPay={pay} onOpen={setPaying} /></div>)}</div>}
               </CardContent>
             </Card>
           )}
@@ -163,7 +192,7 @@ export function FinancePlannerPage() {
                     <p className="text-sm font-semibold">{DOW[idx]} <span className="font-normal text-muted-foreground">{ddmm(day.day)}{idx === 5 ? " e dom." : ""}</span>{day.day === d.today && <span className="text-primary"> · hoje</span>}</p>
                   </div>
                   <p className="text-xs"><span className="font-semibold tabular-nums">{formatCurrency(day.totals.toPay)}</span> a pagar{day.totals.paid > 0 ? ` · ${formatCurrency(day.totals.paid)} pago` : ""}{day.totals.toReceive > 0 ? ` · ${formatCurrency(day.totals.toReceive)} a receber` : ""}</p>
-                  {day.items.map((i) => <Row key={i.id} i={i} canPay={canPay} onPay={pay} onOpen={setPaying} draggable={canManage} />)}
+                  {day.items.map((i) => <Row onAmount={canManage ? (it, amount) => changeAmount.mutate({ id: it.id, amount }) : undefined} key={i.id} i={i} canPay={canPay} onPay={pay} onOpen={setPaying} draggable={canManage} />)}
                   {canManage && (
                     <Input
                       className="h-9 bg-background text-sm"
@@ -211,7 +240,7 @@ function PeopleView({ people, loading, canPay, onPay, onOpen }: { people?: Perso
             </button>
             {open === p.person && (
               <div className="grid gap-2 border-t p-3 sm:grid-cols-2 lg:grid-cols-3">
-                {p.items.map((i) => <div key={i.id} className="space-y-0.5"><p className="text-[11px] text-muted-foreground">{i.type === "RECEITA" ? "desconto · " : ""}vence {ddmm(i.dueDay)}</p><Row i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>)}
+                {p.items.map((i) => <div key={i.id} className="space-y-0.5"><p className="text-[11px] text-muted-foreground">{i.type === "RECEITA" ? "desconto · " : ""}vence {ddmm(i.dueDay)}</p><Row onAmount={canManage ? (it, amount) => changeAmount.mutate({ id: it.id, amount }) : undefined} i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>)}
               </div>
             )}
           </CardContent>
@@ -262,7 +291,7 @@ function ListView({ canPay, onPay, onOpen }: { canPay: boolean; onPay: (i: Item)
             <div key={i.id} className="flex items-center gap-2">
               <input type="checkbox" className="h-4 w-4 shrink-0" checked={sel.has(i.id)} onChange={() => toggle(i.id)} aria-label="Somar esta conta" />
               <span className={cn("w-12 shrink-0 text-xs tabular-nums", i.late && "font-semibold text-destructive")}>{ddmm(i.dueDay)}</span>
-              <div className="min-w-0 flex-1"><Row i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>
+              <div className="min-w-0 flex-1"><Row onAmount={canManage ? (it, amount) => changeAmount.mutate({ id: it.id, amount }) : undefined} i={i} canPay={canPay} onPay={onPay} onOpen={onOpen} /></div>
             </div>
           ))}
         </div>
