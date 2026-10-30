@@ -29,6 +29,7 @@ import { errorMessage, formatCurrency } from "@/lib/utils";
 import type { CommercialLead, Opportunity, PipelineSummary, SalesStage } from "@/types";
 import { ChannelPanel, LeadQuickContact, TemperatureFilter, TemperatureTag, originLabel } from "@/components/crm-parts";
 import { LeadDialog } from "@/components/lead-dialog";
+import { CommissionsPanel } from "@/components/crm-commissions";
 
 const LEAD_STATUS: Record<string, string> = {
   NEW: "Novo", CONTACTED: "Contatado", QUALIFIED: "Qualificado", CONVERTED: "Convertido", LOST: "Perdido",
@@ -193,6 +194,7 @@ export function CommercialPage() {
           <TabsTrigger value="conversao">Conversão</TabsTrigger>
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
           <TabsTrigger value="metas">Metas</TabsTrigger>
+          <TabsTrigger value="comissoes">Comissões</TabsTrigger>
         </TabsList>
 
         {/* ---- Funil (kanban) ---- */}
@@ -398,6 +400,10 @@ export function CommercialPage() {
               </Card>
             </>
           )}
+        </TabsContent>
+
+        <TabsContent value="comissoes" className="space-y-4">
+          <CommissionsPanel />
         </TabsContent>
 
         <TabsContent value="metas">

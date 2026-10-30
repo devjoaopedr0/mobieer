@@ -83,6 +83,7 @@ import partsRoutes from "./modules/parts/parts.routes";
 import timelineRoutes from "./modules/timeline/timeline.routes";
 import goalsRoutes from "./modules/commercial/goals.routes";
 import clientsCentralRoutes from "./modules/commercial/clients-central.routes";
+import commissionsRoutes from "./modules/commercial/commissions.routes";
 import quoteRoutes from "./modules/commercial/quote.routes";
 import referrerRoutes from "./modules/commercial/referrers.routes";
 import remindersRoutes from "./modules/commercial/reminders.routes";
@@ -202,6 +203,7 @@ export function createApp() {
   app.use("/api/templates", templatesRoutes);
   app.use("/api/commercial/goals", goalsRoutes);
   app.use("/api/commercial/clients", clientsCentralRoutes);
+  app.use("/api/commercial/commissions", commissionsRoutes);
   app.use("/api/commercial/reminders", remindersRoutes);
   app.use("/api/commercial/quotes", quoteRoutes);
   app.use("/api/referrers", referrerRoutes);
