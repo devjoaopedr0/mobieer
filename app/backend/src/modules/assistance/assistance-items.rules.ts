@@ -86,3 +86,20 @@ export function assistancesSummary(
     resultado: r2(cobrado - custo),
   };
 }
+
+/**
+ * Checklist pela descrição: cada linha numerada ("1. INSTALAR MESA", "2) …",
+ * "3 - …") ou com marcador ("- …", "• …") vira um serviço. Sem linha assim,
+ * nada — a equipe acrescenta à mão.
+ */
+export function tasksFromDescription(description: string | null | undefined): string[] {
+  return (description ?? "")
+    .split(/\r?\n/)
+    .map((l) => /^\s*(?:\d{1,2}\s*[.)\-–]|[-•*])\s*(.+?)\s*$/.exec(l)?.[1] ?? "")
+    .map((t) => t.replace(/\s+/g, " ").slice(0, 300))
+    .filter((t) => t.length >= 2)
+    .slice(0, 50);
+}
+
+/** Andamento do checklist: feitos de quantos. */
+export const checklistProgress = (tasks: { done: boolean }[]) => ({ done: tasks.filter((t) => t.done).length, total: tasks.length });

@@ -2,7 +2,11 @@
  * Itens da assistência, cobrança no financeiro e ordem de serviço (montado em /api/business).
  *
  *   GET    /assistances/:id/items              itens, totais e a cobrança já lançada
- *   POST   /assistances/:id/items              acrescenta um item
+ *   POST   /assistances/:id/items              acrescenta um item (taskIds: serviços do checklist)
+ *   POST   /assistances/:id/items/batch        várias peças de uma vez, ligadas aos mesmos serviços
+ *   POST   /assistances/:id/tasks              acrescenta um serviço ao checklist
+ *   PATCH  /assistance-tasks/:taskId           marca feito (grava quem e quando) ou muda o texto
+ *   DELETE /assistance-tasks/:taskId           tira do checklist
  *   PATCH  /assistance-items/:itemId           altera
  *   DELETE /assistance-items/:itemId           remove
  *   POST   /assistances/:id/charge             lança (ou atualiza) a conta a receber do que é cobrado
@@ -20,7 +24,7 @@ import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { createExitWithClient } from "../stock/stock.service";
 import { BRAND, PAGE, brandDocument, brandField, brandSection, brandTitle, ensureSpace } from "../../lib/brand-pdf";
-import { ITEM_KINDS, ITEM_KIND_CODES, assistanceCost, chargePlan, costPlan, itemKindLabel, itemTotals, lineTotal } from "./assistance-items.rules";
+import { ITEM_KINDS, ITEM_KIND_CODES, assistanceCost, chargePlan, checklistProgress, costPlan, itemKindLabel, itemTotals, lineTotal, tasksFromDescription } from "./assistance-items.rules";
 import { kindLabel } from "./assistance.rules";
 
 const router = Router();
@@ -31,7 +35,7 @@ export const CATEGORY_ASSISTANCE = "Assistência técnica";
 export const CATEGORY_ASSISTANCE_COST = "Custo de assistência técnica";
 
 const num = (v: unknown) => Number(v ?? 0);
-type ItemRow = { id: string; kind: string; description: string; quantity: unknown; unitPrice: unknown; charged: boolean; position: number; productId?: string | null; stockMovedAt?: Date | null; product?: { id: string; code: string; name: string; stock: number } | null };
+type ItemRow = { id: string; kind: string; description: string; quantity: unknown; unitPrice: unknown; charged: boolean; position: number; productId?: string | null; stockMovedAt?: Date | null; product?: { id: string; code: string; name: string; stock: number } | null; tasks?: { id: string }[] };
 const serializeItem = (i: ItemRow) => {
   const quantity = num(i.quantity);
   const unitPrice = num(i.unitPrice);
@@ -39,6 +43,7 @@ const serializeItem = (i: ItemRow) => {
     id: i.id, kind: i.kind, kindLabel: itemKindLabel(i.kind), description: i.description, quantity, unitPrice, charged: i.charged, total: lineTotal({ quantity, unitPrice }), position: i.position, productId: i.productId ?? null,
     product: i.product ? { id: i.product.id, code: i.product.code, name: i.product.name, stock: i.product.stock } : null,
     stockMovedAt: i.stockMovedAt ?? null,
+    taskIds: (i.tasks ?? []).map((t) => t.id),
   };
 };
 
@@ -49,16 +54,29 @@ async function ticketFor(id: string, organizationId: string) {
       client: { select: { id: true, name: true, phone: true, document: true, street: true, addressNumber: true, complement: true, district: true, city: true, state: true, address: true, condominium: true } },
       project: { select: { id: true, code: true, name: true } },
       assignee: { select: { name: true } },
-      items: { orderBy: [{ position: "asc" }, { createdAt: "asc" }], include: { product: { select: { id: true, code: true, name: true, stock: true } } } },
+      items: { orderBy: [{ position: "asc" }, { createdAt: "asc" }], include: { product: { select: { id: true, code: true, name: true, stock: true } }, tasks: { select: { id: true } } } },
     },
   });
   if (!t) throw new NotFoundError("Assistência não encontrada");
   return t;
 }
 
+/** Checklist da primeira vez: as linhas numeradas da descrição viram os serviços. */
+async function seedChecklist(ticketId: string) {
+  const t = await prisma.assistanceTicket.findUnique({ where: { id: ticketId }, select: { description: true, checklistSeededAt: true, _count: { select: { tasks: true } } } });
+  if (!t || t.checklistSeededAt) return;
+  const texts = t._count.tasks ? [] : tasksFromDescription(t.description);
+  await prisma.$transaction([
+    ...texts.map((text, position) => prisma.assistanceTask.create({ data: { ticketId, text, position } })),
+    prisma.assistanceTicket.update({ where: { id: ticketId }, data: { checklistSeededAt: new Date() } }),
+  ]);
+}
+
 async function view(ticketId: string, organizationId: string) {
+  await seedChecklist((await ticketFor(ticketId, organizationId)).id);
   const t = await ticketFor(ticketId, organizationId);
   const items = t.items.map(serializeItem);
+  const tasks = await prisma.assistanceTask.findMany({ where: { ticketId: t.id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], include: { doneBy: { select: { name: true } }, _count: { select: { items: true } } } });
   const [fin, costFin] = await Promise.all([
     prisma.financeTransaction.findFirst({ where: { organizationId, originAssistanceId: t.id, type: "RECEITA" }, select: { id: true, amount: true, status: true, dueDate: true } }),
     prisma.financeTransaction.findFirst({ where: { organizationId, originAssistanceId: t.id, type: "DESPESA" }, select: { id: true, amount: true, status: true, dueDate: true } }),
@@ -68,6 +86,8 @@ async function view(ticketId: string, organizationId: string) {
     items,
     totals: itemTotals(items),
     cost: assistanceCost(items),
+    tasks: tasks.map((k) => ({ id: k.id, text: k.text, position: k.position, done: k.done, doneAt: k.doneAt, doneBy: k.doneBy?.name ?? null, itemCount: k._count.items })),
+    checklist: checklistProgress(tasks),
     finance: fin ? { id: fin.id, amount: num(fin.amount), status: fin.status, dueDate: fin.dueDate } : null,
     costFinance: costFin ? { id: costFin.id, amount: num(costFin.amount), status: costFin.status, dueDate: costFin.dueDate } : null,
     kinds: ITEM_KINDS,
@@ -81,7 +101,16 @@ const itemInput = z.object({
   unitPrice: z.coerce.number().min(0, "Valor inválido").max(10_000_000).default(0),
   charged: z.boolean().default(false),
   productId: z.string().min(1).nullable().optional(),
+  /** serviços do checklist a que a peça pertence (um ou mais) */
+  taskIds: z.array(z.string().min(1)).max(50).optional(),
 });
+
+/** Os serviços escolhidos precisam ser desta assistência. */
+async function checkTasks(ticketId: string, taskIds: string[] | undefined) {
+  if (!taskIds?.length) return;
+  const n = await prisma.assistanceTask.count({ where: { ticketId, id: { in: taskIds } } });
+  if (n !== new Set(taskIds).size) throw new BadRequestError("Serviço do checklist não é desta assistência");
+}
 
 /** Item ligado a produto sai do estoque em unidades inteiras. */
 async function checkProduct(productId: string | null | undefined, quantity: number | undefined) {
@@ -98,11 +127,76 @@ router.post(
   canEdit,
   asyncHandler(async (req, res) => {
     const t = await ticketFor(req.params.id, req.user!.organizationId);
-    const input = itemInput.parse(req.body);
+    const { taskIds, ...input } = itemInput.parse(req.body);
     await checkProduct(input.productId, input.quantity);
+    await checkTasks(t.id, taskIds);
     // registro interno é custo da loja: nunca é cobrado
-    await prisma.assistanceItem.create({ data: { ticketId: t.id, ...input, charged: t.internal ? false : input.charged, position: t.items.length } });
+    await prisma.assistanceItem.create({ data: { ticketId: t.id, ...input, charged: t.internal ? false : input.charged, position: t.items.length, tasks: taskIds?.length ? { connect: taskIds.map((id) => ({ id })) } : undefined } });
     return ok(res, await view(t.id, req.user!.organizationId), "Item acrescentado");
+  })
+);
+
+// Várias peças escolhidas de uma vez (com caixinha na busca), ligadas aos mesmos serviços.
+router.post(
+  "/assistances/:id/items/batch",
+  canEdit,
+  asyncHandler(async (req, res) => {
+    const t = await ticketFor(req.params.id, req.user!.organizationId);
+    const input = z.object({ items: z.array(itemInput.omit({ taskIds: true })).min(1, "Escolha ao menos uma peça").max(50), taskIds: z.array(z.string().min(1)).max(50).optional() }).parse(req.body);
+    for (const i of input.items) await checkProduct(i.productId, i.quantity);
+    await checkTasks(t.id, input.taskIds);
+    const connect = input.taskIds?.length ? { connect: input.taskIds.map((id) => ({ id })) } : undefined;
+    await prisma.$transaction(input.items.map((i, k) => prisma.assistanceItem.create({ data: { ticketId: t.id, ...i, charged: t.internal ? false : i.charged, position: t.items.length + k, tasks: connect } })));
+    return ok(res, await view(t.id, req.user!.organizationId), `${input.items.length} ${input.items.length > 1 ? "peças acrescentadas" : "peça acrescentada"}`);
+  })
+);
+
+// ---- Checklist dos serviços ----
+// marcar feito: quem atende também marca (a data fica para medir o tempo de cada serviço)
+const canCheck = requireAnyPermission(["organization.tasks.edit.all", "organization.tasks.edit", "activities.complete"]);
+
+async function taskFor(taskId: string, organizationId: string) {
+  const k = await prisma.assistanceTask.findFirst({ where: { id: taskId, ticket: { organizationId } }, select: { id: true, ticketId: true, done: true, text: true } });
+  if (!k) throw new NotFoundError("Serviço não encontrado");
+  return k;
+}
+
+router.post(
+  "/assistances/:id/tasks",
+  canEdit,
+  asyncHandler(async (req, res) => {
+    const t = await ticketFor(req.params.id, req.user!.organizationId);
+    const { text } = z.object({ text: z.string().trim().min(2, "Descreva o serviço").max(300) }).parse(req.body);
+    const last = await prisma.assistanceTask.aggregate({ where: { ticketId: t.id }, _max: { position: true } });
+    await prisma.assistanceTask.create({ data: { ticketId: t.id, text, position: (last._max.position ?? -1) + 1 } });
+    return ok(res, await view(t.id, req.user!.organizationId), "Serviço acrescentado ao checklist");
+  })
+);
+
+router.patch(
+  "/assistance-tasks/:taskId",
+  canCheck,
+  asyncHandler(async (req, res) => {
+    const k = await taskFor(req.params.taskId, req.user!.organizationId);
+    const input = z.object({ done: z.boolean().optional(), text: z.string().trim().min(2).max(300).optional() }).parse(req.body);
+    if (input.text !== undefined && !req.user!.permissions.includes("organization.tasks.edit.all")) throw new BadRequestError("Mudar o texto do serviço é de quem gerencia a assistência");
+    const now = new Date();
+    await prisma.assistanceTask.update({
+      where: { id: k.id },
+      data: { text: input.text, ...(input.done === undefined ? {} : input.done ? { done: true, doneAt: k.done ? undefined : now, doneById: k.done ? undefined : req.user!.id } : { done: false, doneAt: null, doneById: null }) },
+    });
+    if (input.done !== undefined && input.done !== k.done) await prisma.auditLog.create({ data: { userId: req.user!.id, action: input.done ? "ASSISTANCE_TASK_DONE" : "ASSISTANCE_TASK_REOPENED", entity: "AssistanceTicket", entityId: k.ticketId, details: { task: k.text } } });
+    return ok(res, await view(k.ticketId, req.user!.organizationId), input.done === undefined ? "Serviço atualizado" : input.done ? "Serviço concluído" : "Serviço reaberto");
+  })
+);
+
+router.delete(
+  "/assistance-tasks/:taskId",
+  canEdit,
+  asyncHandler(async (req, res) => {
+    const k = await taskFor(req.params.taskId, req.user!.organizationId);
+    await prisma.assistanceTask.delete({ where: { id: k.id } });
+    return ok(res, await view(k.ticketId, req.user!.organizationId), "Serviço tirado do checklist");
   })
 );
 
@@ -117,10 +211,11 @@ router.patch(
   canEdit,
   asyncHandler(async (req, res) => {
     const item = await itemFor(req.params.itemId, req.user!.organizationId);
-    const input = itemInput.partial().parse(req.body);
+    const { taskIds, ...input } = itemInput.partial().parse(req.body);
+    await checkTasks(item.ticket.id, taskIds);
     if (item.stockMovedAt && (input.quantity !== undefined || input.productId !== undefined)) throw new BadRequestError("Este item já saiu do estoque: para mudar produto ou quantidade, faça a devolução no almoxarifado e lance de novo");
     await checkProduct(input.productId ?? item.productId, input.quantity ?? (input.productId ? Number(item.quantity) : undefined));
-    await prisma.assistanceItem.update({ where: { id: item.id }, data: { ...input, charged: item.ticket.internal ? false : input.charged } });
+    await prisma.assistanceItem.update({ where: { id: item.id }, data: { ...input, charged: item.ticket.internal ? false : input.charged, tasks: taskIds ? { set: taskIds.map((id) => ({ id })) } : undefined } });
     return ok(res, await view(item.ticket.id, req.user!.organizationId), "Item atualizado");
   })
 );

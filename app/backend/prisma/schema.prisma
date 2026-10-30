@@ -180,6 +180,7 @@ model User {
   goalProposalsDecided  SalesGoalProposal[] @relation("SalesGoalProposalDecider")
   goalProposalsAdjusted SalesGoalProposal[] @relation("SalesGoalProposalAdjuster")
   requisitionItemsSeparated RequisitionItem[] @relation("RequisitionItemSeparator")
+  assistanceTasksDone AssistanceTask[] @relation("AssistanceTaskDoneBy")
 }
 
 enum EnterpriseStatus {
@@ -1308,6 +1309,9 @@ model AssistanceTicket {
   @@index([clientId])
   @@index([projectId])
   @@index([assigneeId])
+  tasks                   AssistanceTask[]
+  /// o checklist já foi montado pela descrição (não remonta se a equipe apagar os itens)
+  checklistSeededAt       DateTime?
 }
 
 /// Item da assistência: o que foi usado ou feito. Em garantia por padrão; `charged` = cobrado do cliente.
@@ -1326,8 +1330,28 @@ model AssistanceItem {
   product      Product?         @relation("AssistanceItemProduct", fields: [productId], references: [id], onDelete: SetNull)
   stockMovedAt DateTime? // quando saiu do estoque
   createdAt   DateTime         @default(now())
+  /// serviços do checklist a que a peça pertence (pode ser mais de um)
+  tasks       AssistanceTask[] @relation("AssistanceItemTasks")
 
   @@index([ticketId])
+}
+
+/// Checklist da assistência: um serviço por linha (nasce das linhas numeradas da
+/// descrição). Feito guarda quem e quando, para medir o tempo de cada serviço.
+model AssistanceTask {
+  id        String           @id @default(cuid())
+  ticketId  String
+  ticket    AssistanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  position  Int              @default(0)
+  text      String
+  done      Boolean          @default(false)
+  doneAt    DateTime?
+  doneById  String?
+  doneBy    User?            @relation("AssistanceTaskDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  createdAt DateTime         @default(now())
+  items     AssistanceItem[] @relation("AssistanceItemTasks")
+
+  @@index([ticketId, position])
 }
 
 model KanbanBoard {
