@@ -17,7 +17,7 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 
 type Item = { text: string; done: boolean };
-type ProjectRef = { id: string; code: string; name: string; client?: { name: string } | null };
+type ProjectRef = { id: string; code: string; name: string; client: { name: string } | null };
 type Task = { id: string; date: string; person: string; title: string; reference: string | null; project: ProjectRef | null; items: Item[]; done: boolean; missedReason: string | null; missedNote: string | null; movedTo: string | null; moved: boolean };
 type Reason = { code: string; label: string };
 type WeekSummary = { total: number; done: number; missed: number; late: number; open: number; reasons: (Reason & { count: number })[] };
