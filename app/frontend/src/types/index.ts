@@ -11,6 +11,9 @@ export type FinanceTransaction = {
   date: string;
   dueDate: string | null;
   description: string | null;
+  payee?: string | null;
+  /** parcela de um lançamento fixo */
+  recurringId?: string | null;
   status: FinanceStatus;
   paidAt: string | null;
   method: string | null;
@@ -18,6 +21,7 @@ export type FinanceTransaction = {
   project: { id: string; code: string; name: string } | null;
   client: { id: string; name: string } | null;
   supplier: { id: string; name: string } | null;
+  costCenter?: { id: string; code: string; name: string } | null;
   createdBy: { id: string; name: string } | null;
 };
 
