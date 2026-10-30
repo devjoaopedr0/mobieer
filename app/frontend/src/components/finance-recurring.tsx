@@ -167,7 +167,7 @@ function RecurringDialog({ item, onClose, onSaved }: { item: Recurring | null; o
           <div className="space-y-1.5"><Label>Último mês (opcional)</Label><Input type="month" value={f.endMonth} onChange={(e) => set("endMonth", e.target.value)} /></div>
           <div className="col-span-2 space-y-1.5"><Label>Forma de pagamento</Label><Input placeholder="Boleto, débito automático, PIX…" value={f.method} onChange={(e) => set("method", e.target.value)} /></div>
           {item && <label className="col-span-2 flex items-center gap-2"><input type="checkbox" checked={f.active} onChange={(e) => set("active", e.target.checked)} /> Ativo (desativar tira as parcelas futuras não pagas)</label>}
-          {item && <p className="col-span-2 text-xs text-muted-foreground">Mudar valor ou categoria ajusta as parcelas pendentes deste mês em diante; as já pagas não mudam.</p>}
+          {item && <p className="col-span-2 text-xs text-muted-foreground">Mudar valor, categoria, descrição ou dia do vencimento ajusta as parcelas pendentes deste mês em diante; as já pagas não mudam. Para mudar só um mês, altere a parcela na aba Lançamentos.</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>

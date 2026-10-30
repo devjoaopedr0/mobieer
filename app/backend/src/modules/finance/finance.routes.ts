@@ -52,6 +52,7 @@ const serialize = (t: {
   id: string; type: string; category: string; amount: Prisma.Decimal; paidAmount?: Prisma.Decimal | null; date: Date; dueDate: Date | null;
   description: string | null; status: string; paidAt: Date | null; method: string | null; createdAt: Date;
   payee?: string | null;
+  recurringId?: string | null;
   project: { id: string; code: string; name: string } | null;
   client: { id: string; name: string } | null;
   supplier: { id: string; name: string } | null;
@@ -68,6 +69,8 @@ const serialize = (t: {
   dueDate: t.dueDate,
   description: t.description,
   payee: t.payee ?? null,
+  // parcela de um lançamento fixo: editar o lançamento muda só este mês
+  recurringId: t.recurringId ?? null,
   status: t.status,
   paidAt: t.paidAt,
   method: t.method,

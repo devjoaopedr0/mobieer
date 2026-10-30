@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Area, ComposedChart, Bar, BarChart, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowDownCircle, ArrowUpCircle, Calculator, CreditCard as CreditCardIcon, Download, Layers, Loader2, Plus, Target, Trash2, Upload, Wallet } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, Calculator, CreditCard as CreditCardIcon, Download, Layers, Loader2, Pencil, Plus, Target, Trash2, Upload, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { FinanceDocuments } from "@/components/finance-documents";
@@ -146,14 +146,43 @@ export function FinancePage() {
   });
 
   const [dialog, setDialog] = useState(false);
-  const blank = { type: "DESPESA", category: "", amount: "", date: localIsoDate(), dueDate: "", description: "", payee: "", status: "PENDENTE", projectId: "", clientId: "", supplierId: "", costCenterId: "" };
+  const blank = { type: "DESPESA", category: "", amount: "", date: localIsoDate(), dueDate: "", description: "", payee: "", status: "PENDENTE", projectId: "", clientId: "", supplierId: "", costCenterId: "", repeat: false, repeatUntil: "" };
   const [form, setForm] = useState(blank);
+  // lançamento aberto para alteração (null = novo)
+  const [editing, setEditing] = useState<FinanceTransaction | null>(null);
+  // repetir todo mês: vence no dia do vencimento (ou da data) a partir daquele mês
+  const firstDue = form.dueDate || form.date;
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["finance"] });
 
+  const openNew = () => {
+    if (editing) { setEditing(null); setForm(blank); }
+    setDialog(true);
+  };
+  const openEdit = (t: FinanceTransaction) => {
+    setEditing(t);
+    setForm({
+      type: t.type,
+      category: t.category,
+      amount: String(t.amount),
+      date: t.date.slice(0, 10),
+      dueDate: t.dueDate ? t.dueDate.slice(0, 10) : "",
+      description: t.description ?? "",
+      payee: t.payee ?? "",
+      status: t.status,
+      projectId: t.project?.id ?? "",
+      clientId: t.client?.id ?? "",
+      supplierId: t.supplier?.id ?? "",
+      costCenterId: t.costCenter?.id ?? "",
+      repeat: false,
+      repeatUntil: "",
+    });
+    setDialog(true);
+  };
+
   const create = useMutation({
-    mutationFn: () =>
-      apiPost("/finance/transactions", {
+    mutationFn: () => {
+      const body = {
         type: form.type,
         category: form.category,
         amount: Number(form.amount),
@@ -161,19 +190,35 @@ export function FinancePage() {
         dueDate: form.dueDate || null,
         description: form.description || null,
         payee: form.payee.trim() || null,
-        status: form.status,
         projectId: form.projectId || null,
         clientId: form.clientId || null,
         supplierId: form.supplierId || null,
         costCenterId: form.costCenterId || null,
-      }),
-    onSuccess: () => {
-      toast.success("Lançamento registrado");
+      };
+      // pagar/reabrir continua pelos botões da tabela (pagamento parcial, forma de pagamento)
+      if (editing) return apiPatch<{ message?: string }>(`/finance/transactions/${editing.id}`, body);
+      if (form.repeat)
+        return apiPost<{ message?: string }>("/finance/recurring", {
+          type: form.type,
+          description: (form.description.trim() || form.category).slice(0, 200),
+          category: form.category,
+          amount: Number(form.amount),
+          dayOfMonth: Number(firstDue.slice(8, 10)),
+          startMonth: firstDue.slice(0, 7),
+          endMonth: form.repeatUntil || null,
+          supplierId: form.supplierId || null,
+          costCenterId: form.costCenterId || null,
+        });
+      return apiPost<{ message?: string }>("/finance/transactions", { ...body, status: form.status });
+    },
+    onSuccess: (r) => {
+      toast.success(r?.message || "Lançamento registrado");
       setDialog(false);
+      setEditing(null);
       setForm(blank);
       refresh();
     },
-    onError: (e) => toast.error(errorMessage(e, "Falha ao registrar")),
+    onError: (e) => toast.error(errorMessage(e, editing ? "Falha ao salvar a alteração" : "Falha ao registrar")),
   });
 
   const [paying, setPaying] = useState<{ id: string; description: string | null; category: string; amount: number; paidAmount?: number | null; method?: string | null; type: "RECEITA" | "DESPESA" } | null>(null);
@@ -292,7 +337,7 @@ export function FinancePage() {
       <PayDialog tx={paying} onClose={() => setPaying(null)} onDone={refresh} />
       <PageHeader title="Financeiro" description="Receitas, despesas e contas a pagar/receber.">
         {canManage && (
-          <Button size="sm" onClick={() => setDialog(true)}>
+          <Button size="sm" onClick={openNew}>
             <Plus className="mr-2 h-4 w-4" /> Novo lançamento
           </Button>
         )}
@@ -560,6 +605,7 @@ export function FinancePage() {
                       </TableCell>
                       <TableCell className="max-w-[240px]">
                         <p className="truncate text-sm">{t.description || "—"}</p>
+                        {t.recurringId && <span className="text-xs text-muted-foreground">parcela de lançamento fixo</span>}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{t.category}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
@@ -580,6 +626,11 @@ export function FinancePage() {
                         {canManage && t.status === "PAGO" && (
                           <Button size="sm" variant="ghost" disabled={setStatus.isPending} onClick={() => setStatus.mutate({ id: t.id, status: "PENDENTE" })}>
                             Reabrir
+                          </Button>
+                        )}
+                        {canManage && (
+                          <Button size="sm" variant="ghost" aria-label="Alterar lançamento" title="Alterar" onClick={() => openEdit(t)}>
+                            <Pencil className="h-4 w-4" />
                           </Button>
                         )}
                         {canManage && (
@@ -1080,8 +1131,13 @@ export function FinancePage() {
       <Dialog open={dialog} onOpenChange={setDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Novo lançamento</DialogTitle>
+            <DialogTitle>{editing ? "Alterar lançamento" : "Novo lançamento"}</DialogTitle>
           </DialogHeader>
+          {editing?.recurringId && (
+            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Esta é uma parcela de um lançamento fixo: a alteração vale só para este mês. Para mudar todos os meses, edite o lançamento na aba Fixos.
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Tipo">
               <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v, category: "" })}>
@@ -1122,26 +1178,58 @@ export function FinancePage() {
             <Field label="Valor (R$)">
               <Input type="number" step="0.01" min="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
             </Field>
-            <Field label="Status">
-              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PENDENTE">Pendente</SelectItem>
-                  <SelectItem value="PAGO">Pago</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Data (competência)">
+            {editing ? (
+              <Field label="Status">
+                <p className="pt-2 text-sm text-muted-foreground">{form.status === "PAGO" ? "Pago — use Reabrir na lista" : "Pendente — use Marcar pago na lista"}</p>
+              </Field>
+            ) : form.repeat ? (
+              <div />
+            ) : (
+              <Field label="Status">
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PENDENTE">Pendente</SelectItem>
+                    <SelectItem value="PAGO">Pago</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+            <Field label={form.repeat ? "Data do primeiro mês" : "Data (competência)"}>
               <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
             </Field>
-            <Field label="Vencimento (opcional)">
+            <Field label={form.repeat ? "Primeiro vencimento (opcional)" : "Vencimento (opcional)"}>
               <Input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
             </Field>
-            <Field label="Projeto (opcional)">
-              <Picker value={form.projectId} onChange={(v) => setForm({ ...form, projectId: v })} items={projects.data?.data ?? []} />
-            </Field>
+            {!editing && (
+              <div className="space-y-2 rounded-md border border-border p-3 sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" checked={form.repeat} onChange={(e) => setForm({ ...form, repeat: e.target.checked, status: "PENDENTE" })} />
+                  Repetir todo mês (lançamento fixo)
+                </label>
+                {form.repeat && (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Até o mês (opcional)">
+                        <Input type="month" min={firstDue.slice(0, 7)} value={form.repeatUntil} onChange={(e) => setForm({ ...form, repeatUntil: e.target.value })} />
+                      </Field>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Vence todo dia {Number(firstDue.slice(8, 10)) || "—"}, a partir de {firstDue ? firstDue.slice(0, 7).split("-").reverse().join("/") : "—"}
+                      {form.repeatUntil ? ` até ${form.repeatUntil.split("-").reverse().join("/")}` : ", sem data para acabar"}. Em meses mais curtos, cai no último dia. O sistema mantém
+                      o mês atual e os 2 próximos lançados; para mudar o valor ou o dia de todos os meses, ou encerrar, use a aba Fixos.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+            {!form.repeat && (
+              <Field label="Projeto (opcional)">
+                <Picker value={form.projectId} onChange={(v) => setForm({ ...form, projectId: v })} items={projects.data?.data ?? []} />
+              </Field>
+            )}
             <Field label="Centro de custo (opcional)">
               <Picker
                 value={form.costCenterId}
@@ -1150,17 +1238,21 @@ export function FinancePage() {
               />
             </Field>
             {form.type === "RECEITA" ? (
-              <Field label="Cliente (opcional)">
-                <Picker value={form.clientId} onChange={(v) => setForm({ ...form, clientId: v })} items={clients.data?.data ?? []} />
-              </Field>
+              !form.repeat && (
+                <Field label="Cliente (opcional)">
+                  <Picker value={form.clientId} onChange={(v) => setForm({ ...form, clientId: v })} items={clients.data?.data ?? []} />
+                </Field>
+              )
             ) : (
               <Field label="Fornecedor (opcional)">
                 <Picker value={form.supplierId} onChange={(v) => setForm({ ...form, supplierId: v })} items={suppliers.data?.data ?? []} />
               </Field>
             )}
-            <Field label={form.type === "RECEITA" ? "Quem paga (pessoa)" : "Quem recebe (pessoa)"} className="sm:col-span-2">
-              <Input value={form.payee} placeholder="Ex.: Kelson — aparece no planner e nas pendências por pessoa" onChange={(e) => setForm({ ...form, payee: e.target.value })} />
-            </Field>
+            {!form.repeat && (
+              <Field label={form.type === "RECEITA" ? "Quem paga (pessoa)" : "Quem recebe (pessoa)"} className="sm:col-span-2">
+                <Input value={form.payee} placeholder="Ex.: Kelson — aparece no planner e nas pendências por pessoa" onChange={(e) => setForm({ ...form, payee: e.target.value })} />
+              </Field>
+            )}
             <Field label="Descrição" className="sm:col-span-2">
               <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </Field>
@@ -1170,11 +1262,11 @@ export function FinancePage() {
               Cancelar
             </Button>
             <Button
-              disabled={create.isPending || !form.category || !(Number(form.amount) > 0) || !form.date}
+              disabled={create.isPending || !form.category || !(Number(form.amount) > 0) || !form.date || (form.repeat && !!form.repeatUntil && form.repeatUntil < firstDue.slice(0, 7))}
               onClick={() => create.mutate()}
             >
               {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Registrar
+              {editing ? "Salvar alteração" : form.repeat ? "Criar lançamento fixo" : "Registrar"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -12,7 +12,7 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
 import { notifyUser, notifyUsersWithPermission } from "../../lib/notify";
-import { monthKey, monthsToGenerate } from "./recurring.rules";
+import { dueDayOf, monthKey, monthsToGenerate } from "./recurring.rules";
 
 const router = Router();
 router.use(authenticate);
@@ -120,7 +120,8 @@ router.post(
   })
 );
 
-// PUT /recurring/:id — muda o modelo; parcelas pendentes futuras acompanham o valor/categoria novos
+// PUT /recurring/:id — muda o modelo; parcelas pendentes deste mês em diante
+// acompanham valor, categoria, descrição e dia de vencimento novos
 router.put(
   "/recurring/:id",
   requirePermission("finance.manage"),
@@ -129,24 +130,39 @@ router.put(
     if (!cur) throw new NotFoundError("Lançamento fixo não encontrado");
     const input = recurringSchema.parse(req.body);
     await checkRecurringRefs(req.user!.organizationId, input);
+    if (input.endMonth && input.endMonth < input.startMonth) throw new BadRequestError("O fim vem antes do início");
     const today = monthKey(new Date());
-    const [t, updated] = await prisma.$transaction([
+    const open = { recurringId: cur.id, status: "PENDENTE" as const, paidAmount: 0, recurringMonth: { gte: today } };
+    const pending = await prisma.financeTransaction.findMany({ where: open, select: { id: true, recurringMonth: true } });
+    const [t] = await prisma.$transaction([
       prisma.financeRecurring.update({ where: { id: cur.id }, data: { ...input, endMonth: input.endMonth || null, amount: D(input.amount) } }),
-      prisma.financeTransaction.updateMany({
-        where: { recurringId: cur.id, status: "PENDENTE", paidAmount: 0, recurringMonth: { gte: today } },
-        data: { amount: D(input.amount), category: input.category, method: input.method ?? null, supplierId: input.supplierId ?? null, costCenterId: input.costCenterId ?? null },
+      ...pending.map((p) => {
+        const due = new Date(`${dueDayOf(p.recurringMonth!, input.dayOfMonth)}T00:00:00.000Z`);
+        return prisma.financeTransaction.update({
+          where: { id: p.id },
+          data: {
+            amount: D(input.amount),
+            category: input.category,
+            description: `${input.description} (${p.recurringMonth!.split("-").reverse().join("/")})`,
+            date: due,
+            dueDate: due,
+            method: input.method ?? null,
+            supplierId: input.supplierId ?? null,
+            costCenterId: input.costCenterId ?? null,
+          },
+        });
       }),
     ]);
-    // desativado ou com fim antes: as parcelas futuras não pagas saem
+    // desativado, ou meses que ficaram fora do novo período: as parcelas não pagas saem
     const removed = await prisma.financeTransaction.deleteMany({
       where: {
-        recurringId: cur.id,
-        status: "PENDENTE",
-        paidAmount: 0,
-        recurringMonth: { gte: today },
-        ...(input.active === false ? {} : input.endMonth ? { recurringMonth: { gt: input.endMonth } } : { id: "__nenhum__" }),
+        ...open,
+        ...(input.active === false
+          ? {}
+          : { OR: [{ recurringMonth: { lt: input.startMonth } }, ...(input.endMonth ? [{ recurringMonth: { gt: input.endMonth } }] : [])] }),
       },
     });
+    const updated = { count: pending.length - removed.count };
     const created = input.active === false ? 0 : await generateRecurring(cur.id, today, 3, req.user!.id);
     return ok(res, t, `Atualizado — ${updated.count} parcela(s) pendente(s) ajustada(s)${removed.count ? `, ${removed.count} removida(s)` : ""}${created ? `, ${created} nova(s)` : ""}`);
   })
