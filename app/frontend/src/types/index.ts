@@ -576,6 +576,9 @@ export type Requisition = {
     receivedQuantity?: number | null;
     receivedAt?: string | null;
     receivedBy?: { id: string; name: string } | null;
+    separatedQuantity?: number | null;
+    separatedAt?: string | null;
+    separatedBy?: { id: string; name: string } | null;
     photos?: { id: string; kind: RequisitionPhotoKind; createdAt: string; ocrConfirmedAt: string | null }[];
     status: RequisitionItemStatus;
     reservedQuantity: number;

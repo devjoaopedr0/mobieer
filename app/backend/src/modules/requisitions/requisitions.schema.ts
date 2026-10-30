@@ -52,6 +52,7 @@ export const updateItemStatusSchema = z.object({ status: z.nativeEnum(Requisitio
 export const itemRoomSchema = z.object({ room: z.string().trim().min(1, "Informe o ambiente").max(120), note: nullableText(500) });
 export const itemMissingSchema = z.object({ missingQuantity: z.coerce.number().int().positive("Informe quantas faltaram"), note: nullableText(500) });
 export const itemCancelSchema = z.object({ note: z.string().trim().min(3, "Diga por que a peça foi cancelada").max(500) });
+export const itemSeparateSchema = z.object({ separatedQuantity: z.coerce.number().int().min(0), note: nullableText(500) });
 export const itemReceiveSchema = z.object({ receivedQuantity: z.coerce.number().int().min(0), note: nullableText(500) });
 export const inspectionSchema = z.object({ result: z.nativeEnum(InspectionResult), note: nullableText(2000) });
 export const reservationSchema = z.object({ items: z.array(z.object({ requisitionItemId: z.string().min(1), quantity: z.number().int().positive() })).min(1) });
