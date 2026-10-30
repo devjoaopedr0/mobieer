@@ -289,7 +289,7 @@ export function CommercialPage() {
                     </p>
                     {(l.convertedClient || (l.opportunities?.length ?? 0) > 0) && (
                       <p className="truncate text-xs">
-                        {l.convertedClient && <>Cliente: <span className="font-medium">{l.convertedClient.name}</span></>}
+                        {l.convertedClient && <>Cliente: <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => navigate(`/clientes/${l.convertedClient!.id}`)}>{l.convertedClient.name}</button></>}
                         {l.opportunities?.map((o) => <span key={o.id}> · Oportunidade: <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => setParams({ aba: "funil" }, { replace: true })}>{o.title}</button></span>)}
                       </p>
                     )}

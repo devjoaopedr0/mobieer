@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Contact,
   AlertTriangle,
   ArrowDownToLine,
   ArrowLeftRight,
@@ -98,6 +99,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Comercial",
     items: [
       { label: "Comercial", to: "/comercial", icon: Target, permission: "commercial.read" },
+      { label: "Central de clientes", to: "/clientes", icon: Contact, permission: "commercial.read" },
       { label: "Medições", to: "/medicoes", icon: Ruler, permission: "organization.read" },
     ],
   },

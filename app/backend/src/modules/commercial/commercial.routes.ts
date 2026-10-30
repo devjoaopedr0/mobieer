@@ -12,6 +12,7 @@ import { enumQuery } from "../../utils/query";
 import { isValidCpf, onlyDigits } from "../../utils/document";
 import { sendAutomation } from "../../lib/automations";
 import { closeRate, closedWhere, defaultMonth, lostWhere } from "./closed.rules";
+import { crmClientScope } from "./clients-central.rules";
 import { channelPanel, leadStatusProblem, leadTemperature, normalizeOrigin, opportunityScore, opportunityTemperature, ORIGIN_LABEL, ORIGINS, type Origin, type Temperature } from "./crm.rules";
 
 const router = Router();
@@ -125,10 +126,9 @@ const leadSchema = z.object({
 
 /** Cliente ligado ao lead: da organização e dentro da carteira de quem cadastra. */
 async function ensureLeadClient(clientId: string, req: { user?: { id: string; organizationId: string; permissions: string[] } }) {
-  const c = await prisma.client.findFirst({ where: { id: clientId, organizationId: req.user!.organizationId }, select: { id: true, sellerId: true } });
-  if (!c) throw new NotFoundError("Cliente não encontrado");
-  const seeAll = req.user!.permissions.includes("commercial.read.all") || req.user!.permissions.includes("clients.read.all");
-  if (!seeAll && c.sellerId && c.sellerId !== req.user!.id) throw new BadRequestError("Este cliente é da carteira de outro vendedor");
+  // a mesma carteira da central de clientes: vendedor ou atendente do cliente
+  const c = await prisma.client.findFirst({ where: { AND: [crmClientScope(req.user!), { id: clientId }] }, select: { id: true } });
+  if (!c) throw new NotFoundError("Cliente não encontrado na sua carteira");
   return c;
 }
 
