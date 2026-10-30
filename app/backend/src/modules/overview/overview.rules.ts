@@ -40,21 +40,39 @@ export function contractTotals(contracts: SignedContract[], taxPct: number) {
   const margin = r2(net - cost - commissions - freightOther - taxes);
   // pontuação média: o mark-up efetivo de todos juntos, como no orçamento
   const score = cost > 0 ? Math.round(((net - commissions - freightOther) / cost) * 100) / 100 : null;
-  return { count: contracts.length, totalSold, financing, net, cost, commissions, freightOther, taxes, margin, marginPct: net > 0 ? r2((margin / net) * 100) : null, score };
+  const count = contracts.length;
+  return {
+    count, totalSold, financing, net, cost, commissions, freightOther, taxes, margin,
+    marginPct: net > 0 ? r2((margin / net) * 100) : null,
+    score,
+    // por contrato: o "preço" e a "margem por venda" de um contrato médio
+    avgTicket: count > 0 ? r2(net / count) : null,
+    avgMargin: count > 0 ? r2(margin / count) : null,
+  };
 }
 
 /**
  * Ponto de equilíbrio e meta de lucro: venda necessária = (custos fixos [+ lucro])
  * ÷ margem de contribuição em %. Resultado = margem − custos fixos.
+ * Em contratos: venda necessária ÷ ticket médio, arredondado para cima.
  */
-export function breakEven(totals: ReturnType<typeof contractTotals>, input: BreakEvenInput, marginPct: number | null = totals.marginPct) {
-  // mês sem contrato ainda: a margem vem de fora (a dos últimos meses)
+export function breakEven(
+  totals: ReturnType<typeof contractTotals>,
+  input: BreakEvenInput,
+  marginPct: number | null = totals.marginPct,
+  ticket: number | null = totals.avgTicket
+) {
+  // mês sem contrato ainda: a margem e o ticket vêm de fora (os dos últimos meses)
   const mcr = marginPct && marginPct > 0 ? marginPct / 100 : null;
   const need = (amount: number) => (mcr ? r2(amount / mcr) : null);
   const breakEvenSales = need(input.fixedCost);
   const goalSales = need(input.fixedCost + input.profitGoal);
   const pct = (target: number | null) => (target && target > 0 ? r2((totals.net / target) * 100) : null);
   const result = r2(totals.margin - input.fixedCost);
+  // sem custo fixo não há contrato a fechar; o r2 evita 3,0000001 virar 4
+  const contracts = (sales: number | null) => (sales === null || !ticket || ticket <= 0 ? null : Math.ceil(r2(sales / ticket)));
+  const breakEvenContracts = contracts(breakEvenSales);
+  const goalContracts = contracts(goalSales);
   return {
     breakEvenSales,
     breakEvenProgress: pct(breakEvenSales),
@@ -64,6 +82,12 @@ export function breakEven(totals: ReturnType<typeof contractTotals>, input: Brea
     goalMissing: goalSales === null ? null : r2(Math.max(0, goalSales - totals.net)),
     result,
     coveragePct: input.fixedCost > 0 ? r2((totals.margin / input.fixedCost) * 100) : null,
+    ticket: ticket && ticket > 0 ? ticket : null,
+    marginPerContract: ticket && ticket > 0 && mcr ? r2(ticket * mcr) : null,
+    breakEvenContracts,
+    breakEvenContractsMissing: breakEvenContracts === null ? null : Math.max(0, breakEvenContracts - totals.count),
+    goalContracts,
+    goalContractsMissing: goalContracts === null ? null : Math.max(0, goalContracts - totals.count),
   };
 }
 

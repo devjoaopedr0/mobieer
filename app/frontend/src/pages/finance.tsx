@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Area, ComposedChart, Bar, BarChart, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowDownCircle, ArrowUpCircle, Calculator, CreditCard as CreditCardIcon, Download, Layers, Loader2, Pencil, Plus, Target, Trash2, Upload, Wallet } from "lucide-react";
 import { toast } from "sonner";
@@ -25,7 +26,7 @@ import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPostForm, apiPut 
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage, formatCurrency, localIsoDate } from "@/lib/utils";
 import { FinanceInvestments, useCustomCategories } from "@/components/finance-investments";
-import type { BreakEven, CardAnalysis, CardStatementDetail, CashflowPoint, CostCenter, CreditCard, Dre, FinanceSummary, FinanceTransaction, InstallmentGroup, RegimeTributario, TaxApuracao, TaxCompany, TaxRule } from "@/types";
+import type { CardAnalysis, CardStatementDetail, CashflowPoint, CostCenter, CreditCard, Dre, FinanceSummary, FinanceTransaction, InstallmentGroup, RegimeTributario, TaxApuracao, TaxCompany, TaxRule } from "@/types";
 
 const REGIME_LABEL: Record<RegimeTributario, string> = {
   SIMPLES_NACIONAL: "Simples Nacional",
@@ -47,6 +48,16 @@ const monthLabel = (m: string) => {
 };
 
 type Picklist = { id: string; name: string }[];
+/** O que o resumo usa de /overview/break-even (a página completa tem o resto). */
+type BreakEvenSummary = {
+  input: { fixedCost: number };
+  totals: { count: number };
+  analysis: {
+    breakEvenSales: number | null; breakEvenProgress: number | null; breakEvenMissing: number | null;
+    marginPct: number | null; marginSource: "MES" | "ULTIMOS_3_MESES" | null;
+    ticket: number | null; breakEvenContracts: number | null; breakEvenContractsMissing: number | null;
+  };
+};
 
 export function FinancePage() {
   const qc = useQueryClient();
@@ -104,7 +115,8 @@ export function FinancePage() {
   });
   const company = useQuery({ queryKey: ["finance", "tax", "company"], queryFn: () => apiGet<{ data: TaxCompany }>("/finance/tax/company") });
   const rules = useQuery({ queryKey: ["finance", "tax", "rules"], queryFn: () => apiGet<{ data: TaxRule[] }>("/finance/tax/rules") });
-  const breakEven = useQuery({ queryKey: ["finance", "break-even"], queryFn: () => apiGet<{ data: BreakEven }>("/finance/break-even") });
+  // mesmo cálculo da página Ponto de equilíbrio (margem real dos contratos do mês)
+  const breakEven = useQuery({ queryKey: ["overview", "break-even", "resumo"], queryFn: () => apiGet<{ data: BreakEvenSummary }>("/overview/break-even") });
   const cards = useQuery({ queryKey: ["finance", "cards"], queryFn: () => apiGet<{ data: CreditCard[] }>("/finance/cards") });
   const cardAnalysis = useQuery({ queryKey: ["finance", "cards", "analysis"], queryFn: () => apiGet<{ data: CardAnalysis }>("/finance/cards/analysis") });
   const installments = useQuery({ queryKey: ["finance", "installments"], queryFn: () => apiGet<{ data: InstallmentGroup[] }>("/finance/installments") });
@@ -237,14 +249,7 @@ export function FinancePage() {
   });
 
   // ---- Ponto de equilíbrio ----
-  const [beForm, setBeForm] = useState<{ fixedCostMonthly: string; contributionMarginPct: string } | null>(null);
   const be = breakEven.data?.data;
-  const beEdit = beForm ?? (be ? { fixedCostMonthly: String(be.fixedCostMonthly), contributionMarginPct: String(be.contributionMarginPct) } : { fixedCostMonthly: "", contributionMarginPct: "" });
-  const saveBreakEven = useMutation({
-    mutationFn: () => apiPatch("/finance/break-even", { fixedCostMonthly: Number(beEdit.fixedCostMonthly || 0), contributionMarginPct: Number(beEdit.contributionMarginPct || 0) }),
-    onSuccess: () => { toast.success("Ponto de equilíbrio atualizado"); setBeForm(null); qc.invalidateQueries({ queryKey: ["finance", "break-even"] }); },
-    onError: (e) => toast.error(errorMessage(e, "Falha ao salvar")),
-  });
 
   // ---- Compra parcelada ----
   const [instDialog, setInstDialog] = useState(false);
@@ -454,38 +459,36 @@ export function FinancePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base"><Target className="h-4 w-4" /> Ponto de equilíbrio</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Custo fixo mensal (R$)">
-                  <Input type="number" min="0" disabled={!canManage} value={beEdit.fixedCostMonthly}
-                    onChange={(e) => setBeForm({ ...beEdit, fixedCostMonthly: e.target.value })} />
-                </Field>
-                <Field label="Margem de contribuição (%)">
-                  <Input type="number" min="0" max="100" disabled={!canManage} value={beEdit.contributionMarginPct}
-                    onChange={(e) => setBeForm({ ...beEdit, contributionMarginPct: e.target.value })} />
-                </Field>
-              </div>
-              {canManage && (
-                <Button size="sm" disabled={!beForm || saveBreakEven.isPending} onClick={() => saveBreakEven.mutate()}>
-                  {saveBreakEven.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Salvar parâmetros
-                </Button>
-              )}
-              {be && (
-                <div className="space-y-2 rounded-lg border border-border p-3 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Faturamento de equilíbrio</span><span className="font-semibold tabular-nums">{be.breakEvenRevenue > 0 ? formatCurrency(be.breakEvenRevenue) : "— defina a margem"}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Receita realizada no mês</span><span className="tabular-nums">{formatCurrency(be.currentMonthRevenue)}</span></div>
-                  <div className="flex justify-between border-t border-border pt-2 font-medium">
-                    <span>{be.reached ? "Acima do equilíbrio" : "Falta para o equilíbrio"}</span>
-                    <span className={`tabular-nums ${be.reached ? "text-success" : "text-destructive"}`}>{be.reached ? `+${formatCurrency(-be.gap)}` : formatCurrency(be.gap)}</span>
-                  </div>
-                  {be.breakEvenRevenue > 0 && (
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                      <div className={`h-full ${be.reached ? "bg-success" : "bg-warning"}`} style={{ width: `${Math.min(100, Math.round((be.currentMonthRevenue / be.breakEvenRevenue) * 100))}%` }} />
-                    </div>
+            <CardContent className="space-y-3 text-sm">
+              {!be ? (
+                <div className="h-24 animate-pulse rounded-lg bg-muted" />
+              ) : be.analysis.breakEvenSales === null ? (
+                <p className="text-muted-foreground">Preencha os custos fixos e feche pelo menos um contrato (no mês ou nos 3 anteriores) para calcular.</p>
+              ) : (
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Custos fixos do mês</span><span className="tabular-nums">{formatCurrency(be.input.fixedCost)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Margem de contribuição{be.analysis.marginSource === "ULTIMOS_3_MESES" ? " (3 meses anteriores)" : ""}</span><span className="tabular-nums">{be.analysis.marginPct?.toLocaleString("pt-BR")}%</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Venda necessária para empatar</span><span className="font-semibold tabular-nums">{formatCurrency(be.analysis.breakEvenSales)}</span></div>
+                  {be.analysis.breakEvenContracts !== null && (
+                    <div className="flex justify-between"><span className="text-muted-foreground">Em contratos (ticket médio {formatCurrency(be.analysis.ticket ?? 0)})</span><span className="font-semibold tabular-nums">{be.analysis.breakEvenContracts} · {be.totals.count} fechado(s)</span></div>
                   )}
+                  <div className="flex justify-between border-t border-border pt-2 font-medium">
+                    <span>{(be.analysis.breakEvenMissing ?? 0) > 0 ? "Falta para o equilíbrio" : "Equilíbrio atingido"}</span>
+                    <span className={`tabular-nums ${(be.analysis.breakEvenMissing ?? 0) > 0 ? "text-destructive" : "text-success"}`}>
+                      {(be.analysis.breakEvenMissing ?? 0) > 0
+                        ? `${formatCurrency(be.analysis.breakEvenMissing ?? 0)}${be.analysis.breakEvenContractsMissing ? ` · ${be.analysis.breakEvenContractsMissing} contrato(s)` : ""}`
+                        : "✓"}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div className={`h-full ${(be.analysis.breakEvenProgress ?? 0) >= 100 ? "bg-success" : "bg-warning"}`} style={{ width: `${Math.min(100, be.analysis.breakEvenProgress ?? 0)}%` }} />
+                  </div>
                 </div>
               )}
-              <p className="text-xs text-muted-foreground">Faturamento de equilíbrio = custo fixo ÷ margem de contribuição. Considera as receitas pagas do mês atual.</p>
+              <p className="text-xs text-muted-foreground">
+                Venda necessária = custos fixos ÷ margem de contribuição dos contratos aceitos; em contratos = venda necessária ÷ ticket médio.{" "}
+                <Link to="/financeiro/ponto-de-equilibrio" className="text-primary hover:underline">Ver a conta completa e ajustar custos fixos</Link>
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

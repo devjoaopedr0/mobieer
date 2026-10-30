@@ -175,15 +175,17 @@ router.get(
     const to = fortalezaMonthStart(q.year, q.month);
     const contracts = await signedContracts(orgId, from, to);
     const totals = contractTotals(contracts, input.taxPct);
-    // sem contrato no mês, a margem de referência é a dos 3 meses anteriores
+    // sem contrato no mês, a margem e o ticket médio de referência são os dos 3 meses anteriores
     let marginPct = totals.marginPct;
+    let ticket = totals.avgTicket;
     let marginSource: "MES" | "ULTIMOS_3_MESES" | null = marginPct !== null ? "MES" : null;
-    if (marginPct === null) {
+    if (marginPct === null || ticket === null) {
       const before = contractTotals(await signedContracts(orgId, fortalezaMonthStart(q.year, q.month - 4), from), input.taxPct);
-      if (before.marginPct !== null) {
+      if (marginPct === null && before.marginPct !== null) {
         marginPct = before.marginPct;
         marginSource = "ULTIMOS_3_MESES";
       }
+      ticket ??= before.avgTicket;
     }
     return ok(res, {
       year: q.year,
@@ -191,7 +193,7 @@ router.get(
       config: cfg,
       input,
       totals,
-      analysis: { ...breakEven(totals, input, marginPct), marginPct, marginSource },
+      analysis: { ...breakEven(totals, input, marginPct, ticket), marginPct, marginSource },
       daily: dailyAccumulated(contracts, q.year, q.month),
       contracts: contracts.sort((a, b) => a.day.localeCompare(b.day)).map((c) => ({ id: c.id, number: c.number, client: c.client, day: c.day, total: c.total, net: c.netRevenue })),
     });
