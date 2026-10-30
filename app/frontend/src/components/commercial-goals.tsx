@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { apiGet, apiPut } from "@/services/api";
+import { apiGet, apiPost, apiPut } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -123,6 +123,7 @@ export function CommercialGoals() {
       </Card>
 
       {manage && <GoalSuggestion month={month} />}
+      <AdaptiveGoals month={month} />
 
       {q.isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
@@ -357,5 +358,81 @@ function Metrica({ rotulo, valor, dica }: { rotulo: string; valor: string; dica?
       <p className="text-lg font-semibold tabular-nums">{valor}</p>
       {dica && <p className="text-[11px] text-muted-foreground">{dica}</p>}
     </div>
+  );
+}
+
+type Proposal = { id: string; month: string; status: "PENDENTE" | "APROVADA" | "AJUSTADA" | "RECUSADA"; proposedAmount: number; approvedAmount: number | null; decidedBy: string | null; decidedAt: string | null; adjustedAmount: number | null; adjustedBy: string | null; adjustedAt: string | null };
+type Adaptive = {
+  month: string;
+  canDecide: boolean;
+  sellers: { userId: string; name: string; proposal: { active: boolean; months: number; amount?: number }; explanation: string; stored: Proposal | null; history: Proposal[] }[];
+};
+const PROPOSAL_STATUS: Record<Proposal["status"], string> = { PENDENTE: "aguardando aprovação", APROVADA: "aprovada", AJUSTADA: "aprovada com ajuste", RECUSADA: "recusada" };
+const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "");
+
+/**
+ * Meta adaptativa: com 3 meses de histórico (venda fechada e lead), o sistema
+ * propõe a meta do vendedor e mostra a conta. Só vale depois que a gestão aprova.
+ */
+export function AdaptiveGoals({ month }: { month: string }) {
+  const qc = useQueryClient();
+  const [custom, setCustom] = useState<Record<string, string>>({});
+  const q = useQuery({ queryKey: ["goals", "adaptive", month], queryFn: () => apiGet<{ data: Adaptive }>("/commercial/goals/adaptive", { month }) });
+  const done = (r: { message?: string }) => {
+    if (r.message) toast.success(r.message);
+    qc.invalidateQueries({ queryKey: ["goals"] });
+  };
+  const fail = (e: unknown) => toast.error(errorMessage(e, "Não foi possível concluir"));
+  const propose = useMutation({ mutationFn: (userId: string) => apiPost<{ message?: string }>("/commercial/goals/adaptive", { month, userId }), onSuccess: done, onError: fail });
+  const decide = useMutation({ mutationFn: (v: { id: string; action: "approve" | "reject"; amount?: number }) => apiPost<{ message?: string }>(`/commercial/goals/adaptive/${v.id}/decide`, v), onSuccess: done, onError: fail });
+  const d = q.data?.data;
+  if (!d || !d.sellers.length) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base"><Lightbulb className="h-4 w-4" /> Meta adaptativa</CardTitle>
+        <p className="text-xs text-muted-foreground">Com pelo menos 3 meses de vendas fechadas e leads, o sistema propõe a meta do vendedor pelo fluxo dele: leads, conversão, ticket médio e sazonalidade. A proposta só vale depois de aprovada; sem histórico, a meta segue manual.</p>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {d.sellers.map((s) => {
+          const st = s.stored;
+          return (
+            <div key={s.userId} className="space-y-1.5 rounded-md border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{s.name}</span>
+                {s.proposal.active ? <Badge variant="secondary">proposta: {brl(s.proposal.amount ?? 0)}</Badge> : <Badge variant="secondary">meta manual · {s.proposal.months}/3 meses de histórico</Badge>}
+                {st && <Badge variant={st.status === "RECUSADA" ? "danger" : st.status === "PENDENTE" ? "warning" : "success"}>{PROPOSAL_STATUS[st.status]}</Badge>}
+              </div>
+              <p className="text-xs text-muted-foreground">{s.explanation}</p>
+              {st && st.status !== "PENDENTE" && (
+                <p className="text-xs">
+                  {st.status === "RECUSADA" ? "Recusada" : `Aprovada: ${brl(st.approvedAmount)} (proposta ${brl(st.proposedAmount)})`} por {st.decidedBy ?? "—"} em {when(st.decidedAt)}
+                  {st.adjustedAmount != null && ` · ajustada depois para ${brl(st.adjustedAmount)} por ${st.adjustedBy ?? "—"} em ${when(st.adjustedAt)}`}
+                </p>
+              )}
+              {d.canDecide && s.proposal.active && (!st || st.status === "PENDENTE" || st.status === "RECUSADA") && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(!st || st.status === "RECUSADA" || st.proposedAmount !== s.proposal.amount) && (
+                    <Button size="sm" variant="outline" className="h-8" disabled={propose.isPending} onClick={() => propose.mutate(s.userId)}>{st?.status === "PENDENTE" ? "Atualizar a proposta" : "Enviar para aprovação"}</Button>
+                  )}
+                  {st?.status === "PENDENTE" && (
+                    <>
+                      <Button size="sm" className="h-8" disabled={decide.isPending} onClick={() => decide.mutate({ id: st.id, action: "approve" })}>Aprovar {brl(st.proposedAmount)}</Button>
+                      <Input className="h-8 w-32" inputMode="decimal" placeholder="Outro valor" value={custom[s.userId] ?? ""} onChange={(e) => setCustom((c) => ({ ...c, [s.userId]: e.target.value }))} />
+                      {custom[s.userId] && <Button size="sm" variant="outline" className="h-8" disabled={decide.isPending} onClick={() => decide.mutate({ id: st.id, action: "approve", amount: Number(custom[s.userId].replace(/\./g, "").replace(",", ".")) })}>Aprovar com ajuste</Button>}
+                      <Button size="sm" variant="ghost" className="h-8 text-destructive" disabled={decide.isPending} onClick={() => decide.mutate({ id: st.id, action: "reject" })}>Recusar</Button>
+                    </>
+                  )}
+                </div>
+              )}
+              {s.history.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">Histórico: {s.history.map((h) => `${h.month.split("-").reverse().join("/")} ${PROPOSAL_STATUS[h.status]} ${brl(h.adjustedAmount ?? h.approvedAmount ?? h.proposedAmount)}`).join(" · ")}</p>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }

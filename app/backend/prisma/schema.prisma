@@ -176,6 +176,9 @@ model User {
   @@index([organizationId])
   productionPlanTasks ProductionPlanTask[] @relation("ProductionPlanTaskCreator")
   portalMessages PortalMessage[] @relation("PortalMessageAuthor")
+  goalProposals         SalesGoalProposal[] @relation("SalesGoalProposalSeller")
+  goalProposalsDecided  SalesGoalProposal[] @relation("SalesGoalProposalDecider")
+  goalProposalsAdjusted SalesGoalProposal[] @relation("SalesGoalProposalAdjuster")
 }
 
 enum EnterpriseStatus {
@@ -303,6 +306,7 @@ model Organization {
   @@index([enterpriseId])
   productionPlanTasks ProductionPlanTask[]
   portalMessages PortalMessage[]
+  salesGoalProposals SalesGoalProposal[]
 }
 
 model Role {
@@ -4380,6 +4384,41 @@ model SalesGoal {
   amount         Decimal      @db.Decimal(14, 2)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, userId, month])
+  @@index([organizationId, month])
+}
+
+enum SalesGoalProposalStatus {
+  PENDENTE
+  APROVADA // aprovada com o valor proposto
+  AJUSTADA // aprovada com outro valor
+  RECUSADA
+}
+
+/// Meta adaptativa proposta pelo sistema a um vendedor (adaptive-goal.rules).
+/// Nunca vira meta sozinha: a gestão aprova. Quem aprovou, quando, e os ajustes
+/// feitos depois ficam aqui e alimentam a próxima proposta.
+model SalesGoalProposal {
+  id             String                  @id @default(cuid())
+  organizationId String
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                    @relation("SalesGoalProposalSeller", fields: [userId], references: [id], onDelete: Cascade)
+  month          String // aaaa-mm
+  proposedAmount Decimal                 @db.Decimal(14, 2)
+  basis          Json // os números usados no cálculo
+  status         SalesGoalProposalStatus @default(PENDENTE)
+  approvedAmount Decimal?                @db.Decimal(14, 2)
+  decidedById    String?
+  decidedBy      User?                   @relation("SalesGoalProposalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt      DateTime?
+  /// meta mudada pela equipe depois da aprovação
+  adjustedAmount Decimal?                @db.Decimal(14, 2)
+  adjustedById   String?
+  adjustedBy     User?                   @relation("SalesGoalProposalAdjuster", fields: [adjustedById], references: [id], onDelete: SetNull)
+  adjustedAt     DateTime?
+  createdAt      DateTime                @default(now())
 
   @@unique([organizationId, userId, month])
   @@index([organizationId, month])
