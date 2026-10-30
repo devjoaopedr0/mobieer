@@ -1,7 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, UserPlus } from "lucide-react";
+import { ArrowLeft, Filter, Loader2, UserPlus } from "lucide-react";
+import { toast } from "sonner";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { errorMessage } from "@/lib/errors";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +15,7 @@ import { PageSkeleton } from "@/components/ui/states";
 import { LeadDialog } from "@/components/lead-dialog";
 import { originLabel } from "@/components/crm-parts";
 import { useAuth } from "@/hooks/use-auth";
-import { apiGet } from "@/services/api";
+import { apiGet, apiPost } from "@/services/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 type Person = { id: string; name: string } | null;
@@ -48,6 +53,7 @@ export function ClientDetailPage() {
   const { can } = useAuth();
   const qc = useQueryClient();
   const [leadOpen, setLeadOpen] = useState(false);
+  const [funnelOpen, setFunnelOpen] = useState(false);
   const q = useQuery({ queryKey: ["crm-client", id], queryFn: () => apiGet<{ data: Ficha }>(`/commercial/clients/${id}`), enabled: !!id });
   if (q.isLoading) return <PageSkeleton />;
   const d = q.data?.data;
@@ -58,7 +64,10 @@ export function ClientDetailPage() {
     <div className="space-y-4">
       <Link to="/clientes" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Central de clientes</Link>
       <PageHeader title={c.name} description={`Cliente desde ${formatDate(c.createdAt)}${c.status === "INACTIVE" ? " · inativo" : ""}`}>
-        {can("commercial.leads.manage") && <Button size="sm" onClick={() => setLeadOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> Novo lead</Button>}
+        <div className="flex flex-wrap gap-2">
+          {(can("commercial.manage") || can("commercial.leads.manage")) && <Button size="sm" variant="outline" onClick={() => setFunnelOpen(true)}><Filter className="mr-2 h-4 w-4" /> Adicionar ao funil</Button>}
+          {can("commercial.leads.manage") && <Button size="sm" onClick={() => setLeadOpen(true)}><UserPlus className="mr-2 h-4 w-4" /> Novo lead</Button>}
+        </div>
       </PageHeader>
 
       <Card>
@@ -138,7 +147,47 @@ export function ClientDetailPage() {
         </Section>
       </div>
 
+      {funnelOpen && <FunnelDialog client={{ id: c.id, name: c.name }} onClose={() => setFunnelOpen(false)} onDone={() => qc.invalidateQueries({ queryKey: ["crm-client", id] })} />}
       <LeadDialog open={leadOpen} client={{ id: c.id, name: c.name }} onClose={() => setLeadOpen(false)} onCreated={() => qc.invalidateQueries({ queryKey: ["crm-client", id] })} />
     </div>
+  );
+}
+
+/** Põe o cliente no funil: cria a oportunidade ligada a ele, na etapa escolhida. */
+function FunnelDialog({ client, onClose, onDone }: { client: { id: string; name: string }; onClose: () => void; onDone: () => void }) {
+  const stages = useQuery({ queryKey: ["commercial", "stages"], queryFn: () => apiGet<{ data: { id: string; name: string; isWon: boolean; isLost: boolean; active: boolean }[] }>("/commercial/stages") });
+  const open = (stages.data?.data ?? []).filter((s) => !s.isWon && !s.isLost && s.active);
+  const [title, setTitle] = useState(client.name);
+  const [value, setValue] = useState("");
+  const [stageId, setStageId] = useState("");
+  const stage = stageId || open[0]?.id || "";
+  const create = useMutation({
+    mutationFn: () => apiPost("/commercial/opportunities", { title: title.trim(), clientId: client.id, stageId: stage, estimatedValue: Number(value.replace(/\./g, "").replace(",", ".")) || 0 }),
+    onSuccess: () => { toast.success("Cliente colocado no funil"); onDone(); onClose(); },
+    onError: (e) => toast.error(errorMessage(e, "Não foi possível colocar no funil")),
+  });
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Adicionar ao funil — {client.name}</DialogTitle>
+          <DialogDescription>Cria uma oportunidade para este cliente. A origem vem do cadastro dele.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1 sm:col-span-2"><Label className="text-xs" htmlFor="fn-title">Negócio</Label><Input id="fn-title" value={title} placeholder="Ex.: Cozinha e closet" onChange={(e) => setTitle(e.target.value)} /></div>
+          <div className="space-y-1">
+            <Label className="text-xs" htmlFor="fn-stage">Etapa</Label>
+            <select id="fn-stage" className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={stage} onChange={(e) => setStageId(e.target.value)}>
+              {open.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1"><Label className="text-xs" htmlFor="fn-value">Valor estimado</Label><Input id="fn-value" inputMode="decimal" value={value} placeholder="0,00" onChange={(e) => setValue(e.target.value)} /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button disabled={create.isPending || title.trim().length < 2 || !stage} onClick={() => create.mutate()}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Colocar no funil</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

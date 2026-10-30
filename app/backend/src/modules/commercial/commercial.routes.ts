@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { CommercialInteractionType, CommercialLeadStatus, Prisma } from "@prisma/client";
 import { authenticate } from "../../middlewares/auth";
-import { requirePermission } from "../../middlewares/rbac";
+import { requireAnyPermission, requirePermission } from "../../middlewares/rbac";
 import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
@@ -531,15 +531,26 @@ router.get(
 
 router.post(
   "/opportunities",
-  requirePermission("commercial.manage"),
+  // gestão cria qualquer uma; quem cadastra leads põe cliente da própria carteira no funil
+  requireAnyPermission(["commercial.manage", "commercial.leads.manage"]),
   asyncHandler(async (req, res) => {
     const input = oppSchema.parse(req.body);
+    const manage = req.user!.permissions.includes("commercial.manage");
+    if (!manage && !input.clientId) throw new BadRequestError("Escolha o cliente para colocar no funil");
     const stage = await prisma.salesStage.findFirst({ where: { id: input.stageId, organizationId: req.user!.organizationId } });
     if (!stage) throw new BadRequestError("Etapa inválida");
+    let clientOrigin: { origin: Origin | null; leadSource: string | null } | null = null;
     if (input.clientId) {
-      const c = await prisma.client.findFirst({ where: { id: input.clientId, organizationId: req.user!.organizationId } });
-      if (!c) throw new BadRequestError("Cliente inválido");
+      const c = await prisma.client.findFirst({ where: { AND: [manage ? { organizationId: req.user!.organizationId } : crmClientScope(req.user!), { id: input.clientId }] }, select: { origin: true, leadSource: true } });
+      if (!c) throw new BadRequestError(manage ? "Cliente inválido" : "Cliente não encontrado na sua carteira");
+      clientOrigin = c;
     }
+    // sem origem informada, a oportunidade herda a do cliente
+    if (input.origin === undefined && input.source === undefined && clientOrigin) {
+      input.origin = clientOrigin.origin;
+      input.source = clientOrigin.leadSource;
+    }
+    if (!manage) input.sellerId = undefined;
     const opp = await prisma.commercialOpportunity.create({
       data: {
         organizationId: req.user!.organizationId,
