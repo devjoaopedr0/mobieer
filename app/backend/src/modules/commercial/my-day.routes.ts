@@ -38,7 +38,7 @@ const addDays = (d: Date, days: number) => new Date(d.getTime() + days * 86_400_
 async function loadTodos(organizationId: string, sellerId: string | null, until: Date): Promise<Todo[]> {
   const bySeller = sellerId ? { sellerId } : {};
   const person = { select: { id: true, name: true } } as const;
-  const [opps, leads, events, tasks] = await Promise.all([
+  const [opps, leads, events, tasks, diary] = await Promise.all([
     prisma.commercialOpportunity.findMany({
       where: { organizationId, ...bySeller, status: { notIn: ["WON", "LOST"] }, nextActionAt: { not: null, lt: until } },
       select: { id: true, title: true, nextAction: true, nextActionAt: true, client: { select: { name: true } }, lead: { select: { name: true } }, seller: person },
@@ -55,11 +55,17 @@ async function loadTodos(organizationId: string, sellerId: string | null, until:
       where: { ...(sellerId ? { assigneeId: sellerId } : { OR: [{ leadId: { not: null } }, { opportunityId: { not: null } }, { quoteId: { not: null } }] }), completedAt: null, dueAt: { not: null, lt: until }, createdBy: { organizationId } },
       select: { id: true, title: true, dueAt: true, client: { select: { name: true } }, lead: { select: { name: true } }, assignee: person },
     }),
+    // próximo passo anotado no diário do cliente (o do funil já está na oportunidade); só de hoje em diante
+    prisma.commercialInteraction.findMany({
+      where: { opportunityId: null, clientId: { not: null }, responsible: { organizationId }, ...(sellerId ? { responsibleId: sellerId } : {}), nextActionAt: { gte: dayStart(dayKey(new Date())), lt: until } },
+      select: { id: true, nextAction: true, nextActionAt: true, client: { select: { id: true, name: true } }, responsible: person },
+    }),
   ]);
   return [
     ...opps.map((o): Todo => ({ kind: "OPORTUNIDADE", id: o.id, title: o.nextAction || `Próxima ação — ${o.title}`, client: o.client?.name ?? o.lead?.name ?? null, at: o.nextActionAt!, link: "/comercial?aba=funil", sellerId: o.seller.id, sellerName: o.seller.name })),
     ...leads.map((l): Todo => ({ kind: "LEAD", id: l.id, title: "Retorno combinado", client: l.name, at: l.nextContactAt!, link: "/comercial?aba=leads", sellerId: l.seller?.id ?? null, sellerName: l.seller?.name ?? null })),
     ...events.map((e): Todo => ({ kind: "AGENDA", id: e.id, title: e.title, client: e.client?.name ?? e.clientName ?? null, at: e.startAt, link: "/agenda", sellerId: e.responsible.id, sellerName: e.responsible.name })),
+    ...diary.map((d): Todo => ({ kind: "DIARIO", id: d.id, title: d.nextAction || "Próximo passo do diário", client: d.client?.name ?? null, at: d.nextActionAt!, link: `/clientes/${d.client?.id ?? ""}`, sellerId: d.responsible.id, sellerName: d.responsible.name })),
     ...tasks.map((t): Todo => ({ kind: "TAREFA", id: t.id, title: t.title, client: t.client?.name ?? t.lead?.name ?? null, at: t.dueAt!, link: "/minhas-tarefas", sellerId: t.assignee?.id ?? null, sellerName: t.assignee?.name ?? null })),
   ];
 }

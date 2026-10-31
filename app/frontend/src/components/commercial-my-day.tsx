@@ -11,7 +11,7 @@ import { apiGet } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 import { formatCurrency } from "@/lib/utils";
 
-type Todo = { kind: "OPORTUNIDADE" | "LEAD" | "AGENDA" | "TAREFA"; id: string; title: string; client: string | null; at: string; link: string; sellerName: string | null };
+type Todo = { kind: "OPORTUNIDADE" | "LEAD" | "AGENDA" | "TAREFA" | "DIARIO"; id: string; title: string; client: string | null; at: string; link: string; sellerName: string | null };
 type Reminder = { kind: string; label: string; client: string; title: string; detail: string; link: string };
 type MyDay = {
   seller: { id: string; name: string } | null;
@@ -29,6 +29,7 @@ const KIND: Record<Todo["kind"], { label: string; variant: "default" | "secondar
   LEAD: { label: "Lead", variant: "warning" },
   AGENDA: { label: "Agenda", variant: "secondary" },
   TAREFA: { label: "Tarefa", variant: "muted" },
+  DIARIO: { label: "Diário", variant: "secondary" },
 };
 const ATTENTION: Record<string, "danger" | "warning" | "secondary"> = {
   ACAO_VENCIDA: "danger",

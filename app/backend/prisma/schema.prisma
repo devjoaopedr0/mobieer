@@ -1253,6 +1253,7 @@ model Project {
   rooms               ProjectRoom[]
   stages              ProjectStage[]
   agendaEvents        AgendaEvent[]             @relation("AgendaProject")
+  clientDiary         CommercialInteraction[]   @relation("InteractionProject")
   diaryEntries        InstallationDiaryEntry[]
   contractorRatings   ContractorRating[]
   purchaseRequests PurchaseRequest[]
@@ -1667,6 +1668,9 @@ enum CommercialInteractionType {
   FOLLOW_UP
   PROPOSAL
   NEGOTIATION
+  /// diário do cliente: anotação livre e alteração de projeto
+  NOTE
+  PROJECT_CHANGE
 }
 
 /// Despesa ou receita fixa (aluguel, internet, pró-labore...): gera uma
@@ -2101,8 +2105,12 @@ model CommercialInteraction {
   responsible   User                      @relation(fields: [responsibleId], references: [id])
   agendaEventId String?
   agendaEvent   AgendaEvent?              @relation(fields: [agendaEventId], references: [id], onDelete: SetNull)
+  /// diário do cliente: o projeto de que a anotação fala (opcional)
+  projectId     String?
+  project       Project?                  @relation("InteractionProject", fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([clientId, occurredAt])
+  @@index([projectId, occurredAt])
   @@index([leadId, occurredAt])
   @@index([responsibleId, nextActionAt])
 }
