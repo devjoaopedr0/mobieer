@@ -32,6 +32,29 @@ test("ponto de equilíbrio e meta: venda necessária = custos ÷ margem; resulta
   assert.equal(breakEven(vazio, { fixedCost: 30000, profitGoal: 0, taxPct: 0 }, 40).breakEvenMissing, 75000);
 });
 
+test("ponto de equilíbrio em quantidade de contratos: venda necessária ÷ ticket médio", () => {
+  // preço 200, custo 120, imposto 5% = 10 → margem 70 por venda (35%); fixos 20 mil
+  const t = contractTotals([c({ netRevenue: 200, total: 200, cost: 120 })], 5);
+  assert.equal(t.avgTicket, 200);
+  assert.equal(t.avgMargin, 70);
+  assert.equal(t.marginPct, 35);
+  const b = breakEven(t, { fixedCost: 20000, profitGoal: 0, taxPct: 5 });
+  assert.equal(b.breakEvenSales, 57142.86);
+  assert.equal(b.marginPerContract, 70);
+  assert.equal(b.breakEvenContracts, 286); // 285,7 → arredonda para cima
+  assert.equal(b.breakEvenContractsMissing, 285); // já fechou 1
+  // conta exata não sobe um contrato a mais: 30 mil ÷ 40% = 75 mil ÷ 25 mil = 3
+  const exato = contractTotals([c({ netRevenue: 25000, total: 25000, cost: 15000 })], 0);
+  assert.equal(breakEven(exato, { fixedCost: 30000, profitGoal: 0, taxPct: 0 }).breakEvenContracts, 3);
+  // mês sem contrato: margem e ticket de referência
+  const vazio = contractTotals([], 0);
+  assert.equal(breakEven(vazio, { fixedCost: 30000, profitGoal: 10000, taxPct: 0 }).breakEvenContracts, null);
+  const ref = breakEven(vazio, { fixedCost: 30000, profitGoal: 10000, taxPct: 0 }, 40, 25000);
+  assert.equal(ref.breakEvenContracts, 3);
+  assert.equal(ref.goalContracts, 4);
+  assert.equal(ref.goalContractsMissing, 4);
+});
+
 test("evolução do mês: acumulado dia a dia", () => {
   const d = dailyAccumulated([c({ day: "2026-02-03", netRevenue: 100 }), c({ day: "2026-02-03", netRevenue: 50 }), c({ day: "2026-02-10", netRevenue: 25 })], 2026, 2);
   assert.equal(d.length, 28);

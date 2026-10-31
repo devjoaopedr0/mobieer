@@ -14,6 +14,7 @@ import { requirePermission } from "../../middlewares/rbac";
 import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { ok } from "../../utils/response";
+import { simplesInfo } from "../finance/tax.service";
 import { fortalezaMonthStart, fortalezaToday } from "../store/store.service";
 import { breakEven, cashflowAhead, contractTotals, dailyAccumulated, dueSummary, type DueRow, type SignedContract } from "./overview.rules";
 
@@ -138,18 +139,26 @@ router.get(
 const cfgKey = (org: string) => `overview.breakeven.${org}`;
 type Cfg = { fixedCost: number; profitGoal: number; taxPct: number };
 
-export async function loadCfg(orgId: string): Promise<Cfg & { suggestedFixedCost: number; saved: boolean }> {
-  const [row, fixed] = await Promise.all([
+/**
+ * Impostos: o % digitado vale; sem ele (vazio ou 0), entra a alíquota efetiva
+ * do Simples pelo RBT12 (aba Impostos), que acompanha o faturamento sozinha.
+ */
+export async function loadCfg(orgId: string): Promise<Cfg & { suggestedFixedCost: number; saved: boolean; taxSource: "MANUAL" | "SIMPLES" | null; simplesTaxPct: number | null }> {
+  const [row, fixed, simples] = await Promise.all([
     prisma.setting.findUnique({ where: { key: cfgKey(orgId) } }),
     // sugestão: as despesas fixas cadastradas em Financeiro → Fixos
     prisma.financeRecurring.aggregate({ where: { organizationId: orgId, active: true, type: "DESPESA" }, _sum: { amount: true } }),
+    simplesInfo(orgId),
   ]);
   const suggestedFixedCost = num(fixed._sum.amount);
+  const simplesTaxPct = simples?.efetiva ?? null;
+  const tax = (manual: number) =>
+    manual > 0 ? { taxPct: manual, taxSource: "MANUAL" as const } : { taxPct: simplesTaxPct ?? 0, taxSource: simplesTaxPct !== null ? ("SIMPLES" as const) : null };
   try {
     const v = JSON.parse(row?.value ?? "") as Partial<Cfg>;
-    return { fixedCost: num(v.fixedCost), profitGoal: num(v.profitGoal), taxPct: num(v.taxPct), suggestedFixedCost, saved: true };
+    return { fixedCost: num(v.fixedCost), profitGoal: num(v.profitGoal), ...tax(num(v.taxPct)), suggestedFixedCost, saved: true, simplesTaxPct };
   } catch {
-    return { fixedCost: suggestedFixedCost, profitGoal: 0, taxPct: 0, suggestedFixedCost, saved: false };
+    return { fixedCost: suggestedFixedCost, profitGoal: 0, ...tax(0), suggestedFixedCost, saved: false, simplesTaxPct };
   }
 }
 
@@ -175,15 +184,17 @@ router.get(
     const to = fortalezaMonthStart(q.year, q.month);
     const contracts = await signedContracts(orgId, from, to);
     const totals = contractTotals(contracts, input.taxPct);
-    // sem contrato no mês, a margem de referência é a dos 3 meses anteriores
+    // sem contrato no mês, a margem e o ticket médio de referência são os dos 3 meses anteriores
     let marginPct = totals.marginPct;
+    let ticket = totals.avgTicket;
     let marginSource: "MES" | "ULTIMOS_3_MESES" | null = marginPct !== null ? "MES" : null;
-    if (marginPct === null) {
+    if (marginPct === null || ticket === null) {
       const before = contractTotals(await signedContracts(orgId, fortalezaMonthStart(q.year, q.month - 4), from), input.taxPct);
-      if (before.marginPct !== null) {
+      if (marginPct === null && before.marginPct !== null) {
         marginPct = before.marginPct;
         marginSource = "ULTIMOS_3_MESES";
       }
+      ticket ??= before.avgTicket;
     }
     return ok(res, {
       year: q.year,
@@ -191,7 +202,7 @@ router.get(
       config: cfg,
       input,
       totals,
-      analysis: { ...breakEven(totals, input, marginPct), marginPct, marginSource },
+      analysis: { ...breakEven(totals, input, marginPct, ticket), marginPct, marginSource },
       daily: dailyAccumulated(contracts, q.year, q.month),
       contracts: contracts.sort((a, b) => a.day.localeCompare(b.day)).map((c) => ({ id: c.id, number: c.number, client: c.client, day: c.day, total: c.total, net: c.netRevenue })),
     });
@@ -202,7 +213,8 @@ router.put(
   "/break-even",
   requirePermission("finance.manage"),
   asyncHandler(async (req, res) => {
-    const input = z.object({ fixedCost: z.coerce.number().min(0).max(1e9), profitGoal: z.coerce.number().min(0).max(1e9), taxPct: z.coerce.number().min(0).max(100) }).parse(req.body);
+    // taxPct 0 (ou vazio) = automático pelo Simples
+    const input = z.object({ fixedCost: z.coerce.number().min(0).max(1e9), profitGoal: z.coerce.number().min(0).max(1e9), taxPct: z.coerce.number().min(0).max(100).nullable().transform((v) => v ?? 0) }).parse(req.body);
     const key = cfgKey(req.user!.organizationId);
     const value = JSON.stringify(input);
     await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } });

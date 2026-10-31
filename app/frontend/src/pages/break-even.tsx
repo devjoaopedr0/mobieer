@@ -17,13 +17,16 @@ import { errorMessage, formatCurrency } from "@/lib/utils";
 type Data = {
   year: number;
   month: number;
-  config: { fixedCost: number; profitGoal: number; taxPct: number; suggestedFixedCost: number; saved: boolean };
+  config: { fixedCost: number; profitGoal: number; taxPct: number; suggestedFixedCost: number; saved: boolean; taxSource: "MANUAL" | "SIMPLES" | null; simplesTaxPct: number | null };
   input: { fixedCost: number; profitGoal: number; taxPct: number };
-  totals: { count: number; totalSold: number; financing: number; net: number; cost: number; commissions: number; freightOther: number; taxes: number; margin: number; marginPct: number | null; score: number | null };
+  totals: { count: number; totalSold: number; financing: number; net: number; cost: number; commissions: number; freightOther: number; taxes: number; margin: number; marginPct: number | null; score: number | null; avgTicket: number | null; avgMargin: number | null };
   analysis: {
     breakEvenSales: number | null; breakEvenProgress: number | null; breakEvenMissing: number | null;
     goalSales: number | null; goalProgress: number | null; goalMissing: number | null;
     result: number; coveragePct: number | null; marginPct: number | null; marginSource: "MES" | "ULTIMOS_3_MESES" | null;
+    ticket: number | null; marginPerContract: number | null;
+    breakEvenContracts: number | null; breakEvenContractsMissing: number | null;
+    goalContracts: number | null; goalContractsMissing: number | null;
   };
   daily: { day: number; net: number; accumulated: number }[];
   contracts: { id: string; number: string; client: string; day: string; total: number; net: number }[];
@@ -39,6 +42,60 @@ function Progress({ value, ok }: { value: number | null; ok: boolean }) {
     <div className="h-2 overflow-hidden rounded-full bg-muted">
       <div className={`h-full rounded-full ${ok ? "bg-success" : "bg-destructive"}`} style={{ width: `${Math.min(100, value ?? 0)}%` }} />
     </div>
+  );
+}
+
+const plural = (n: number) => `${n} ${n === 1 ? "contrato" : "contratos"}`;
+
+/**
+ * Quantos contratos fechar para não ter prejuízo, com a conta passo a passo:
+ * ticket médio − custos variáveis = margem por contrato; custos fixos ÷ margem %
+ * = venda necessária; venda necessária ÷ ticket médio = contratos.
+ */
+function ContractsNeeded({ d }: { d: Data }) {
+  const a = d.analysis;
+  const ref = d.totals.count === 0 ? " (média dos 3 meses anteriores)" : "";
+  if (a.ticket === null || a.marginPerContract === null || a.breakEvenSales === null || a.breakEvenContracts === null) {
+    return (
+      <Card><CardContent className="p-5 text-sm text-muted-foreground">
+        <p className="font-semibold text-foreground">Quantos contratos preciso fechar?</p>
+        A conta precisa de pelo menos um contrato aceito no mês ou nos 3 meses anteriores (para saber o ticket médio e a margem) e dos custos fixos preenchidos.
+      </CardContent></Card>
+    );
+  }
+  const step = (n: number, label: string, value: string, hint?: string) => (
+    <div className="flex items-start justify-between gap-3 border-b py-1.5 last:border-b-0">
+      <span><span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-xs font-semibold">{n}</span>{label}{hint && <span className="block pl-7 text-xs text-muted-foreground">{hint}</span>}</span>
+      <span className="whitespace-nowrap font-medium tabular-nums">{value}</span>
+    </div>
+  );
+  const missing = a.breakEvenContractsMissing ?? 0;
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">Quantos contratos preciso fechar para não ter prejuízo?</CardTitle></CardHeader>
+      <CardContent className="grid gap-5 lg:grid-cols-[1fr_260px]">
+        <div className="text-sm">
+          {step(1, `Ticket médio por contrato${ref}`, formatCurrency(a.ticket), "venda líquida ÷ número de contratos")}
+          {step(2, "− Custos variáveis por contrato", formatCurrency(a.ticket - a.marginPerContract), "compra dos ambientes, comissões, frete e impostos")}
+          {step(3, "= Margem por contrato", `${formatCurrency(a.marginPerContract)} · ${pct(a.marginPct)}`, "o que sobra de cada contrato para pagar os custos fixos")}
+          {step(4, "Custos fixos ÷ margem %", formatCurrency(a.breakEvenSales), `${formatCurrency(d.input.fixedCost)} ÷ ${pct(a.marginPct)} = venda necessária no mês`)}
+          {step(5, "Venda necessária ÷ ticket médio", plural(a.breakEvenContracts), "arredondado para cima")}
+        </div>
+        <div className={`flex flex-col justify-center gap-1 rounded-lg p-4 text-center ${missing > 0 ? "bg-destructive/10" : "bg-success/10"}`}>
+          <p className="text-xs text-muted-foreground">Para empatar no mês</p>
+          <p className="text-3xl font-semibold tabular-nums">{plural(a.breakEvenContracts)}</p>
+          <p className="text-sm">{plural(d.totals.count)} {d.totals.count === 1 ? "fechado" : "fechados"}</p>
+          {missing > 0
+            ? <p className="text-sm font-semibold text-destructive">Faltam {plural(missing)}</p>
+            : <p className="flex items-center justify-center gap-1 text-sm font-semibold text-success"><CheckCircle2 className="h-4 w-4" />Equilíbrio atingido</p>}
+          {a.goalContracts !== null && d.input.profitGoal > 0 && (
+            <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+              Para a meta de lucro: {plural(a.goalContracts)}{(a.goalContractsMissing ?? 0) > 0 ? ` (faltam ${a.goalContractsMissing})` : " — atingida"}
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -67,8 +124,10 @@ export function BreakEvenPage() {
     if (d && !form) setForm({ fixed: show(d.input.fixedCost), profit: show(d.input.profitGoal), tax: String(d.input.taxPct).replace(".", ",") });
   }, [d, form]);
 
+  // imposto igual ao do Simples (ou vazio) fica automático: acompanha o faturamento dos 12 meses
+  const taxToSave = (tax: number) => (d?.config.simplesTaxPct !== null && d?.config.simplesTaxPct !== undefined && tax === d.config.simplesTaxPct ? 0 : tax);
   const save = useMutation({
-    mutationFn: () => apiPut<{ message?: string }>("/overview/break-even", { fixedCost: parse(form!.fixed), profitGoal: parse(form!.profit), taxPct: parse(form!.tax) }),
+    mutationFn: () => apiPut<{ message?: string }>("/overview/break-even", { fixedCost: parse(form!.fixed), profitGoal: parse(form!.profit), taxPct: taxToSave(parse(form!.tax)) }),
     onSuccess: (r) => { toast.success(r.message ?? "Salvo"); setApplied(null); qc.invalidateQueries({ queryKey: ["overview", "break-even"] }); },
     onError: (e) => toast.error(errorMessage(e, "Não foi possível salvar")),
   });
@@ -114,6 +173,10 @@ export function BreakEvenPage() {
           </div>
           <div className="space-y-1"><Label className="text-xs" title="Previsão de impostos sobre a venda líquida">Impostos (%)</Label>
             <Input className="w-24" inputMode="decimal" value={form?.tax ?? ""} disabled={!simulate && !can("finance.manage")} onChange={(e) => form && setForm({ ...form, tax: e.target.value })} onBlur={commit} />
+            {d && d.config.taxSource === "SIMPLES" && <p className="text-[11px] text-muted-foreground">automático: Simples</p>}
+            {d && d.config.taxSource === "MANUAL" && d.config.simplesTaxPct !== null && (
+              <p className="text-[11px] text-muted-foreground">Simples daria {pct(d.config.simplesTaxPct)}</p>
+            )}
           </div>
           <label className="ml-auto flex items-center gap-2"><input type="checkbox" className="h-4 w-4" checked={simulate} onChange={(e) => leaveSimulation(e.target.checked)} />Modo simulação</label>
           {!simulate && can("finance.manage") && <Button size="sm" variant="outline" disabled={save.isPending || !form} onClick={() => save.mutate()}><Save className="mr-1 h-4 w-4" />Salvar</Button>}
@@ -122,6 +185,8 @@ export function BreakEvenPage() {
           <p className="px-6 pb-4 text-xs text-muted-foreground">
             {simulate ? "Simulação: mude os valores e saia do campo para recalcular. Nada é salvo." : "Mude os valores e saia do campo para salvar."}
             {!d.config.saved && d.config.suggestedFixedCost > 0 ? ` Custos fixos sugeridos pelas despesas de Financeiro → Fixos (${formatCurrency(d.config.suggestedFixedCost)}).` : ""}
+            {d.config.taxSource === "SIMPLES" ? ` Impostos: alíquota efetiva do Simples Nacional (${pct(d.config.simplesTaxPct)}), pelo faturamento dos últimos 12 meses — ajuste o faturamento em Financeiro → Impostos.` : ""}
+            {d.config.taxSource === "MANUAL" && d.config.simplesTaxPct !== null ? " Impostos digitados à mão: apague o campo (ou use 0) para voltar ao automático do Simples." : ""}
           </p>
         )}
       </Card>
@@ -175,6 +240,8 @@ export function BreakEvenPage() {
               <div className="flex justify-between"><span className="text-muted-foreground">Cobertura dos fixos</span><span className="tabular-nums">{pct(a.coveragePct)}</span></div>
             </CardContent></Card>
           </div>
+
+          <ContractsNeeded d={d} />
 
           <div className="flex flex-wrap gap-2 text-xs">
             {a.breakEvenProgress !== null && <span className="flex items-center gap-1 rounded-md bg-muted px-2 py-1"><Lightbulb className="h-3.5 w-3.5" />{pct(a.breakEvenProgress)} do ponto de equilíbrio atingido</span>}

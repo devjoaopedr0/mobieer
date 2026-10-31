@@ -7,7 +7,7 @@ import { prisma } from "../../prisma";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { BadRequestError, NotFoundError } from "../../utils/ApiError";
 import { ok } from "../../utils/response";
-import { apurar, enterpriseForOrg, faturamentoRealizado } from "./tax.service";
+import { apurar, enterpriseForOrg, faturamentoRealizado, rbt12Key, simplesInfo } from "./tax.service";
 
 const router = Router();
 router.use(authenticate);
@@ -47,6 +47,7 @@ router.get(
       uf: e.uf,
       municipio: e.municipio,
       inscricaoEstadual: e.inscricaoEstadual,
+      simples: await simplesInfo(req.user!.organizationId),
     });
   })
 );
@@ -62,8 +63,15 @@ router.patch(
         uf: z.string().trim().max(2).optional().nullable().or(z.literal("")),
         municipio: z.string().trim().max(120).optional().nullable().or(z.literal("")),
         inscricaoEstadual: z.string().trim().max(30).optional().nullable().or(z.literal("")),
+        // receita bruta dos últimos 12 meses (Simples); null volta a usar a do sistema
+        rbt12Informado: z.coerce.number().min(0).max(1e10).optional().nullable(),
       })
       .parse(req.body);
+    if (input.rbt12Informado !== undefined) {
+      const key = rbt12Key(req.user!.organizationId);
+      if (input.rbt12Informado) await prisma.setting.upsert({ where: { key }, create: { key, value: String(input.rbt12Informado) }, update: { value: String(input.rbt12Informado) } });
+      else await prisma.setting.deleteMany({ where: { key } });
+    }
     const e = await enterpriseForOrg(req.user!.organizationId);
     const updated = await prisma.enterprise.update({
       where: { id: e.id },
@@ -78,7 +86,7 @@ router.patch(
     await prisma.auditLog.create({
       data: { userId: req.user!.id, action: "TAX_COMPANY_UPDATED", entity: "Enterprise", entityId: e.id, details: input },
     });
-    return ok(res, { regimeTributario: updated.regimeTributario, cnae: updated.cnae, uf: updated.uf, municipio: updated.municipio, inscricaoEstadual: updated.inscricaoEstadual }, "Dados fiscais atualizados");
+    return ok(res, { regimeTributario: updated.regimeTributario, cnae: updated.cnae, uf: updated.uf, municipio: updated.municipio, inscricaoEstadual: updated.inscricaoEstadual, simples: await simplesInfo(req.user!.organizationId) }, "Dados fiscais atualizados");
   })
 );
 
