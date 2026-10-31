@@ -183,7 +183,6 @@ router.put(
         defaultMarkup: z.coerce.number().positive().max(20),
         defaultFreightPercent: z.coerce.number().min(0).max(30).optional(),
         defaultTaxPercent: z.coerce.number().min(0).max(30).optional(),
-        minScore: z.coerce.number().positive().max(20),
         validityDays: z.coerce.number().int().min(1).max(365),
         commissionRoles: z.array(z.object({ role: z.string().trim().min(1).max(40), label: z.string().trim().min(1).max(60), defaultPercent: z.coerce.number().min(0).max(50) })).min(1).max(10),
         financingPlans: z.array(planSchema).max(30),
@@ -200,10 +199,26 @@ router.put(
       })
       .parse(req.body);
     if (new Set(input.financingPlans.map((p) => p.id)).size !== input.financingPlans.length) throw new BadRequestError("Dois planos com o mesmo código");
-    const value = JSON.stringify(normalizePricing(input));
+    // a pontuação mínima é da Jéssica (PUT /config/min-score): aqui ela só é mantida
+    const { minScore } = await loadPricing();
+    const value = JSON.stringify(normalizePricing({ ...input, minScore }));
     await prisma.setting.upsert({ where: { key: PRICING_SETTING }, create: { key: PRICING_SETTING, value }, update: { value } });
     await prisma.auditLog.create({ data: { userId: req.user!.id, action: "PRICING_CONFIG_UPDATED", entity: "Setting", entityId: PRICING_SETTING, details: input } });
-    return ok(res, normalizePricing(input), "Configuração de preços salva");
+    return ok(res, normalizePricing({ ...input, minScore }), "Configuração de preços salva");
+  })
+);
+
+// PUT /api/commercial/quotes/config/min-score — só quem libera orçamento define o mínimo
+router.put(
+  "/config/min-score",
+  requirePermission("commercial.quotes.approve"),
+  asyncHandler(async (req, res) => {
+    const { minScore } = z.object({ minScore: z.coerce.number().positive().max(20) }).parse(req.body);
+    const current = await loadPricing();
+    const value = JSON.stringify(normalizePricing({ ...current, minScore }));
+    await prisma.setting.upsert({ where: { key: PRICING_SETTING }, create: { key: PRICING_SETTING, value }, update: { value } });
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action: "QUOTE_MIN_SCORE_UPDATED", entity: "Setting", entityId: PRICING_SETTING, details: { from: current.minScore, to: minScore } } });
+    return ok(res, { minScore }, "Pontuação mínima salva");
   })
 );
 

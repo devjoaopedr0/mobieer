@@ -148,6 +148,7 @@ export function QuotesTab() {
   const { can } = useAuth();
   const [pendingOnly, setPendingOnly] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [minScoreOpen, setMinScoreOpen] = useState(false);
   const q = useQuery({
     queryKey: ["quotes", pendingOnly],
     queryFn: () => apiGet<{ data: Quote[] }>("/commercial/quotes", pendingOnly ? { approval: "PENDING" } : undefined),
@@ -165,8 +166,13 @@ export function QuotesTab() {
         <Button size="sm" variant={pendingOnly ? "default" : "outline"} onClick={() => setPendingOnly((v) => !v)}>
           <ShieldAlert className="mr-1 h-4 w-4" /> Aguardando liberação
         </Button>
+        {can("commercial.quotes.approve") && (
+          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setMinScoreOpen(true)}>
+            <ShieldAlert className="mr-1 h-4 w-4" /> Pontuação mínima
+          </Button>
+        )}
         {can("commercial.manage") && (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setConfigOpen(true)}>
+          <Button size="sm" variant="outline" className={can("commercial.quotes.approve") ? "" : "ml-auto"} onClick={() => setConfigOpen(true)}>
             <Settings2 className="mr-1 h-4 w-4" /> Configurar preços
           </Button>
         )}
@@ -219,6 +225,7 @@ export function QuotesTab() {
         </CardContent>
       </Card>
       {configOpen && <PricingConfigDialog onClose={() => setConfigOpen(false)} />}
+      {minScoreOpen && <MinScoreDialog onClose={() => setMinScoreOpen(false)} />}
     </div>
   );
 }
@@ -1280,6 +1287,47 @@ function PromobImportButton({ projectId, onPick }: { projectId: string; onPick: 
 
 // ------------------------------------------------------------------ configuração
 
+/** Pontuação mínima sem liberação — só quem libera orçamento altera. */
+function MinScoreDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["quotes", "config"], queryFn: () => apiGet<{ data: PricingConfig }>("/commercial/quotes/config") });
+  const [value, setValue] = useState<number | null>(null);
+  useEffect(() => {
+    if (q.data && value == null) setValue(q.data.data.minScore);
+  }, [q.data, value]);
+  const save = useMutation({
+    mutationFn: () => apiPut<{ message: string }>("/commercial/quotes/config/min-score", { minScore: value }),
+    onSuccess: (r) => {
+      toast.success(r.message);
+      qc.invalidateQueries({ queryKey: ["quotes", "config"] });
+      onClose();
+    },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao salvar")),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Pontuação mínima</DialogTitle></DialogHeader>
+        {value == null ? (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        ) : (
+          <div className="space-y-3 text-sm">
+            <Field label="Pontuação mínima"><NumInput value={value} onChange={setValue} /></Field>
+            <p className="text-xs text-muted-foreground">
+              Orçamento com pontuação igual ou acima deste valor passa direto. Abaixo dele, fica aguardando a sua liberação.
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button disabled={value == null || value <= 0 || save.isPending} onClick={() => save.mutate()}>Salvar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PricingConfigDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["quotes", "config"], queryFn: () => apiGet<{ data: PricingConfig }>("/commercial/quotes/config") });
@@ -1307,13 +1355,13 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
           <div className="space-y-5 text-sm">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Mark-up padrão"><NumInput value={c.defaultMarkup} onChange={(v) => setC({ ...c, defaultMarkup: v })} /></Field>
-              <Field label="Pontuação mínima"><NumInput value={c.minScore} onChange={(v) => setC({ ...c, minScore: v })} /></Field>
+              <Field label="Pontuação mínima"><Input value={pts(c.minScore)} disabled title="Definida por quem libera orçamento" /></Field>
               <Field label="Validade (dias)"><NumInput value={c.validityDays} onChange={(v) => setC({ ...c, validityDays: Math.round(v) })} /></Field>
               <Field label="Frete padrão (%)"><NumInput value={c.defaultFreightPercent ?? 2} onChange={(v) => setC({ ...c, defaultFreightPercent: v })} /></Field>
               <Field label="Imposto padrão (%)"><NumInput value={c.defaultTaxPercent ?? 6} onChange={(v) => setC({ ...c, defaultTaxPercent: v })} /></Field>
             </div>
             <p className="text-xs text-muted-foreground">
-              A pontuação é o mark-up que sobra depois de desconto, taxa da financeira, comissões, frete e outros custos. Abaixo do mínimo, o orçamento precisa de liberação.
+              A pontuação é o mark-up que sobra depois de desconto, taxa da financeira, comissões, frete e outros custos. Abaixo do mínimo, o orçamento precisa de liberação. O mínimo é definido por quem libera orçamento.
             </p>
 
             <div className="space-y-2">

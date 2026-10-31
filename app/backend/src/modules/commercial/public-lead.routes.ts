@@ -1,7 +1,8 @@
 /**
  * Pedido de orçamento da landing page (mobieer.com.br) SEM login.
  *
- * Vira lead no comercial (origem "Site") e avisa no sino quem cuida dos leads.
+ * Vira lead no comercial (origem "Site") sem responsável — entra na fila — e
+ * avisa no sino quem cuida dos leads; o primeiro que pegar fica com ele.
  * Proteções: limite por IP, campo invisível contra robô e tamanho dos campos.
  */
 import { Router } from "express";
@@ -53,8 +54,8 @@ router.post(
     await notifyUsersWithPermission({
       organizationId: org.id,
       permission: "commercial.leads.manage",
-      title: "Novo pedido de orçamento pelo site",
-      message: `${input.name} · ${input.phone} · ${input.projectType}`,
+      title: "Novo lead na fila",
+      message: `${input.name} · ${input.projectType} — pelo site. Quem pegar primeiro fica com ele.`,
     });
     return ok(res, { id: lead.id }, "Recebemos seu pedido! Em breve entraremos em contato.");
   })
