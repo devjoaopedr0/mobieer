@@ -29,7 +29,9 @@ type DiscountMode = "VALOR" | "PERCENTUAL" | "TOTAL";
 type FinancingPlan = { id: string; name: string; method: "CARTAO" | "FINANCEIRA"; installments: number; feePercent: number; requiresDownPayment: boolean };
 type CommissionRole = { role: string; label: string; defaultPercent: number };
 type QuoteDocumentConfig = { supplier: string; line: string; deliveryDays: number; deliveryText: string; mandatoryNote: string; notes: string[] };
-type PricingConfig = { defaultMarkup: number; defaultFreightPercent?: number; defaultTaxPercent?: number; minScore: number; validityDays: number; commissionRoles: CommissionRole[]; financingPlans: FinancingPlan[]; document: QuoteDocumentConfig };
+/** itens especiais: palavras que os sugerem pelo nome do ambiente e se o preço leva o % de comissão */
+type SpecialItemsConfig = { keywords: string[]; commissionInPrice: boolean };
+type PricingConfig = { defaultMarkup: number; defaultFreightPercent?: number; defaultTaxPercent?: number; minScore: number; validityDays: number; commissionRoles: CommissionRole[]; financingPlans: FinancingPlan[]; document: QuoteDocumentConfig; specialItems?: SpecialItemsConfig };
 type Approval = "NOT_REQUIRED" | "PENDING" | "APPROVED" | "REJECTED";
 type QuoteStatus = "DRAFT" | "SENT" | "VIEWED" | "NEGOTIATION" | "APPROVED" | "REJECTED" | "EXPIRED" | "CANCELLED";
 
@@ -1350,11 +1352,22 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["quotes", "config"], queryFn: () => apiGet<{ data: PricingConfig }>("/commercial/quotes/config") });
   const [c, setC] = useState<PricingConfig | null>(null);
+  // palavras dos itens especiais, como digitadas (separadas por vírgula)
+  const [keywords, setKeywords] = useState<string | null>(null);
   useEffect(() => {
-    if (q.data && !c) setC(q.data.data);
+    if (q.data && !c) {
+      setC(q.data.data);
+      setKeywords((q.data.data.specialItems?.keywords ?? []).join(", "));
+    }
   }, [q.data, c]);
+  const keywordList = (keywords ?? "").split(/[,;\n]/).map((k) => k.trim()).filter(Boolean);
   const save = useMutation({
-    mutationFn: () => apiPut<{ message: string }>("/commercial/quotes/config", c && { ...c, document: { ...c.document, mandatoryNote: c.document.mandatoryNote.trim() || undefined, notes: c.document.notes.map((n) => n.trim()).filter(Boolean) } }),
+    mutationFn: () =>
+      apiPut<{ message: string }>("/commercial/quotes/config", c && {
+        ...c,
+        document: { ...c.document, mandatoryNote: c.document.mandatoryNote.trim() || undefined, notes: c.document.notes.map((n) => n.trim()).filter(Boolean) },
+        specialItems: { keywords: keywordList, commissionInPrice: c.specialItems?.commissionInPrice ?? true },
+      }),
     onSuccess: (r) => {
       toast.success(r.message);
       qc.invalidateQueries({ queryKey: ["quotes", "config"] });
@@ -1395,6 +1408,30 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
                 </div>
               ))}
               <Button size="sm" variant="outline" onClick={() => setC({ ...c, commissionRoles: [...c.commissionRoles, { role: "", label: "", defaultPercent: 0 }] })}><Plus className="mr-1 h-4 w-4" /> Papel</Button>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-medium">Itens especiais (fora da comissão)</p>
+              <p className="text-xs text-muted-foreground">
+                Item especial entra no total do contrato, mas não na base da comissão. No orçamento, cada item pode ser marcado ou desmarcado à mão; as palavras abaixo só servem de sugestão quando o nome do ambiente tem uma delas (palavra inteira, sem ligar para acento ou maiúscula). Deixe vazio para não sugerir nada.
+              </p>
+              <Field label="Palavras que sugerem item especial (separe por vírgula)">
+                <Textarea rows={2} value={keywords ?? ""} onChange={(e) => setKeywords(e.target.value)} placeholder="metalon, vidro, vidros, espelho, laca, iluminação" />
+              </Field>
+              {keywordList.some((k) => k.length > 40) && <p className="text-xs text-destructive">Cada palavra pode ter no máximo 40 caracteres.</p>}
+              {keywordList.length > 50 && <p className="text-xs text-destructive">No máximo 50 palavras.</p>}
+              <div className="space-y-1">
+                <p className="text-xs font-medium">Preço do item especial</p>
+                <label className="flex items-start gap-2">
+                  <input type="radio" className="mt-1" checked={c.specialItems?.commissionInPrice ?? true} onChange={() => setC({ ...c, specialItems: { keywords: keywordList, commissionInPrice: true } })} />
+                  <span>Leva o % de comissão como os demais itens <span className="text-xs text-muted-foreground">— o preço do cliente não muda; a comissão que deixa de ser paga fica no resultado da loja</span></span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input type="radio" className="mt-1" checked={c.specialItems?.commissionInPrice === false} onChange={() => setC({ ...c, specialItems: { keywords: keywordList, commissionInPrice: false } })} />
+                  <span>Sem o % de comissão <span className="text-xs text-muted-foreground">— o item especial sai mais barato para o cliente (só mark-up, frete e imposto)</span></span>
+                </label>
+                <p className="text-xs text-muted-foreground">Vale para orçamentos calculados daqui em diante; os já salvos só mudam se forem editados.</p>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -1446,7 +1483,7 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button disabled={!c || save.isPending} onClick={() => save.mutate()}>Salvar</Button>
+          <Button disabled={!c || save.isPending || keywordList.length > 50 || keywordList.some((k) => k.length > 40)} onClick={() => save.mutate()}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

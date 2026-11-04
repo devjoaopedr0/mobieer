@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_PRICING, commissionBaseOf, computeQuote, isSpecialItem, specialItemSuggestion, type QuoteInput } from "../src/modules/commercial/quote.rules";
+import { DEFAULT_PRICING, commissionBaseOf, computeQuote, isSpecialItem, normalizePricing, specialItemSuggestion, type QuoteInput } from "../src/modules/commercial/quote.rules";
 import { participations, type Contract } from "../src/modules/commercial/commission-tiers.rules";
 
 const SEM_REF = { ...DEFAULT_PRICING, defaultFreightPercent: 0, defaultTaxPercent: 0 };
@@ -89,6 +89,44 @@ test("comissão menor melhora o resultado; o preço do cliente não muda", () =>
   assert.equal(esp.total, comum.total);
   assert.ok(esp.commissionTotal < comum.commissionTotal);
   assert.equal(Math.round((esp.result - comum.result) * 100), Math.round((comum.commissionTotal - esp.commissionTotal) * 100));
+});
+
+test("palavras configuráveis: lista própria, sem acento/maiúscula, vazia não sugere nada", () => {
+  assert.equal(specialItemSuggestion({ room: "Painel ripado" }, ["ripado"]), true);
+  assert.equal(specialItemSuggestion({ room: "Metalon" }, ["ripado"]), false);
+  assert.equal(specialItemSuggestion({ room: "ILUMINACAO da sala" }), true);
+  assert.equal(specialItemSuggestion({ room: "Porta de correr" }, ["porta de correr"]), true);
+  assert.equal(specialItemSuggestion({ room: "Metalon" }, []), false);
+  // a marca feita à mão vale com qualquer lista
+  assert.equal(isSpecialItem({ room: "Cozinha", special: true }, []), true);
+  const cfg = { ...SEM_REF, specialItems: { keywords: ["ripado"], commissionInPrice: true } };
+  const c = computeQuote(base([{ room: "Painel ripado", description: "x", unitCost: 1000 }, { room: "Metalon", description: "x", unitCost: 1000 }]), cfg);
+  assert.deepEqual(c.items.map((i) => i.special), [true, false]);
+});
+
+test("preço do item especial: com ou sem o % de comissão, conforme a configuração", () => {
+  const items = [
+    { room: "Cozinha", description: "Móveis", unitCost: 6000 },
+    { room: "Metalon", description: "x", unitCost: 1000 },
+  ];
+  const com = computeQuote(base(items), { ...SEM_REF, specialItems: { keywords: ["metalon"], commissionInPrice: true } });
+  const sem = computeQuote(base(items), { ...SEM_REF, specialItems: { keywords: ["metalon"], commissionInPrice: false } });
+  // item comum: igual nas duas; especial sem a comissão = custo × mark-up (sem frete/imposto aqui)
+  assert.equal(sem.items[0].total, com.items[0].total);
+  assert.equal(sem.items[1].total, 2000);
+  assert.ok(com.items[1].total > sem.items[1].total);
+  // a comissão não muda: a base é só o item comum
+  assert.equal(sem.commissionBase, com.commissionBase);
+  assert.equal(sem.commissionTotal, com.commissionTotal);
+});
+
+test("configuração antiga sem specialItems fica com o padrão; inválida é saneada", () => {
+  const old = normalizePricing({ defaultMarkup: 2 });
+  assert.equal(old.specialItems.commissionInPrice, true);
+  assert.ok(old.specialItems.keywords.includes("metalon"));
+  const n = normalizePricing({ specialItems: { keywords: [" Ripado ", "ripado", "", 3, "Painel  LED"], commissionInPrice: false } });
+  assert.deepEqual(n.specialItems, { keywords: ["Ripado", "Painel LED"], commissionInPrice: false });
+  assert.deepEqual(normalizePricing({ specialItems: { keywords: [] } }).specialItems.keywords, []);
 });
 
 test("commissionBaseOf: limites", () => {

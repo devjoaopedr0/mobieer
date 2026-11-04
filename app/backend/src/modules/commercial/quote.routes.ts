@@ -198,15 +198,23 @@ router.put(
             notes: z.array(z.string().trim().min(1).max(400)).max(15),
           })
           .optional(),
+        // itens especiais: palavras que os sugerem pelo nome do ambiente e se o preço leva o % de comissão
+        specialItems: z
+          .object({
+            keywords: z.array(z.string().trim().min(1, "Palavra vazia").max(40, "Palavra muito longa")).max(50, "No máximo 50 palavras"),
+            commissionInPrice: z.boolean(),
+          })
+          .optional(),
       })
       .parse(req.body);
     if (new Set(input.financingPlans.map((p) => p.id)).size !== input.financingPlans.length) throw new BadRequestError("Dois planos com o mesmo código");
-    // a pontuação mínima é da Jéssica (PUT /config/min-score): aqui ela só é mantida
-    const { minScore } = await loadPricing();
-    const value = JSON.stringify(normalizePricing({ ...input, minScore }));
+    // a pontuação mínima é da Jéssica (PUT /config/min-score): aqui ela só é mantida; itens especiais não enviados ficam como estão
+    const current = await loadPricing();
+    const next = normalizePricing({ ...input, minScore: current.minScore, specialItems: input.specialItems ?? current.specialItems });
+    const value = JSON.stringify(next);
     await prisma.setting.upsert({ where: { key: PRICING_SETTING }, create: { key: PRICING_SETTING, value }, update: { value } });
     await prisma.auditLog.create({ data: { userId: req.user!.id, action: "PRICING_CONFIG_UPDATED", entity: "Setting", entityId: PRICING_SETTING, details: input } });
-    return ok(res, normalizePricing({ ...input, minScore }), "Configuração de preços salva");
+    return ok(res, next, "Configuração de preços salva");
   })
 );
 
