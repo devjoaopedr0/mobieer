@@ -48,8 +48,10 @@ type Quote = {
   opportunity: { id: string; title: string } | null;
   project: { id: string; code: string; name: string } | null;
   seller: { id: string; name: string };
-  items: { room: string | null; description: string; quantity: number; unitCost: number; unitPrice: number; total: number; corpo?: string | null; porta?: string | null; puxador?: string | null; complemento?: string | null; modelo?: string | null }[];
+  items: { room: string | null; description: string; quantity: number; unitCost: number; unitPrice: number; total: number; special?: boolean; corpo?: string | null; porta?: string | null; puxador?: string | null; complemento?: string | null; modelo?: string | null }[];
   commissions: { userId: string | null; referrerId?: string | null; name: string; role: string; percent: number; amount: number }[];
+  /** o que paga comissão: o total sem os itens especiais */
+  commissionBase?: number;
   referrer?: { id: string; name: string } | null;
   costTotal: number;
   markup: number;
@@ -85,7 +87,7 @@ type FinanceAdjust = { adjustments: { index: number; dueDay?: string; amount?: n
 const dayBR = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 
 type Calc = {
-  items: { total: number; unitPrice: number }[];
+  items: { total: number; unitPrice: number; special?: boolean }[];
   costTotal: number;
   commissionPercent: number;
   subtotal: number;
@@ -100,6 +102,9 @@ type Calc = {
   otherCosts: number;
   commissions: { name: string; percent: number; amount: number }[];
   commissionTotal: number;
+  /** total sem os itens especiais (base da comissão) e a parte dos especiais */
+  commissionBase?: number;
+  specialTotal?: number;
   payment: { method: PaymentMethod; planName: string | null; downPayment: number; financed: number; installments: number; installmentValue: number; feePercent: number; financingFee: number };
   netRevenue: number;
   result: number;
@@ -232,7 +237,8 @@ export function QuotesTab() {
 
 // ------------------------------------------------------------------ editor
 
-type ItemForm = { room: string; description: string; quantity: string; unitCost: string; corpo: string; porta: string; puxador: string; complemento: string; modelo: string };
+/** special: item especial (fora da comissão); null = o sistema sugere pelo nome do ambiente */
+type ItemForm = { room: string; description: string; quantity: string; unitCost: string; special: boolean | null; corpo: string; porta: string; puxador: string; complemento: string; modelo: string };
 /** Acabamentos do ambiente: saem na segunda tabela do orçamento da loja. */
 const FINISHES = [
   ["corpo", "Caixaria", "MDF 15mm Branco TX"],
@@ -274,7 +280,7 @@ type Form = {
   futureReleaseDate: string;
 };
 
-const emptyItem = (): ItemForm => ({ room: "", description: "", quantity: "1", unitCost: "", corpo: "", porta: "", puxador: "", complemento: "", modelo: "" });
+const emptyItem = (): ItemForm => ({ room: "", description: "", quantity: "1", unitCost: "", special: null, corpo: "", porta: "", puxador: "", complemento: "", modelo: "" });
 
 function fromQuote(q: Quote): Form {
   return {
@@ -282,7 +288,7 @@ function fromQuote(q: Quote): Form {
     opportunityId: q.opportunity?.id ?? "",
     projectId: q.project?.id ?? "",
     referrerId: q.referrer?.id ?? "",
-    items: q.items.map((i) => ({ room: i.room ?? "", description: i.description, quantity: String(i.quantity).replace(".", ","), unitCost: toField(i.unitCost), corpo: i.corpo ?? "", porta: i.porta ?? "", puxador: i.puxador ?? "", complemento: i.complemento ?? "", modelo: i.modelo ?? "" })),
+    items: q.items.map((i) => ({ room: i.room ?? "", description: i.description, quantity: String(i.quantity).replace(".", ","), unitCost: toField(i.unitCost), special: i.special ?? false, corpo: i.corpo ?? "", porta: i.porta ?? "", puxador: i.puxador ?? "", complemento: i.complemento ?? "", modelo: i.modelo ?? "" })),
     markup: String(q.markup).replace(".", ","),
     commissions: q.commissions.map((c) => ({ userId: c.userId ?? "", referrerId: c.referrerId ?? "", name: c.name, role: c.role, percent: toField(c.percent) })),
     // reabre no mesmo modo em que foi salvo
@@ -316,7 +322,7 @@ function toPayload(f: Form, roleLabel: (role: string) => string, addendumOf?: st
     referrerId: f.referrerId || null,
     items: f.items
       .filter((i) => i.description.trim() || parse(i.unitCost) > 0)
-      .map((i) => ({ room: i.room || null, description: i.description.trim() || i.room || "Item", quantity: parse(i.quantity) || 1, unitCost: parse(i.unitCost), corpo: i.corpo.trim() || null, porta: i.porta.trim() || null, puxador: i.puxador.trim() || null, complemento: i.complemento.trim() || null, modelo: i.modelo.trim() || null })),
+      .map((i) => ({ room: i.room || null, description: i.description.trim() || i.room || "Item", quantity: parse(i.quantity) || 1, unitCost: parse(i.unitCost), special: i.special, corpo: i.corpo.trim() || null, porta: i.porta.trim() || null, puxador: i.puxador.trim() || null, complemento: i.complemento.trim() || null, modelo: i.modelo.trim() || null })),
     markup: parse(f.markup),
     // percentual sem pessoa escolhida ainda conta no preço, com o nome do papel
     commissions: f.commissions.filter((c) => parse(c.percent) > 0).map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name.trim() || roleLabel(c.role), role: c.role, percent: parse(c.percent) })),
@@ -505,8 +511,9 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
     setFixingCommissions(false);
     if (quote) setForm((f) => ({ ...f, commissions: fromQuote(quote).commissions }));
   };
-  // valor de cada comissão sobre o preço final (o do cálculo ao vivo ou o já gravado)
-  const commissionBase = calc?.total ?? quote?.total ?? 0;
+  // valor de cada comissão sobre o preço final sem os itens especiais (o do cálculo ao vivo ou o já gravado)
+  const commissionBase = calc?.commissionBase ?? calc?.total ?? quote?.commissionBase ?? quote?.total ?? 0;
+  const specialTotal = calc ? calc.specialTotal ?? 0 : quote ? Math.max(0, Math.round((quote.total - (quote.commissionBase ?? quote.total)) * 100) / 100) : 0;
 
   const plans =config.financingPlans.filter((p) => p.method === form.method);
   const pickMethod = (m: PaymentMethod) => setForm((f) => ({ ...f, method: m, planId: "", installments: m === "AVISTA" || m === "PIX" ? "1" : f.installments }));
@@ -618,6 +625,11 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
                         </Button>
                       ) : <span />}
                     </div>
+                    <label className="flex w-fit items-center gap-2 text-xs text-muted-foreground" title="Metalon, vidro, espelho, laca, iluminação: entra no preço e no contrato, mas não na base da comissão">
+                      <input type="checkbox" disabled={!canEdit} checked={it.special ?? calc?.items[i]?.special ?? false} onChange={(e) => upd({ special: e.target.checked })} />
+                      Item especial (metalon, vidro…) — fora da comissão
+                      {it.special === null && calc?.items[i]?.special && <span className="text-primary">· sugerido pelo nome</span>}
+                    </label>
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
                       {FINISHES.map(([key, label, hint]) => (
                         <Field key={key} label={label}><Input disabled={!canEdit} placeholder={hint} value={it[key]} onChange={(e) => upd({ [key]: e.target.value } as Partial<ItemForm>)} /></Field>
@@ -744,7 +756,12 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
                     <Plus className="mr-1 h-4 w-4" /> Envolvido
                   </Button>
                 )}
-                <p className="text-xs text-muted-foreground">A comissão é acrescentada ao preço: pagas as comissões, sobra o custo × mark-up.</p>
+                {specialTotal > 0 && (
+                  <p className="rounded-md bg-muted px-3 py-2 text-xs">
+                    Base da comissão: <b>{formatCurrency(commissionBase)}</b> — {formatCurrency(specialTotal)} em itens especiais ficam fora (continuam no total do contrato).
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">A comissão é acrescentada ao preço: pagas as comissões, sobra o custo × mark-up. Itens especiais (metalon, vidro…) não pagam comissão.</p>
               </CardContent>
             </Card>
           </div>
@@ -1097,7 +1114,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
         </Dialog>
       )}
       {accepting && (
-        <AcceptDialog quoteId={quote.id} commissions={quote.commissions} total={quote.total} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={(adjust) => { acceptAdjust.current = adjust; run.mutate("accepted"); }} onClose={() => setAccepting(false)} />
+        <AcceptDialog quoteId={quote.id} commissions={quote.commissions} total={quote.commissionBase ?? quote.total} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={(adjust) => { acceptAdjust.current = adjust; run.mutate("accepted"); }} onClose={() => setAccepting(false)} />
       )}
 
       <Dialog open={deciding !== null} onOpenChange={(o) => !o && setDeciding(null)}>
@@ -1118,6 +1135,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
 const COMMISSION_CATEGORIES = ["Comissão de venda", "Reserva técnica"];
 const parseMoney = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
 
+/** total: a base da comissão (o total do contrato sem os itens especiais). */
 export function AcceptDialog(props: { quoteId: string; commissions: Quote["commissions"]; total: number; withFinance: boolean; setWithFinance: (v: boolean) => void; pending: boolean; onConfirm: (adjust: FinanceAdjust) => void; onClose: () => void }) {
   const plan = useQuery({ queryKey: ["quote-finance-preview", props.quoteId], queryFn: () => apiGet<{ data: PlannedEntry[] }>(`/commercial/quotes/${props.quoteId}/finance-preview`), staleTime: 0 });
   // % de cada comissão, que dá para acertar aqui antes de lançar

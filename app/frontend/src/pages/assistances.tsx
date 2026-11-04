@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { CalendarClock, CircleUserRound, Headphones, MapPin, Plus, Search } from "lucide-react";
+import { AlertTriangle, CalendarCheck, CalendarClock, CheckCircle2, CircleUserRound, Clock, Hammer, Headphones, Hourglass, MapPin, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { AssistanceScheduleDialog } from "@/components/assistance-schedule";
@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiGet, apiObjectUrl, apiPatch, apiPost } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 import { cn, formatCurrency } from "@/lib/utils";
+import { OperationBoard, whenText, type BoardGroup, type BoardRow, type BoardTone } from "@/components/operation-board";
 
 type Attachment = { id: string; fileName: string; downloadUrl: string };
 type Ticket = {
@@ -28,7 +29,20 @@ type Ticket = {
   /** registro da equipe (erro, retrabalho): não aparece para o cliente */
   internal: boolean; origin: "INTERNAL" | "CLIENT_PORTAL";
   costs: { garantia: number; cobrado: number; total: number };
+  /** situação para a linha do tempo (assistance.rules: assistanceStage) e visita/prazo vencido */
+  stage?: Stage; late?: boolean; resolvedAt?: string | null; dueAt?: string | null; schedulePeriod?: string | null;
 };
+type Stage = "PENDENTE" | "AGUARDANDO_CONFIRMACAO" | "AGENDADA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
+const STAGE: Record<Stage, { label: string; tone: BoardTone }> = {
+  EM_ANDAMENTO: { label: "Em andamento", tone: "primary" },
+  AGENDADA: { label: "Agendada", tone: "info" },
+  AGUARDANDO_CONFIRMACAO: { label: "Aguardando confirmação", tone: "warning" },
+  PENDENTE: { label: "Pendente", tone: "muted" },
+  CONCLUIDA: { label: "Concluída", tone: "success" },
+  CANCELADA: { label: "Cancelada", tone: "muted" },
+};
+const PERIOD: Record<string, string> = { MANHA: "manhã", TARDE: "tarde", QUALQUER: "qualquer horário" };
+const DONE_WINDOW_DAYS = 30;
 type NewTicket = { clientId: string; projectId: string; kind: string; title: string; description: string; priority: Ticket["priority"]; assigneeId: string };
 const INTERNAL = ["ERRO_INTERNO", "RETRABALHO"];
 type Options = { kinds: { code: string; label: string }[]; columns: { status: string; label: string }[] };
@@ -62,7 +76,7 @@ export function AssistancesPage() {
   const { can } = useAuth();
   const qc = useQueryClient();
   const canManage = can("organization.tasks.edit.all");
-  const [view, setView] = useState<"lista" | "quadro" | "agenda" | "regiao">("lista");
+  const [view, setView] = useState<"lista" | "quadro" | "agenda" | "regiao" | "linha">("lista");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
   const [status, setStatus] = useState("");
@@ -120,6 +134,54 @@ export function AssistancesPage() {
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
   }, [rows]);
 
+  // linha do tempo: tudo o que está em atendimento por situação, mais as concluídas dos últimos 30 dias
+  const board = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const since = Date.now() - DONE_WINDOW_DAYS * 86_400_000;
+    const list = all.filter((t) =>
+      (!term || `${t.number} ${t.title} ${t.client.name} ${t.project?.name ?? ""} ${t.place ?? ""}`.toLowerCase().includes(term)) &&
+      (!kind || t.kind === kind) && (!assignee || t.assignee?.id === assignee)
+    );
+    const stageOf = (t: Ticket): Stage => t.stage ?? (t.status === "RESOLVED" ? "CONCLUIDA" : t.status === "CANCELLED" ? "CANCELADA" : "PENDENTE");
+    const recentDone = (t: Ticket) => new Date(t.resolvedAt ?? t.createdAt).getTime() >= since;
+    const toRow = (t: Ticket): BoardRow => {
+      const s = STAGE[stageOf(t)];
+      const forecast = t.scheduledAt
+        ? `${whenText(t.scheduledAt)}${t.schedulePeriod && PERIOD[t.schedulePeriod] ? ` · ${PERIOD[t.schedulePeriod]}` : ""}`
+        : t.dueAt ? `prazo ${day(t.dueAt)}` : null;
+      const openDays = Math.max(0, Math.floor((Date.now() - new Date(t.createdAt).getTime()) / 86_400_000));
+      return {
+        id: t.id,
+        title: `${t.number} · ${t.title}`,
+        client: t.client.name,
+        project: t.project ? `${t.project.code} — ${t.project.name}` : null,
+        who: t.assignee?.name ?? null,
+        start: day(t.createdAt),
+        forecast: stageOf(t) === "CONCLUIDA" && t.resolvedAt ? `resolvida ${day(t.resolvedAt)}` : forecast,
+        duration: stageOf(t) === "CONCLUIDA" ? null : openDays === 0 ? "aberta hoje" : `aberta há ${openDays} ${openDays === 1 ? "dia" : "dias"}`,
+        status: s.label,
+        tone: t.late ? "danger" : s.tone,
+        alerts: t.late ? [t.scheduledAt ? "Visita marcada para um dia que já passou — remarque ou registre o atendimento" : "Prazo vencido"] : [],
+      };
+    };
+    const by = (s: Stage) => list.filter((t) => stageOf(t) === s && (s !== "CONCLUIDA" || recentDone(t)));
+    const sortByVisit = (a: Ticket, b: Ticket) => (a.scheduledAt ?? a.dueAt ?? a.createdAt).localeCompare(b.scheduledAt ?? b.dueAt ?? b.createdAt);
+    const late = list.filter((t) => t.late);
+    const groups: BoardGroup[] = [
+      { key: "EM_ANDAMENTO", label: "Em andamento", tone: "primary", rows: by("EM_ANDAMENTO").sort(sortByVisit).map(toRow), empty: "Nenhuma assistência em execução." },
+      { key: "ATRASADAS", label: "Atrasadas", tone: "danger", rows: late.sort(sortByVisit).map(toRow), empty: "Nenhuma assistência atrasada." },
+      { key: "AGENDADA", label: "Agendadas (confirmadas pelo cliente)", tone: "info", rows: by("AGENDADA").filter((t) => !t.late).sort(sortByVisit).map(toRow), empty: "Nenhuma visita confirmada." },
+      { key: "AGUARDANDO_CONFIRMACAO", label: "Aguardando confirmação", tone: "warning", rows: by("AGUARDANDO_CONFIRMACAO").filter((t) => !t.late).sort(sortByVisit).map(toRow), empty: "Nenhuma esperando o cliente." },
+      { key: "PENDENTE", label: "Pendentes (sem visita marcada)", tone: "muted", rows: by("PENDENTE").filter((t) => !t.late).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toRow), empty: "Nada pendente." },
+      { key: "CONCLUIDA", label: `Concluídas (últimos ${DONE_WINDOW_DAYS} dias)`, tone: "success", rows: by("CONCLUIDA").sort((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? "")).map(toRow), collapsed: true, empty: "Nenhuma concluída no período." },
+    ];
+    const kpis = {
+      andamento: by("EM_ANDAMENTO").length, agendadas: by("AGENDADA").length, aguardando: by("AGUARDANDO_CONFIRMACAO").length,
+      pendentes: by("PENDENTE").length, concluidas: by("CONCLUIDA").length, atrasadas: late.length,
+    };
+    return { groups, kpis };
+  }, [all, search, kind, assignee]);
+
   if (list.isLoading || options.isLoading) return <PageSkeleton />;
   const detail = all.find((t) => t.id === detailId) ?? null;
   const openCount = all.filter((t) => !["RESOLVED", "CANCELLED"].includes(t.status)).length;
@@ -151,8 +213,8 @@ export function AssistancesPage() {
       <Card>
         <CardContent className="flex flex-wrap items-center gap-2 pt-6">
           <div className="flex overflow-hidden rounded-md border text-sm">
-            {(["lista", "quadro", "agenda", "regiao"] as const).map((v) => (
-              <button key={v} type="button" className={cn("px-3 py-1.5 capitalize", view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")} onClick={() => setView(v)}>{v === "quadro" ? "Kanban" : v === "regiao" ? "Por região" : v}</button>
+            {(["lista", "linha", "quadro", "agenda", "regiao"] as const).map((v) => (
+              <button key={v} type="button" className={cn("px-3 py-1.5 capitalize", view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")} onClick={() => setView(v)}>{v === "quadro" ? "Kanban" : v === "regiao" ? "Por região" : v === "linha" ? "Linha do tempo" : v}</button>
             ))}
           </div>
           <div className="relative min-w-48 flex-1">
@@ -163,7 +225,7 @@ export function AssistancesPage() {
             <option value="">Todos os tipos</option>
             {kinds.map((k) => <option key={k.code} value={k.code}>{k.label}</option>)}
           </select>
-          {view !== "quadro" && (
+          {view !== "quadro" && view !== "linha" && (
             <select aria-label="Situação" className={selectCls} value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">Em atendimento</option>
               {columns.map((c) => <option key={c.status} value={c.status}>{c.label}</option>)}
@@ -174,12 +236,26 @@ export function AssistancesPage() {
             <option value="">Todos os responsáveis</option>
             {assignees.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          {view !== "quadro" && !status && <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Mostrar encerradas</label>}
+          {view !== "quadro" && view !== "linha" && !status && <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Mostrar encerradas</label>}
         </CardContent>
       </Card>
 
       {!all.length ? (
         <EmptyState icon={Headphones} title="Nenhuma assistência" description="Quando um cliente abrir um pedido de assistência no portal, ele aparece aqui." />
+      ) : view === "linha" ? (
+        <OperationBoard
+          onOpen={setDetailId}
+          columns={{ start: "Aberta em", forecast: "Visita / previsão de atendimento" }}
+          kpis={[
+            { title: "Em andamento", value: board.kpis.andamento, icon: Hammer },
+            { title: "Agendadas", value: board.kpis.agendadas, icon: CalendarCheck },
+            { title: "Aguardando confirmação", value: board.kpis.aguardando, icon: Hourglass },
+            { title: "Pendentes", value: board.kpis.pendentes, icon: Clock },
+            { title: `Concluídas (${DONE_WINDOW_DAYS} dias)`, value: board.kpis.concluidas, icon: CheckCircle2 },
+            { title: "Atrasadas", value: board.kpis.atrasadas, icon: AlertTriangle },
+          ]}
+          groups={board.groups}
+        />
       ) : view === "lista" ? (
         <Card className="overflow-hidden">
           <CardContent className="overflow-x-auto p-0">

@@ -135,7 +135,30 @@ export const MAX_COMMISSION_PERCENT = 50;
 
 export const FINISH_FIELDS = ["corpo", "porta", "puxador", "complemento", "modelo"] as const;
 export type Finishes = Partial<Record<(typeof FINISH_FIELDS)[number], string | null>>;
-export type QuoteItemInput = { room?: string | null; description: string; quantity?: number; unitCost: number } & Finishes;
+/**
+ * special: item especial (metalon, vidro, espelho, laca, iluminação — feito ou
+ * comprado à parte). Entra no preço e no total do contrato como qualquer item,
+ * mas fica fora da base da comissão. Sem a marca informada, vale a sugestão
+ * pelo nome do ambiente (specialItemSuggestion).
+ */
+export type QuoteItemInput = { room?: string | null; description: string; quantity?: number; unitCost: number; special?: boolean | null } & Finishes;
+
+/** Os mesmos itens especiais do contrato (contract-options: vidro, metalon, laca ou iluminação), mais espelho. */
+const SPECIAL_ITEM = /\b(metalon|vidros?|espelhos?|laca|laqueado|ilumina[cç][aã]o|led)\b/i;
+
+/**
+ * Sugestão para item sem a marca: olha só o nome do ambiente (ou a descrição,
+ * quando não há ambiente). Acabamento e observação ficam de fora — "porta de
+ * vidro" numa cozinha não faz da cozinha inteira um item especial.
+ */
+export function specialItemSuggestion(it: { room?: string | null; description?: string | null }): boolean {
+  const name = it.room?.trim() || it.description?.trim() || "";
+  return SPECIAL_ITEM.test(name);
+}
+
+/** A marca informada vale; sem ela, a sugestão. */
+export const isSpecialItem = (it: { room?: string | null; description?: string | null; special?: boolean | null }) =>
+  typeof it.special === "boolean" ? it.special : specialItemSuggestion(it);
 /** Papel da linha de comissão que é a reserva técnica do indicador (arquiteto/parceiro). */
 export const REFERRER_ROLE = "INDICADOR";
 
@@ -186,6 +209,16 @@ const pos = (n: number | null | undefined) => (n && n > 0 ? n : 0);
 
 export class QuoteRuleError extends Error {}
 
+/**
+ * Base da comissão: o total do contrato menos a parte dos itens especiais. O
+ * desconto vale para o orçamento inteiro, então cada parte leva o seu pedaço.
+ */
+export function commissionBaseOf(total: number, subtotal: number, specialSubtotal: number): number {
+  if (!(subtotal > 0) || !(specialSubtotal > 0)) return r2(total);
+  if (specialSubtotal >= subtotal) return 0;
+  return r2((total * (subtotal - specialSubtotal)) / subtotal);
+}
+
 export function computeQuote(input: QuoteInput, config: PricingConfig) {
   if (!(input.markup > 0)) throw new QuoteRuleError("O mark-up precisa ser maior que zero");
   const commissionPercent = r2(input.commissions.reduce((s, c) => s + pos(c.percent), 0));
@@ -213,6 +246,7 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
       cost,
       unitPrice: r2(total / quantity),
       total,
+      special: isSpecialItem(it),
     };
   });
   const costTotal = r2(items.reduce((s, i) => s + i.cost, 0));
@@ -229,9 +263,12 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
   const taxAmount = r2((total * taxPercent) / 100);
   const otherCosts = r2(pos(input.otherCosts));
 
+  // base da comissão: o total sem os itens especiais (o desconto se reparte na proporção)
+  const specialSubtotal = r2(items.filter((i) => i.special).reduce((s, i) => s + i.total, 0));
+  const commissionBase = commissionBaseOf(total, subtotal, specialSubtotal);
   const commissions = input.commissions
     .filter((c) => pos(c.percent) > 0)
-    .map((c) => ({ userId: c.userId ?? null, referrerId: c.referrerId ?? null, name: c.name.trim(), role: c.role, percent: r2(c.percent), amount: r2((total * c.percent) / 100) }));
+    .map((c) => ({ userId: c.userId ?? null, referrerId: c.referrerId ?? null, name: c.name.trim(), role: c.role, percent: r2(c.percent), amount: r2((commissionBase * c.percent) / 100) }));
   const commissionTotal = r2(commissions.reduce((s, c) => s + c.amount, 0));
 
   // Pagamento: entrada + o restante no plano escolhido.
@@ -280,6 +317,9 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
     otherCosts,
     commissions,
     commissionTotal,
+    /** total que paga comissão (sem os itens especiais) e a parte dos especiais no total */
+    commissionBase,
+    specialTotal: r2(total - commissionBase),
     payment: {
       method,
       planId: plan?.id ?? null,

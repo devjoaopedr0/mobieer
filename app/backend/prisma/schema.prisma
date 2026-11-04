@@ -2126,6 +2126,8 @@ model CommercialQuote {
   discount       Decimal                @default(0) @db.Decimal(14, 2)
   surcharge      Decimal                @default(0) @db.Decimal(14, 2)
   total          Decimal                @default(0) @db.Decimal(14, 2)
+  // base da comissão: o total sem os itens especiais (metalon, vidro…); vazio = orçamento antigo, a base é o total
+  commissionBase Decimal?               @db.Decimal(14, 2)
   // desconto informado em % ou como valor final combinado (vazio = desconto em R$)
   discountPercent Decimal?              @db.Decimal(7, 4)
   targetTotal     Decimal?              @db.Decimal(14, 2)
@@ -2225,6 +2227,8 @@ model CommercialQuoteItem {
   discount    Decimal         @default(0) @db.Decimal(14, 2)
   surcharge   Decimal         @default(0) @db.Decimal(14, 2)
   total       Decimal         @db.Decimal(14, 2)
+  // item especial (metalon, vidro, espelho, laca, iluminação): no preço e no contrato, fora da base da comissão
+  special     Boolean         @default(false)
   quoteId     String
   quote       CommercialQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   productId   String?

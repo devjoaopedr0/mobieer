@@ -113,6 +113,19 @@ router.post(
     if (visit.technicianId && visit.scheduledAt) {
       await notify(visit.technicianId, "Medição agendada", `${project.code} — ${project.name}: medição em ${visit.scheduledAt.toLocaleDateString("pt-BR")}.`);
     }
+    // criada pela equipe (sem pedido do cliente no portal): fica registrado quem criou
+    await prisma.auditLog.create({
+      data: { userId: req.user!.id, action: "MEASUREMENT_CREATED_MANUALLY", entity: "MeasurementVisit", entityId: visit.id, details: { projectId: project.id, code: project.code, scheduledAt: visit.scheduledAt } },
+    });
+    // já nasceu com data: o cliente recebe o mesmo aviso de quando a equipe agenda depois
+    if (visit.scheduledAt) {
+      void sendAutomation("MEASUREMENT_SCHEDULED", {
+        organizationId: req.user!.organizationId,
+        clientId: visit.project?.clientId,
+        vars: { "projeto.codigo": project.code, "projeto.nome": project.name, "medicao.data": fmtVisit(visit.scheduledAt) },
+        dedupeKey: `measurement-scheduled:${visit.id}:${visit.scheduledAt.toISOString()}`,
+      });
+    }
     return ok(res, serializeVisit(visit), "Medição criada");
   })
 );

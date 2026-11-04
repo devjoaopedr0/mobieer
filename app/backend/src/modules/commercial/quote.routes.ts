@@ -49,6 +49,8 @@ const calcSchema = z.object({
         modelo: text(160),
         quantity: z.coerce.number().positive().max(100000).optional(),
         unitCost: money,
+        // item especial (metalon, vidro…): fica fora da base da comissão; sem a marca, vale a sugestão pelo nome
+        special: z.boolean().optional().nullable(),
       })
     )
     .min(1, "Inclua pelo menos um ambiente ou item")
@@ -786,10 +788,11 @@ router.post(
  */
 function commissionUpdate(cur: Awaited<ReturnType<typeof findQuote>>, commissions: z.infer<typeof commissionsSchema>) {
   const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-  const total = Number(cur.total);
+  // a base gravada no orçamento (sem os itens especiais); orçamento antigo, sem ela, usa o total
+  const base = Number(cur.commissionBase ?? cur.total);
   const list = commissions
     .filter((c) => c.percent > 0)
-    .map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name, role: c.role, percent: r2(c.percent), amount: r2((total * c.percent) / 100) }));
+    .map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name, role: c.role, percent: r2(c.percent), amount: r2((base * c.percent) / 100) }));
   const delta = r2(cur.commissions.reduce((s, c) => s + Number(c.amount), 0)) - r2(list.reduce((s, c) => s + c.amount, 0));
   const costTotal = Number(cur.costTotal);
   const data = {
