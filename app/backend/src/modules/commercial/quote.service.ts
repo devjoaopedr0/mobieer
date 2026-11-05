@@ -71,6 +71,7 @@ export function serializeQuote(q: QuoteRow) {
       unitCost: n(i.unitCost),
       unitPrice: n(i.unitPrice),
       total: n(i.total),
+      special: i.special,
     })),
     commissions: q.commissions.map((c) => ({ id: c.id, userId: c.userId, referrerId: c.referrerId, name: c.name, role: c.role, percent: n(c.percent), amount: n(c.amount) })),
     referrer: q.referrer,
@@ -83,6 +84,8 @@ export function serializeQuote(q: QuoteRow) {
     discountPercent: q.discountPercent == null ? null : n(q.discountPercent),
     targetTotal: q.targetTotal == null ? null : n(q.targetTotal),
     total,
+    /** o que paga comissão: o total sem os itens especiais (orçamento antigo, sem a base gravada: o total) */
+    commissionBase: q.commissionBase == null ? total : n(q.commissionBase),
     freight: n(q.freight),
     freightPercent: n(q.freightPercent),
     taxPercent: n(q.taxPercent),
@@ -127,6 +130,7 @@ export function calcToData(c: QuoteCalc) {
     discountPercent: c.discountPercent == null ? null : new Prisma.Decimal(c.discountPercent.toFixed(4)),
     targetTotal: c.targetTotal == null ? null : D(c.targetTotal),
     total: D(c.total),
+    commissionBase: D(c.commissionBase),
     freight: D(c.freight),
     otherCosts: D(c.otherCosts),
     freightPercent: D(c.freightPercent),
@@ -156,6 +160,7 @@ export function calcToData(c: QuoteCalc) {
         unitCost: D(i.unitCost),
         unitPrice: D(i.unitPrice),
         total: D(i.total),
+        special: i.special,
       })),
     },
     commissions: {

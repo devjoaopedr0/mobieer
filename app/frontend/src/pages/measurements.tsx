@@ -74,10 +74,12 @@ function useMeasurementActions(invalidate: () => void) {
     onError: (e) => toast.error(errorMessage(e, "Falha ao cancelar")),
   });
   const create = useMutation({
-    mutationFn: ({ projectId, scheduledAt, technicianId }: { projectId: string; scheduledAt: string | null; technicianId: string | null }) =>
+    mutationFn: ({ projectId, scheduledAt, technicianId, teamNotes, clientNotes }: { projectId: string; scheduledAt: string | null; technicianId: string | null; teamNotes?: string; clientNotes?: string }) =>
       apiPost(`/measurements/projects/${projectId}`, {
         scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
         technicianId: technicianId || null,
+        teamNotes: teamNotes?.trim() || null,
+        clientNotes: clientNotes?.trim() || null,
       }),
     onSuccess: () => { toast.success("Medição criada"); done(); },
     onError: (e) => toast.error(errorMessage(e, "Falha ao criar")),
@@ -296,6 +298,95 @@ export function MeasurementProjectPanel({ projectId, canManage }: { projectId: s
   );
 }
 
+/* ============================ criação manual ============================ */
+
+type ProjectOption = { id: string; code: string; name: string; client?: { id: string; name: string } | null };
+
+/**
+ * Medição criada pela equipe, sem pedido do cliente no portal: escolhe o
+ * projeto (o cliente vem dele); com data, já nasce agendada; sem data, fica
+ * como solicitada para agendar depois.
+ */
+function NewMeasurementDialog({ open, onClose, people, openProjectIds, invalidate }: {
+  open: boolean;
+  onClose: () => void;
+  people: Person[];
+  /** projetos que já têm medição solicitada ou agendada */
+  openProjectIds: Set<string>;
+  invalidate: () => void;
+}) {
+  const { create } = useMeasurementActions(invalidate);
+  const [f, setF] = useState({ projectId: "", scheduledAt: "", technicianId: "", teamNotes: "", clientNotes: "" });
+  const [search, setSearch] = useState("");
+  const projects = useQuery({ queryKey: ["business-projects", "measurement-picker"], queryFn: () => apiGet<{ data: ProjectOption[] }>("/business/projects"), enabled: open });
+  const list = (projects.data?.data ?? []).filter((p) => {
+    const t = search.trim().toLowerCase();
+    return !t || `${p.code} ${p.name} ${p.client?.name ?? ""}`.toLowerCase().includes(t);
+  });
+  const picked = (projects.data?.data ?? []).find((p) => p.id === f.projectId);
+  const busy = Boolean(f.projectId && openProjectIds.has(f.projectId));
+  const past = Boolean(f.scheduledAt && new Date(f.scheduledAt).getTime() < Date.now() - 60_000);
+  const close = () => { setF({ projectId: "", scheduledAt: "", technicianId: "", teamNotes: "", clientNotes: "" }); setSearch(""); onClose(); };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && close()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Nova medição</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label>Projeto</Label>
+            <Input placeholder="Buscar por código, projeto ou cliente" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Select value={f.projectId || "NONE"} onValueChange={(v) => setF({ ...f, projectId: v === "NONE" ? "" : v })}>
+              <SelectTrigger aria-label="Projeto"><SelectValue placeholder={projects.isLoading ? "Carregando…" : "Escolha o projeto"} /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NONE">Escolha o projeto</SelectItem>
+                {list.slice(0, 100).map((p) => <SelectItem key={p.id} value={p.id}>{p.code} — {p.name}{p.client ? ` · ${p.client.name}` : ""}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {picked && <p className="text-xs text-muted-foreground">Cliente: <span className="text-foreground">{picked.client?.name ?? "—"}</span></p>}
+            {busy && <p className="text-xs text-destructive">Este projeto já tem uma medição solicitada ou agendada — reagende a que já existe.</p>}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Data e hora (opcional)</Label>
+              <Input type="datetime-local" value={f.scheduledAt} onChange={(e) => setF({ ...f, scheduledAt: e.target.value })} />
+              {past && <p className="text-xs text-destructive">A data já passou.</p>}
+            </div>
+            <div className="space-y-2">
+              <Label>Técnico</Label>
+              <Select value={f.technicianId || "NONE"} onValueChange={(v) => setF({ ...f, technicianId: v === "NONE" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="A definir" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">A definir</SelectItem>
+                  {people.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Observações da equipe</Label>
+            <Textarea rows={2} maxLength={2000} value={f.teamNotes} onChange={(e) => setF({ ...f, teamNotes: e.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <Label>Recado do cliente (se pediu por telefone ou na loja)</Label>
+            <Textarea rows={2} maxLength={2000} value={f.clientNotes} onChange={(e) => setF({ ...f, clientNotes: e.target.value })} />
+          </div>
+          <p className="text-xs text-muted-foreground">{f.scheduledAt ? "Com data, a medição já nasce agendada e o cliente é avisado como num agendamento normal." : "Sem data, fica em Solicitadas para agendar depois."}</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={close}>Cancelar</Button>
+          <Button
+            disabled={create.isPending || !f.projectId || busy || past}
+            onClick={() => create.mutate({ projectId: f.projectId, scheduledAt: f.scheduledAt || null, technicianId: f.technicianId || null, teamNotes: f.teamNotes, clientNotes: f.clientNotes }, { onSuccess: close })}
+          >
+            {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Criar medição
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ============================ global page ============================ */
 
 export function MeasurementsPage() {
@@ -308,6 +399,11 @@ export function MeasurementsPage() {
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
   // "Desenhos": todos os desenhos de medição num lugar só, como os quadros do iPad
   const [view, setView] = useState<"medicoes" | "desenhos">("medicoes");
+  const [creating, setCreating] = useState(false);
+  const openProjectIds = useMemo(
+    () => new Set((visits.data?.data ?? []).filter((v) => (v.status === "REQUESTED" || v.status === "SCHEDULED") && v.project).map((v) => v.project!.id)),
+    [visits.data]
+  );
 
   const groups = useMemo(() => {
     const all = visits.data?.data ?? [];
@@ -339,7 +435,10 @@ export function MeasurementsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Medições" description="Solicitações de medição, agendamento e prazo do projeto técnico (12 dias).">
+      <PageHeader title="Medições" description="Solicitações de medição, agendamento e prazo do projeto técnico (12 dias). A equipe também cria medições aqui, sem depender do pedido do cliente no portal.">
+        {canManage && (
+          <Button onClick={() => setCreating(true)}><Ruler className="mr-2 h-4 w-4" />Nova medição</Button>
+        )}
         <div className="flex overflow-hidden rounded-md border text-sm">
           {([["medicoes", "Medições"], ["desenhos", "Desenhos"]] as const).map(([v, l]) => (
             <button key={v} type="button" className={`px-3 py-1.5 ${view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setView(v)}>{l}</button>
@@ -349,7 +448,7 @@ export function MeasurementsPage() {
       {view === "desenhos" ? (
         <MeasurementDrawings visits={visits.data?.data ?? []} canManage={canManage} />
       ) : total === 0 ? (
-        <EmptyState title="Nenhuma medição" description="Quando um cliente solicitar a medição pelo portal, aparece aqui." />
+        <EmptyState title="Nenhuma medição" description="Quando um cliente solicitar a medição pelo portal, aparece aqui. A equipe também pode criar em Nova medição." />
       ) : (
         <div className="space-y-4">
           {section("Solicitadas", <Clock className="h-4 w-4" />, groups.REQUESTED)}
@@ -357,6 +456,7 @@ export function MeasurementsPage() {
           {section("Concluídas", <CheckCircle2 className="h-4 w-4" />, groups.DONE)}
         </div>
       )}
+      <NewMeasurementDialog open={creating} onClose={() => setCreating(false)} people={people.data?.data ?? []} openProjectIds={openProjectIds} invalidate={invalidate} />
     </div>
   );
 }

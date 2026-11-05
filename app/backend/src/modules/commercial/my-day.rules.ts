@@ -8,7 +8,7 @@
 const TZ = "America/Fortaleza";
 export const dayKey = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: TZ });
 
-export type TodoKind = "OPORTUNIDADE" | "LEAD" | "AGENDA" | "TAREFA";
+export type TodoKind = "OPORTUNIDADE" | "LEAD" | "AGENDA" | "TAREFA" | "DIARIO";
 export type Todo = { kind: TodoKind; id: string; title: string; client: string | null; at: Date; link: string; sellerId: string | null; sellerName: string | null };
 
 /** Atrasadas (antes de hoje), de hoje e próximas (até `days` dias), cada grupo em ordem de horário. */
@@ -34,6 +34,8 @@ export const INTERACTION_LABEL: Record<string, string> = {
   NEGOTIATION: "Negociação",
   INTERNAL_MESSAGE: "Mensagem interna",
   OTHER: "Outro",
+  NOTE: "Anotação",
+  PROJECT_CHANGE: "Alteração de projeto",
 };
 
 /** Contatos = falar com o cliente (ligação, WhatsApp, e-mail, visita, follow-up). */

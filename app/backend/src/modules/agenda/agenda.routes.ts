@@ -5,6 +5,8 @@ import { uploadAttachment } from "../../middlewares/upload";
 import * as c from "./agenda.controller";
 const router=Router(); router.use(authenticate);
 router.get("/metrics",requirePermission("agenda.read"),c.metrics);
+// andamento das montagens: situação, duração, conflitos e indicadores do período
+router.get("/assembly-board",requirePermission("agenda.read"),c.assemblyBoard);
 router.get("/types",requirePermission("agenda.read"),c.types);
 router.post("/types",requirePermission("agenda.types.manage"),c.createType);
 router.get("/employees",requirePermission("agenda.read"),c.employees);

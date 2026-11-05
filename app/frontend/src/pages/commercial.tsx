@@ -82,6 +82,12 @@ export function CommercialPage() {
   const reminders = useQuery(remindersQuery());
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["commercial"] });
+  // fila: o primeiro que pegar fica com o lead
+  const claimLead = useMutation({
+    mutationFn: (id: string) => apiPost<{ message?: string }>(`/commercial/leads/${id}/claim`, {}),
+    onSuccess: (r) => { toast.success(r.message ?? "Lead é seu agora"); refresh(); },
+    onError: (e) => { toast.error(errorMessage(e, "Não foi possível pegar o lead")); refresh(); },
+  });
 
   const [dialog, setDialog] = useState<null | "opp" | "lead" | "convert" | "interaction" | "move" | "briefing" | "lose">(null);
   const [active, setActive] = useState<Opportunity | null>(null);
@@ -94,7 +100,7 @@ export function CommercialPage() {
   const [oppTemp, setOppTemp] = useState("");
   const [leadTemp, setLeadTemp] = useState("");
   // lista de leads: em aberto (novo, contatado, qualificado) por padrão; atrasados à parte
-  const [leadView, setLeadView] = useState<"aberto" | "atrasado" | "todos">("aberto");
+  const [leadView, setLeadView] = useState<"fila" | "aberto" | "atrasado" | "todos">("aberto");
 
   const [oppForm, setOppForm] = useState({ title: "", stageId: "", estimatedValue: "", expectedCloseAt: "", nextAction: "" });
   const [convForm, setConvForm] = useState({ title: "", estimatedValue: "", stageId: "", name: "", document: "", email: "", phone: "", address: "" });
@@ -145,6 +151,7 @@ export function CommercialPage() {
 
   const oppList = opps.data?.data ?? [];
   const leadList = leads.data?.data ?? [];
+  const queueCount = leadList.filter((l) => !l.seller && ["NEW", "CONTACTED", "QUALIFIED"].includes(l.status)).length;
   const p = pipeline.data?.data;
 
   return (
@@ -285,7 +292,7 @@ export function CommercialPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex overflow-hidden rounded-md border text-xs">
-                {([["aberto", "Em aberto"], ["atrasado", "Atrasados"], ["todos", "Todos"]] as const).map(([v, l]) => (
+                {([["fila", `Fila (${queueCount})`], ["aberto", "Em aberto"], ["atrasado", "Atrasados"], ["todos", "Todos"]] as const).map(([v, l]) => (
                   <button key={v} type="button" aria-pressed={leadView === v} className={`px-3 py-1.5 ${leadView === v ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} onClick={() => setLeadView(v)}>{l}</button>
                 ))}
               </div>
@@ -297,7 +304,7 @@ export function CommercialPage() {
             <EmptyState title="Nenhum lead" />
           ) : (
             <div className="space-y-2">
-              {leadList.filter((l) => (!leadTemp || l.temperature === leadTemp) && (leadView === "todos" || (["NEW", "CONTACTED", "QUALIFIED"].includes(l.status) && (leadView === "aberto" || l.overdue)))).map((l) => (
+              {leadList.filter((l) => (!leadTemp || l.temperature === leadTemp) && (leadView === "todos" || (["NEW", "CONTACTED", "QUALIFIED"].includes(l.status) && (leadView === "fila" ? !l.seller : leadView === "aberto" || l.overdue)))).map((l) => (
                 <div key={l.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
@@ -314,6 +321,14 @@ export function CommercialPage() {
                       </p>
                     )}
                   </div>
+                  {!l.seller && ["NEW", "CONTACTED", "QUALIFIED"].includes(l.status) ? (
+                    <>
+                      <Badge variant="warning" title="Sem responsável — o primeiro que pegar fica com ele">Na fila</Badge>
+                      {canLeads && <Button size="sm" disabled={claimLead.isPending} onClick={() => claimLead.mutate(l.id)}>Pegar lead</Button>}
+                    </>
+                  ) : canSeeAll && l.seller ? (
+                    <span className="text-xs text-muted-foreground">{l.seller.name}</span>
+                  ) : null}
                   <TemperatureTag value={l.temperature} title={l.temperatureReason ?? undefined} />
                   {l.overdue && <Badge variant="danger" title="Próximo contato vencido">Atrasado</Badge>}
                   {canLeads && ["NEW", "CONTACTED", "QUALIFIED"].includes(l.status) && <LeadQuickContact leadId={l.id} nextContactAt={l.nextContactAt} onDone={refresh} />}

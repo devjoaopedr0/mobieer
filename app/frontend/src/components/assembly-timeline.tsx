@@ -1,17 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type UseMutationResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Hammer, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiGet, apiPatch } from "@/services/api";
 import { cn } from "@/lib/utils";
+import { OperationBoard, whenText, type BoardGroup, type BoardRow, type BoardTone } from "@/components/operation-board";
 
 type TimelineEvent = {
   id: string; title: string; startAt: string; endAt: string; status: string; clientName?: string | null; projectId?: string | null;
   type: { id: string; name: string; color: string }; typeId: string;
 };
+type AssemblyState = "IN_PROGRESS" | "LATE" | "SCHEDULED" | "COMPLETED" | "CANCELLED";
+type BoardEvent = {
+  id: string; title: string; status: string; state: AssemblyState; stateLabel: string; startAt: string; endAt: string; completedAt: string | null;
+  durationMinutes: number; durationLabel: string; clientName: string | null; project: { id: string | null; code: string; name: string | null } | null;
+  responsible: { id: string; name: string }; team: string | null; crew: { id: string; name: string }[]; conflicts: { id: string; title: string; startAt: string }[];
+};
+type Board = { events: BoardEvent[]; kpis: { inProgress: number; scheduled: number; completedInPeriod: number; late: number; conflicts: number } };
+const STATE_TONE: Record<AssemblyState, BoardTone> = { IN_PROGRESS: "primary", LATE: "danger", SCHEDULED: "info", COMPLETED: "success", CANCELLED: "muted" };
+const STATE_RING: Record<AssemblyState, string> = { IN_PROGRESS: "ring-2 ring-blue-600", LATE: "ring-2 ring-red-600", SCHEDULED: "", COMPLETED: "opacity-60", CANCELLED: "opacity-40" };
+
 type Order = { id: string; stage: string; estimatedDeliveryAt: string | null; project?: { id: string; code: string; name: string; clientName: string | null } };
 
 const DAY = 86_400_000;
@@ -51,6 +62,12 @@ export function AssemblyTimeline({ typeIds, onOpen }: { typeIds: string[]; onOpe
     queryFn: () => apiGet<{ data: TimelineEvent[] }>("/agenda", { from: from.toISOString(), to: to.toISOString() }),
   });
   const orders = useQuery({ queryKey: ["production", "timeline"], queryFn: () => apiGet<{ data: Order[] }>("/production"), retry: false });
+  // andamento: situação de cada montagem, conflitos e indicadores do período (backend: assembly-board.rules)
+  const board = useQuery({
+    queryKey: ["agenda", "assembly-board", from.toISOString(), to.toISOString()],
+    queryFn: () => apiGet<{ data: Board }>("/agenda/assembly-board", { from: from.toISOString(), to: to.toISOString() }),
+  });
+  const boardById = useMemo(() => new Map((board.data?.data.events ?? []).map((e) => [e.id, e])), [board.data]);
   const contractors = useQuery({ queryKey: ["contractors", "timeline"], queryFn: () => apiGet<{ data: { active: boolean; engagement?: string }[] }>("/contractors"), retry: false });
   const defaultTeams = Math.max(1, (contractors.data?.data ?? []).filter((c) => c.active).length);
   const capacity = teams ?? defaultTeams;
@@ -135,6 +152,31 @@ export function AssemblyTimeline({ typeIds, onOpen }: { typeIds: string[]; onOpe
   const width = days * PX;
   const monthMarks = Array.from({ length: days }, (_, i) => addDays(from, i)).map((d, i) => ({ d, i })).filter(({ d, i }) => i === 0 || d.getDate() === 1);
 
+  const k = board.data?.data.kpis;
+  const toRow = (e: BoardEvent): BoardRow => ({
+    id: e.id,
+    title: e.title,
+    client: e.clientName,
+    project: e.project ? [e.project.code, e.project.name].filter(Boolean).join(" — ") : null,
+    who: [e.responsible.name, ...e.crew.filter((c) => c.id !== e.responsible.id).map((c) => c.name), e.team].filter(Boolean).join(", "),
+    start: whenText(e.startAt),
+    forecast: e.state === "COMPLETED" && e.completedAt ? `concluída ${whenText(e.completedAt)}` : whenText(e.endAt),
+    duration: e.durationLabel,
+    status: e.stateLabel,
+    tone: STATE_TONE[e.state],
+    alerts: [
+      ...(e.state === "LATE" ? [`Passou do término previsto (${whenText(e.endAt)}) sem ser concluída`] : []),
+      ...e.conflicts.map((c) => `Conflito de agenda com "${c.title}" (${whenText(c.startAt)})`),
+    ],
+  });
+  const all = board.data?.data.events ?? [];
+  const groups: BoardGroup[] = [
+    { key: "IN_PROGRESS", label: "Em andamento", tone: "primary", rows: all.filter((e) => e.state === "IN_PROGRESS").map(toRow), empty: "Nenhuma montagem acontecendo agora." },
+    { key: "LATE", label: "Atrasadas", tone: "danger", rows: all.filter((e) => e.state === "LATE").map(toRow), empty: "Nenhuma montagem atrasada." },
+    { key: "SCHEDULED", label: "Agendadas (próximas)", tone: "info", rows: all.filter((e) => e.state === "SCHEDULED").map(toRow), empty: "Nenhuma montagem marcada no período." },
+    { key: "COMPLETED", label: "Concluídas no período", tone: "success", rows: all.filter((e) => e.state === "COMPLETED").map(toRow).reverse(), collapsed: true, empty: "Nenhuma montagem concluída no período." },
+  ];
+
   return (
     <Card>
       <CardContent className="space-y-3 pt-6">
@@ -150,6 +192,19 @@ export function AssemblyTimeline({ typeIds, onOpen }: { typeIds: string[]; onOpe
             <Input type="number" min={1} max={50} className="h-9 w-20" value={capacity} onChange={(e) => setTeams(Math.max(1, Number(e.target.value) || 1))} />
           </label>
         </div>
+        <OperationBoard
+          loading={board.isLoading}
+          onOpen={onOpen}
+          kpis={[
+            { title: "Em andamento", value: k?.inProgress ?? 0, icon: Hammer },
+            { title: "Agendadas no período", value: k?.scheduled ?? 0, icon: CalendarClock },
+            { title: "Concluídas no período", value: k?.completedInPeriod ?? 0, icon: CheckCircle2 },
+            { title: "Atrasadas", value: k?.late ?? 0, icon: AlertTriangle },
+            { title: "Conflitos de agenda", value: k?.conflicts ?? 0, icon: Users },
+          ]}
+          groups={groups}
+        />
+        <h3 className="pt-2 text-sm font-semibold">Linha do tempo</h3>
         {firstShort >= 0 ? (
           <p className="flex items-center gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
             <AlertTriangle className="h-4 w-4" />A partir de {short(addDays(from, firstShort))} há mais montagens ao mesmo tempo do que equipes ({capacity}). Esse é o momento de contratar ou de mudar datas.
@@ -183,20 +238,22 @@ export function AssemblyTimeline({ typeIds, onOpen }: { typeIds: string[]; onOpe
               const d = delta?.id === e.id ? delta : null;
               const a = dayIndex(from, new Date(e.startAt)) + (d?.mode === "move" ? d.days : 0);
               const len = Math.max(1, dayIndex(new Date(e.startAt), new Date(new Date(e.endAt).getTime() - 1)) + 1 + (d ? d.days * (d.mode === "end" ? 1 : 0) : 0));
+              const b = boardById.get(e.id);
               return (
                 <div key={e.id} className="flex border-b last:border-b-0">
                   <button type="button" className="sticky left-0 z-10 w-[220px] shrink-0 truncate border-r bg-background p-2 text-left hover:underline" title={e.title} onClick={() => onOpen(e.id)}>
                     <span className="font-medium">{e.title}</span>
                     <span className="block truncate text-muted-foreground">{e.type.name}{e.clientName ? ` · ${e.clientName}` : ""}</span>
+                    {b && <span className={cn("mt-0.5 inline-block rounded px-1.5 text-[10px] font-medium", b.state === "LATE" ? "bg-red-500/15 text-red-700" : b.state === "IN_PROGRESS" ? "bg-blue-500/15 text-blue-700" : "bg-muted text-muted-foreground")}>{b.stateLabel}{b.conflicts.length ? " · conflito" : ""}</span>}
                   </button>
                   <div className="relative" style={{ width, height: 44 }}>
                     <div
-                      className={cn("absolute top-2 flex h-7 cursor-grab items-center overflow-hidden rounded px-2 text-white shadow-sm active:cursor-grabbing", e.status === "COMPLETED" && "opacity-60")}
+                      className={cn("absolute top-2 flex h-7 cursor-grab items-center overflow-hidden rounded px-2 text-white shadow-sm active:cursor-grabbing", b ? STATE_RING[b.state] : e.status === "COMPLETED" && "opacity-60", b?.conflicts.length ? "outline outline-2 outline-offset-1 outline-amber-500" : "")}
                       style={{ left: a * PX + 1, width: len * PX - 2, background: e.type.color || "#C8551F", touchAction: "none" }}
-                      title={`${e.title}: ${short(new Date(e.startAt))} a ${short(new Date(new Date(e.endAt).getTime() - 1))}`}
+                      title={`${e.title}: ${whenText(e.startAt)} até ${whenText(e.endAt)}${b ? ` · ${b.durationLabel} · ${b.stateLabel}` : ""}${b?.conflicts.length ? ` · conflito com ${b.conflicts.map((c) => c.title).join(", ")}` : ""}`}
                       onPointerDown={(ev) => onDown(ev, e, "move")}
                     >
-                      <span className="truncate">{len} {len > 1 ? "dias" : "dia"}</span>
+                      <span className="truncate">{b ? `${new Date(e.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · ${b.durationLabel}` : `${len} ${len > 1 ? "dias" : "dia"}`}</span>
                       <span className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/20" onPointerDown={(ev) => onDown(ev, e, "end")} />
                     </div>
                   </div>

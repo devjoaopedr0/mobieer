@@ -45,3 +45,54 @@ export function groupVisits<T extends { scheduledAt: Date | string | null }>(tic
   }
   return [...map.entries()].map(([day, list]) => ({ day, tickets: list }));
 }
+
+/**
+ * Situação da assistência para a linha do tempo da operação (mesmo padrão da
+ * de montagens):
+ *   pendente               aberta/em análise, ou o cliente pediu outra data
+ *   aguardando confirmação datas enviadas sem escolha, visita marcada que o
+ *                          cliente não confirmou, ou aguardando o cliente
+ *   agendada               visita marcada e confirmada
+ *   em andamento           em execução
+ *   concluída / cancelada  como gravado
+ * Atrasada é à parte: visita marcada para um dia que já passou (ou prazo
+ * vencido) sem estar em execução nem encerrada.
+ */
+export type AssistanceStage = "PENDENTE" | "AGUARDANDO_CONFIRMACAO" | "AGENDADA" | "EM_ANDAMENTO" | "CONCLUIDA" | "CANCELADA";
+export const ASSISTANCE_STAGES: { code: AssistanceStage; label: string }[] = [
+  { code: "EM_ANDAMENTO", label: "Em andamento" },
+  { code: "AGENDADA", label: "Agendada" },
+  { code: "AGUARDANDO_CONFIRMACAO", label: "Aguardando confirmação" },
+  { code: "PENDENTE", label: "Pendente" },
+  { code: "CONCLUIDA", label: "Concluída" },
+  { code: "CANCELADA", label: "Cancelada" },
+];
+
+type StageInput = {
+  status: string;
+  scheduledAt: Date | null;
+  clientConfirmedAt?: Date | null;
+  optionsSentAt?: Date | null;
+  rescheduleRequestedAt?: Date | null;
+  dueAt?: Date | null;
+};
+
+export function assistanceStage(t: StageInput): AssistanceStage {
+  if (t.status === "RESOLVED") return "CONCLUIDA";
+  if (t.status === "CANCELLED") return "CANCELADA";
+  if (t.status === "IN_PROGRESS") return "EM_ANDAMENTO";
+  // o cliente não pode na data marcada: volta para a equipe remarcar
+  if (t.rescheduleRequestedAt && (!t.clientConfirmedAt || t.rescheduleRequestedAt > t.clientConfirmedAt)) return "PENDENTE";
+  if (t.scheduledAt) return t.clientConfirmedAt ? "AGENDADA" : "AGUARDANDO_CONFIRMACAO";
+  if (t.status === "WAITING_CLIENT" || t.optionsSentAt) return "AGUARDANDO_CONFIRMACAO";
+  return "PENDENTE";
+}
+
+/** Atrasada: a visita era num dia anterior a hoje (fuso da loja) ou o prazo venceu, e nada foi feito. */
+export function assistanceLate(t: StageInput, now = new Date()): boolean {
+  const stage = assistanceStage(t);
+  if (stage === "CONCLUIDA" || stage === "CANCELADA" || stage === "EM_ANDAMENTO") return false;
+  const today = dayOf(now);
+  if (t.scheduledAt && dayOf(t.scheduledAt) < today) return true;
+  return Boolean(t.dueAt && t.dueAt.getTime() < now.getTime());
+}

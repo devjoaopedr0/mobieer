@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageSkeleton } from "@/components/ui/states";
 import { LeadDialog } from "@/components/lead-dialog";
+import { ClientDiary, type DiaryEntry, type DiaryMeeting, type DiaryProject } from "@/components/client-diary";
 import { originLabel } from "@/components/crm-parts";
 import { useAuth } from "@/hooks/use-auth";
 import { apiGet, apiPost } from "@/services/api";
@@ -21,7 +22,9 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 type Person = { id: string; name: string } | null;
 type Ficha = {
   client: { id: string; name: string; document: string | null; email: string | null; phone: string | null; status: string; originLabel: string | null; leadSource: string | null; address: string | null; deliveryAddress: string | null; city: string | null; state: string | null; notes: string | null; createdAt: string; seller: Person; attendant: Person };
-  interactions: { id: string; type: string; summary: string; result: string | null; occurredAt: string; nextAction: string | null; nextActionAt: string | null; responsible: Person; opportunity: { id: string; title: string } | null; lead: { id: string; name: string } | null }[];
+  interactions: DiaryEntry[];
+  projects: DiaryProject[];
+  meetings: DiaryMeeting[];
   leads: { id: string; name: string; status: string; origin: string | null; source: string | null; interest: string | null; enteredAt: string; lastContactAt: string | null; nextContactAt: string | null; lostReasonCode: string | null; seller: Person }[];
   opportunities: { id: string; title: string; status: string; estimatedValue: number; createdAt: string; wonAt: string | null; lostReason: string | null; stage: { name: string }; seller: Person }[];
   quotes: { id: string; number: string; version: number; kind: string; status: string; total: number; createdAt: string; approvedAt: string | null; seller: Person }[];
@@ -34,7 +37,6 @@ const OPP_STATUS: Record<string, string> = { OPEN: "Em aberto", WON: "Ganha", LO
 const QUOTE_STATUS: Record<string, string> = { DRAFT: "Rascunho", SENT: "Enviado", VIEWED: "Visto", NEGOTIATION: "Em negociação", APPROVED: "Aceito", REJECTED: "Recusado", EXPIRED: "Vencido", CANCELLED: "Cancelado" };
 const SIGN_STATUS: Record<string, string> = { NOT_REQUIRED: "Sem assinatura", PENDING: "Aguardando assinatura", PARTIAL: "Assinado em parte", SIGNED: "Assinado" };
 const AT_STATUS: Record<string, string> = { OPEN: "Aberta", TRIAGE: "Triagem", SCHEDULED: "Visita marcada", IN_PROGRESS: "Em atendimento", WAITING_CLIENT: "Aguardando cliente", RESOLVED: "Resolvida", CANCELLED: "Cancelada" };
-const CONTACT: Record<string, string> = { CALL: "Ligação", WHATSAPP: "WhatsApp", EMAIL: "E-mail", MEETING: "Reunião", VISIT: "Visita", FOLLOW_UP: "Follow-up", PROPOSAL: "Proposta", NEGOTIATION: "Negociação", INTERNAL_MESSAGE: "Mensagem interna", OTHER: "Outro" };
 
 function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
@@ -85,16 +87,9 @@ export function ClientDetailPage() {
         </CardContent>
       </Card>
 
+      <ClientDiary clientId={c.id} entries={d.interactions} projects={d.projects} meetings={d.meetings} />
+
       <div className="grid gap-4 lg:grid-cols-2">
-        <Section title="Histórico de contatos" count={d.interactions.length}>
-          {d.interactions.map((i) => (
-            <Line key={i.id}>
-              <span className="font-medium">{CONTACT[i.type] ?? i.type}</span>
-              <Muted>{formatDate(i.occurredAt, true)}{i.responsible ? ` · ${i.responsible.name}` : ""}{i.opportunity ? ` · ${i.opportunity.title}` : i.lead ? ` · lead ${i.lead.name}` : ""}</Muted>
-              <span className="w-full text-xs">{i.summary}{i.result ? ` — ${i.result}` : ""}{i.nextActionAt ? ` · próximo: ${formatDate(i.nextActionAt)}` : ""}</span>
-            </Line>
-          ))}
-        </Section>
 
         <Section title="Leads" count={d.leads.length}>
           {d.leads.map((l) => (

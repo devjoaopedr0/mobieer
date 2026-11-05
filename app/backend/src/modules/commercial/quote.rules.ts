@@ -64,6 +64,8 @@ export type PricingConfig = {
   commissionRoles: CommissionRole[];
   financingPlans: FinancingPlan[];
   document: QuoteDocumentConfig;
+  /** itens especiais (metalon, vidro…): palavras que os sugerem e se o preço leva o % de comissão */
+  specialItems: SpecialItemsConfig;
 };
 
 export const DEFAULT_QUOTE_DOCUMENT: QuoteDocumentConfig = {
@@ -107,6 +109,10 @@ export function obsLabel(index: number): string {
   return index === 0 ? "OBS:" : index === 1 ? "OBS²:" : index === 2 ? "OBS³:" : `OBS${index + 1}:`;
 }
 
+/** Os mesmos itens especiais do contrato (contract-options: vidro, metalon, laca ou iluminação), mais espelho. */
+export const DEFAULT_SPECIAL_KEYWORDS = ["metalon", "vidro", "vidros", "espelho", "espelhos", "laca", "laqueado", "iluminação", "led"];
+export const DEFAULT_SPECIAL_ITEMS: SpecialItemsConfig = { keywords: DEFAULT_SPECIAL_KEYWORDS, commissionInPrice: true };
+
 export const DEFAULT_PRICING: PricingConfig = {
   defaultMarkup: 1.67, // custo R$ 600 → venda R$ 1.000
   defaultFreightPercent: 2,
@@ -128,6 +134,7 @@ export const DEFAULT_PRICING: PricingConfig = {
   ],
   financingPlans: [],
   document: DEFAULT_QUOTE_DOCUMENT,
+  specialItems: DEFAULT_SPECIAL_ITEMS,
 };
 
 /** Comissão somada acima disto torna o preço absurdo (divide por quase zero). */
@@ -135,7 +142,44 @@ export const MAX_COMMISSION_PERCENT = 50;
 
 export const FINISH_FIELDS = ["corpo", "porta", "puxador", "complemento", "modelo"] as const;
 export type Finishes = Partial<Record<(typeof FINISH_FIELDS)[number], string | null>>;
-export type QuoteItemInput = { room?: string | null; description: string; quantity?: number; unitCost: number } & Finishes;
+/**
+ * special: item especial (metalon, vidro, espelho, laca, iluminação — feito ou
+ * comprado à parte). Entra no preço e no total do contrato como qualquer item,
+ * mas fica fora da base da comissão. Sem a marca informada, vale a sugestão
+ * pelo nome do ambiente (specialItemSuggestion).
+ */
+export type QuoteItemInput = { room?: string | null; description: string; quantity?: number; unitCost: number; special?: boolean | null } & Finishes;
+
+/**
+ * Itens especiais (configuração de preços → specialItems):
+ *   keywords           palavras que, no nome do ambiente, sugerem item especial
+ *   commissionInPrice  o preço do item especial leva o % de comissão como os
+ *                      demais (padrão: sim, o preço do cliente fica igual ao
+ *                      de antes); não = preço só com mark-up, frete e imposto
+ */
+export type SpecialItemsConfig = { keywords: string[]; commissionInPrice: boolean };
+
+/** minúsculas, sem acento e só letras/números separados por um espaço, com espaço nas pontas */
+const words = (s: string) => ` ${s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+
+/**
+ * Sugestão para item sem a marca: olha só o nome do ambiente (ou a descrição,
+ * quando não há ambiente), por palavra inteira, sem ligar para acento nem
+ * maiúscula. Acabamento e observação ficam de fora — "porta de vidro" numa
+ * cozinha não faz da cozinha inteira um item especial. Lista vazia: nada é
+ * sugerido (só vale a marca feita à mão).
+ */
+export function specialItemSuggestion(it: { room?: string | null; description?: string | null }, keywords: string[] = DEFAULT_SPECIAL_KEYWORDS): boolean {
+  const name = words(it.room?.trim() || it.description?.trim() || "");
+  return keywords.some((k) => {
+    const w = words(k);
+    return w.trim() !== "" && name.includes(w);
+  });
+}
+
+/** A marca informada vale; sem ela, a sugestão. */
+export const isSpecialItem = (it: { room?: string | null; description?: string | null; special?: boolean | null }, keywords?: string[]) =>
+  typeof it.special === "boolean" ? it.special : specialItemSuggestion(it, keywords);
 /** Papel da linha de comissão que é a reserva técnica do indicador (arquiteto/parceiro). */
 export const REFERRER_ROLE = "INDICADOR";
 
@@ -186,6 +230,16 @@ const pos = (n: number | null | undefined) => (n && n > 0 ? n : 0);
 
 export class QuoteRuleError extends Error {}
 
+/**
+ * Base da comissão: o total do contrato menos a parte dos itens especiais. O
+ * desconto vale para o orçamento inteiro, então cada parte leva o seu pedaço.
+ */
+export function commissionBaseOf(total: number, subtotal: number, specialSubtotal: number): number {
+  if (!(subtotal > 0) || !(specialSubtotal > 0)) return r2(total);
+  if (specialSubtotal >= subtotal) return 0;
+  return r2((total * (subtotal - specialSubtotal)) / subtotal);
+}
+
 export function computeQuote(input: QuoteInput, config: PricingConfig) {
   if (!(input.markup > 0)) throw new QuoteRuleError("O mark-up precisa ser maior que zero");
   const commissionPercent = r2(input.commissions.reduce((s, c) => s + pos(c.percent), 0));
@@ -194,11 +248,15 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
   const taxPercent = r2(input.taxPercent == null ? config.defaultTaxPercent : pos(input.taxPercent));
   if (commissionPercent + freightPercent + taxPercent > MAX_COMMISSION_PERCENT) throw new QuoteRuleError(`Comissões, frete e imposto somam mais de ${MAX_COMMISSION_PERCENT}%`);
   const gross = input.markup / (1 - (commissionPercent + freightPercent + taxPercent) / 100);
+  // item especial não paga comissão: conforme a configuração, o preço dele leva ou não o % das comissões
+  const specialCfg = config.specialItems ?? DEFAULT_SPECIAL_ITEMS;
+  const specialGross = specialCfg.commissionInPrice ? gross : input.markup / (1 - (freightPercent + taxPercent) / 100);
 
   const items = input.items.map((it) => {
     const quantity = it.quantity && it.quantity > 0 ? it.quantity : 1;
     const cost = r2(pos(it.unitCost) * quantity);
-    const total = r2(cost * gross);
+    const special = isSpecialItem(it, specialCfg.keywords);
+    const total = r2(cost * (special ? specialGross : gross));
     const finish = (k: (typeof FINISH_FIELDS)[number]) => it[k]?.trim() || null;
     return {
       room: it.room?.trim() || null,
@@ -213,6 +271,7 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
       cost,
       unitPrice: r2(total / quantity),
       total,
+      special,
     };
   });
   const costTotal = r2(items.reduce((s, i) => s + i.cost, 0));
@@ -229,9 +288,12 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
   const taxAmount = r2((total * taxPercent) / 100);
   const otherCosts = r2(pos(input.otherCosts));
 
+  // base da comissão: o total sem os itens especiais (o desconto se reparte na proporção)
+  const specialSubtotal = r2(items.filter((i) => i.special).reduce((s, i) => s + i.total, 0));
+  const commissionBase = commissionBaseOf(total, subtotal, specialSubtotal);
   const commissions = input.commissions
     .filter((c) => pos(c.percent) > 0)
-    .map((c) => ({ userId: c.userId ?? null, referrerId: c.referrerId ?? null, name: c.name.trim(), role: c.role, percent: r2(c.percent), amount: r2((total * c.percent) / 100) }));
+    .map((c) => ({ userId: c.userId ?? null, referrerId: c.referrerId ?? null, name: c.name.trim(), role: c.role, percent: r2(c.percent), amount: r2((commissionBase * c.percent) / 100) }));
   const commissionTotal = r2(commissions.reduce((s, c) => s + c.amount, 0));
 
   // Pagamento: entrada + o restante no plano escolhido.
@@ -280,6 +342,9 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
     otherCosts,
     commissions,
     commissionTotal,
+    /** total que paga comissão (sem os itens especiais) e a parte dos especiais no total */
+    commissionBase,
+    specialTotal: r2(total - commissionBase),
     payment: {
       method,
       planId: plan?.id ?? null,
@@ -345,6 +410,21 @@ function normalizeDocument(raw: unknown): QuoteDocumentConfig {
   };
 }
 
+/** Configuração antiga (sem specialItems) fica com o padrão; lista vazia é uma escolha válida (nada sugerido). */
+function normalizeSpecialItems(raw: unknown): SpecialItemsConfig {
+  if (!raw || typeof raw !== "object") return DEFAULT_SPECIAL_ITEMS;
+  const o = raw as Partial<SpecialItemsConfig>;
+  const seen = new Set<string>();
+  const keywords = Array.isArray(o.keywords)
+    ? o.keywords
+        .filter((k): k is string => typeof k === "string")
+        .map((k) => k.trim().replace(/\s+/g, " "))
+        .filter((k) => k && !seen.has(k.toLowerCase()) && (seen.add(k.toLowerCase()), true))
+        .slice(0, 50)
+    : DEFAULT_SPECIAL_KEYWORDS;
+  return { keywords, commissionInPrice: typeof o.commissionInPrice === "boolean" ? o.commissionInPrice : DEFAULT_SPECIAL_ITEMS.commissionInPrice };
+}
+
 /** Aceita o que vier gravado e completa com o padrão — config velha não quebra a tela. */
 export function normalizePricing(raw: unknown): PricingConfig {
   const o = (raw && typeof raw === "object" ? raw : {}) as Partial<PricingConfig>;
@@ -359,5 +439,6 @@ export function normalizePricing(raw: unknown): PricingConfig {
     commissionRoles: Array.isArray(o.commissionRoles) && o.commissionRoles.length ? o.commissionRoles : DEFAULT_PRICING.commissionRoles,
     financingPlans: Array.isArray(o.financingPlans) ? o.financingPlans : [],
     document: normalizeDocument(o.document),
+    specialItems: normalizeSpecialItems(o.specialItems),
   };
 }

@@ -67,7 +67,7 @@ export async function policyFor(organizationId: string, month: string) {
 }
 
 const contractSelect = {
-  id: true, number: true, version: true, kind: true, total: true, sellerId: true, status: true, costTotal: true, competenceDate: true, approvedAt: true,
+  id: true, number: true, version: true, kind: true, total: true, commissionBase: true, sellerId: true, status: true, costTotal: true, competenceDate: true, approvedAt: true,
   client: { select: { id: true, name: true } },
   commissions: { select: { id: true, userId: true, referrerId: true, name: true, role: true, percent: true, amount: true } },
 } satisfies Prisma.CommercialQuoteSelect;
@@ -90,6 +90,7 @@ const toContract = (q: ContractRow): Contract => ({
   id: q.id,
   number: q.number,
   total: n(q.total),
+  commissionBase: q.commissionBase == null ? null : n(q.commissionBase),
   sellerId: q.sellerId,
   lines: q.commissions.map((c) => ({ id: c.id, userId: c.userId, referrerId: c.referrerId, name: c.name, role: c.role, percent: n(c.percent) })),
 });

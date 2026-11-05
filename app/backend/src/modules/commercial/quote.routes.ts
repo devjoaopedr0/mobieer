@@ -49,6 +49,8 @@ const calcSchema = z.object({
         modelo: text(160),
         quantity: z.coerce.number().positive().max(100000).optional(),
         unitCost: money,
+        // item especial (metalon, vidro…): fica fora da base da comissão; sem a marca, vale a sugestão pelo nome
+        special: z.boolean().optional().nullable(),
       })
     )
     .min(1, "Inclua pelo menos um ambiente ou item")
@@ -183,7 +185,6 @@ router.put(
         defaultMarkup: z.coerce.number().positive().max(20),
         defaultFreightPercent: z.coerce.number().min(0).max(30).optional(),
         defaultTaxPercent: z.coerce.number().min(0).max(30).optional(),
-        minScore: z.coerce.number().positive().max(20),
         validityDays: z.coerce.number().int().min(1).max(365),
         commissionRoles: z.array(z.object({ role: z.string().trim().min(1).max(40), label: z.string().trim().min(1).max(60), defaultPercent: z.coerce.number().min(0).max(50) })).min(1).max(10),
         financingPlans: z.array(planSchema).max(30),
@@ -197,13 +198,37 @@ router.put(
             notes: z.array(z.string().trim().min(1).max(400)).max(15),
           })
           .optional(),
+        // itens especiais: palavras que os sugerem pelo nome do ambiente e se o preço leva o % de comissão
+        specialItems: z
+          .object({
+            keywords: z.array(z.string().trim().min(1, "Palavra vazia").max(40, "Palavra muito longa")).max(50, "No máximo 50 palavras"),
+            commissionInPrice: z.boolean(),
+          })
+          .optional(),
       })
       .parse(req.body);
     if (new Set(input.financingPlans.map((p) => p.id)).size !== input.financingPlans.length) throw new BadRequestError("Dois planos com o mesmo código");
-    const value = JSON.stringify(normalizePricing(input));
+    // a pontuação mínima é da Jéssica (PUT /config/min-score): aqui ela só é mantida; itens especiais não enviados ficam como estão
+    const current = await loadPricing();
+    const next = normalizePricing({ ...input, minScore: current.minScore, specialItems: input.specialItems ?? current.specialItems });
+    const value = JSON.stringify(next);
     await prisma.setting.upsert({ where: { key: PRICING_SETTING }, create: { key: PRICING_SETTING, value }, update: { value } });
     await prisma.auditLog.create({ data: { userId: req.user!.id, action: "PRICING_CONFIG_UPDATED", entity: "Setting", entityId: PRICING_SETTING, details: input } });
-    return ok(res, normalizePricing(input), "Configuração de preços salva");
+    return ok(res, next, "Configuração de preços salva");
+  })
+);
+
+// PUT /api/commercial/quotes/config/min-score — só quem libera orçamento define o mínimo
+router.put(
+  "/config/min-score",
+  requirePermission("commercial.quotes.approve"),
+  asyncHandler(async (req, res) => {
+    const { minScore } = z.object({ minScore: z.coerce.number().positive().max(20) }).parse(req.body);
+    const current = await loadPricing();
+    const value = JSON.stringify(normalizePricing({ ...current, minScore }));
+    await prisma.setting.upsert({ where: { key: PRICING_SETTING }, create: { key: PRICING_SETTING, value }, update: { value } });
+    await prisma.auditLog.create({ data: { userId: req.user!.id, action: "QUOTE_MIN_SCORE_UPDATED", entity: "Setting", entityId: PRICING_SETTING, details: { from: current.minScore, to: minScore } } });
+    return ok(res, { minScore }, "Pontuação mínima salva");
   })
 );
 
@@ -771,10 +796,11 @@ router.post(
  */
 function commissionUpdate(cur: Awaited<ReturnType<typeof findQuote>>, commissions: z.infer<typeof commissionsSchema>) {
   const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-  const total = Number(cur.total);
+  // a base gravada no orçamento (sem os itens especiais); orçamento antigo, sem ela, usa o total
+  const base = Number(cur.commissionBase ?? cur.total);
   const list = commissions
     .filter((c) => c.percent > 0)
-    .map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name, role: c.role, percent: r2(c.percent), amount: r2((total * c.percent) / 100) }));
+    .map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name, role: c.role, percent: r2(c.percent), amount: r2((base * c.percent) / 100) }));
   const delta = r2(cur.commissions.reduce((s, c) => s + Number(c.amount), 0)) - r2(list.reduce((s, c) => s + c.amount, 0));
   const costTotal = Number(cur.costTotal);
   const data = {

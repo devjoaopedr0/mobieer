@@ -32,6 +32,13 @@ function sellerScope(req: { user?: { id: string; permissions: string[] } }) {
 }
 
 const OPEN_LEAD: string[] = ["NEW", "CONTACTED", "QUALIFIED"];
+
+/** Na lista, o consultor vê a própria carteira e a fila: leads em aberto sem ninguém. */
+function leadListScope(req: { user?: { id: string; permissions: string[] } }) {
+  return req.user!.permissions.includes("commercial.read.all")
+    ? {}
+    : { OR: [{ sellerId: req.user!.id }, { sellerId: null, status: { in: OPEN_LEAD as CommercialLeadStatus[] } }] };
+}
 const LOST_REASONS = ["PRECO", "PRAZO", "CONCORRENCIA", "SEM_RESPOSTA", "DESISTIU", "ESCOPO", "OUTRO"] as const;
 const TEMPERATURES = ["QUENTE", "MORNO", "FRIO"] as const;
 const temperatureFilter = (raw: unknown): Temperature | null => (TEMPERATURES as readonly string[]).includes(String(raw ?? "")) ? (String(raw) as Temperature) : null;
@@ -139,7 +146,9 @@ router.get(
     const rows = await prisma.commercialLead.findMany({
       where: {
         organizationId: req.user!.organizationId,
-        ...sellerScope(req),
+        ...leadListScope(req),
+        // ?fila=1: só os leads sem responsável, esperando alguém pegar
+        ...(req.query.fila === "1" ? { sellerId: null, status: { in: OPEN_LEAD as CommercialLeadStatus[] } } : {}),
         ...(req.query.status ? { status: enumQuery(req.query.status, CommercialLeadStatus, "status") } : {}),
         ...(req.query.clientId ? { convertedClientId: String(req.query.clientId) } : {}),
       },
@@ -164,6 +173,26 @@ router.get(
     const open = req.query.aberto === "1" ? withTemp.filter((l) => OPEN_LEAD.includes(l.status)) : withTemp;
     const late = req.query.atrasado === "1" ? open.filter((l) => l.overdue) : open;
     return ok(res, wanted ? late.filter((l) => l.temperature === wanted) : late);
+  })
+);
+
+// POST /api/commercial/leads/:id/claim — pega o lead da fila; quem pegar primeiro fica com ele
+router.post(
+  "/leads/:id/claim",
+  requirePermission("commercial.leads.manage"),
+  asyncHandler(async (req, res) => {
+    // um único update condicional: se dois clicarem juntos, só um encontra sellerId vazio
+    const taken = await prisma.commercialLead.updateMany({
+      where: { id: req.params.id, organizationId: req.user!.organizationId, sellerId: null, status: { in: OPEN_LEAD as CommercialLeadStatus[] } },
+      data: { sellerId: req.user!.id },
+    });
+    if (taken.count === 0) {
+      const lead = await prisma.commercialLead.findFirst({ where: { id: req.params.id, organizationId: req.user!.organizationId }, select: { seller: { select: { name: true } } } });
+      if (!lead) throw new NotFoundError("Lead não encontrado");
+      throw new BadRequestError(lead.seller ? `${lead.seller.name} já pegou este lead` : "Este lead não está mais na fila");
+    }
+    await audit(req.user!.id, "LEAD_CLAIMED", "CommercialLead", req.params.id);
+    return ok(res, { id: req.params.id, sellerId: req.user!.id }, "Lead é seu agora");
   })
 );
 

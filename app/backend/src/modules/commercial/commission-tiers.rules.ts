@@ -112,8 +112,9 @@ export function allocate(total: number, weights: number[]): number[] {
 }
 
 export type ContractLine = { id: string; userId: string | null; referrerId: string | null; name: string; role: string; percent: number };
-export type Contract = { id: string; number: string; total: number; sellerId: string; lines: ContractLine[] };
-/** A parte de um consultor num contrato: base = total × (% dele ÷ % dos consultores do contrato). */
+/** commissionBase: o total sem os itens especiais (metalon, vidro…); sem ela, a base é o total. */
+export type Contract = { id: string; number: string; total: number; commissionBase?: number | null; sellerId: string; lines: ContractLine[] };
+/** A parte de um consultor num contrato: base = base da comissão × (% dele ÷ % dos consultores do contrato). */
 export type Participation = { quoteId: string; lineId: string; userId: string; name: string; base: number };
 export type ContractIssue = { quoteId: string; number: string; kind: "SEM_CONSULTOR" | "CONSULTOR_DIFERENTE"; detail: string };
 
@@ -137,7 +138,8 @@ export function participations(contracts: Contract[], role: string): { items: Pa
     if (!lines.some((l) => l.userId === q.sellerId)) {
       issues.push({ quoteId: q.id, number: q.number, kind: "CONSULTOR_DIFERENTE", detail: `A comissão do contrato é de ${lines.map((l) => l.name).join(", ")}, não do vendedor do orçamento` });
     }
-    const bases = allocate(q.total, lines.map((l) => l.percent || 1));
+    // itens especiais não contam para a faixa: reparte a base da comissão, não o total
+    const bases = allocate(q.commissionBase ?? q.total, lines.map((l) => l.percent || 1));
     lines.forEach((l, i) => items.push({ quoteId: q.id, lineId: l.id, userId: l.userId!, name: l.name, base: bases[i] }));
   }
   return { items, issues };

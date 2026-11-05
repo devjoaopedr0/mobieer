@@ -29,7 +29,9 @@ type DiscountMode = "VALOR" | "PERCENTUAL" | "TOTAL";
 type FinancingPlan = { id: string; name: string; method: "CARTAO" | "FINANCEIRA"; installments: number; feePercent: number; requiresDownPayment: boolean };
 type CommissionRole = { role: string; label: string; defaultPercent: number };
 type QuoteDocumentConfig = { supplier: string; line: string; deliveryDays: number; deliveryText: string; mandatoryNote: string; notes: string[] };
-type PricingConfig = { defaultMarkup: number; defaultFreightPercent?: number; defaultTaxPercent?: number; minScore: number; validityDays: number; commissionRoles: CommissionRole[]; financingPlans: FinancingPlan[]; document: QuoteDocumentConfig };
+/** itens especiais: palavras que os sugerem pelo nome do ambiente e se o preço leva o % de comissão */
+type SpecialItemsConfig = { keywords: string[]; commissionInPrice: boolean };
+type PricingConfig = { defaultMarkup: number; defaultFreightPercent?: number; defaultTaxPercent?: number; minScore: number; validityDays: number; commissionRoles: CommissionRole[]; financingPlans: FinancingPlan[]; document: QuoteDocumentConfig; specialItems?: SpecialItemsConfig };
 type Approval = "NOT_REQUIRED" | "PENDING" | "APPROVED" | "REJECTED";
 type QuoteStatus = "DRAFT" | "SENT" | "VIEWED" | "NEGOTIATION" | "APPROVED" | "REJECTED" | "EXPIRED" | "CANCELLED";
 
@@ -48,8 +50,10 @@ type Quote = {
   opportunity: { id: string; title: string } | null;
   project: { id: string; code: string; name: string } | null;
   seller: { id: string; name: string };
-  items: { room: string | null; description: string; quantity: number; unitCost: number; unitPrice: number; total: number; corpo?: string | null; porta?: string | null; puxador?: string | null; complemento?: string | null; modelo?: string | null }[];
+  items: { room: string | null; description: string; quantity: number; unitCost: number; unitPrice: number; total: number; special?: boolean; corpo?: string | null; porta?: string | null; puxador?: string | null; complemento?: string | null; modelo?: string | null }[];
   commissions: { userId: string | null; referrerId?: string | null; name: string; role: string; percent: number; amount: number }[];
+  /** o que paga comissão: o total sem os itens especiais */
+  commissionBase?: number;
   referrer?: { id: string; name: string } | null;
   costTotal: number;
   markup: number;
@@ -85,7 +89,7 @@ type FinanceAdjust = { adjustments: { index: number; dueDay?: string; amount?: n
 const dayBR = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 
 type Calc = {
-  items: { total: number; unitPrice: number }[];
+  items: { total: number; unitPrice: number; special?: boolean }[];
   costTotal: number;
   commissionPercent: number;
   subtotal: number;
@@ -100,6 +104,9 @@ type Calc = {
   otherCosts: number;
   commissions: { name: string; percent: number; amount: number }[];
   commissionTotal: number;
+  /** total sem os itens especiais (base da comissão) e a parte dos especiais */
+  commissionBase?: number;
+  specialTotal?: number;
   payment: { method: PaymentMethod; planName: string | null; downPayment: number; financed: number; installments: number; installmentValue: number; feePercent: number; financingFee: number };
   netRevenue: number;
   result: number;
@@ -148,6 +155,7 @@ export function QuotesTab() {
   const { can } = useAuth();
   const [pendingOnly, setPendingOnly] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [minScoreOpen, setMinScoreOpen] = useState(false);
   const q = useQuery({
     queryKey: ["quotes", pendingOnly],
     queryFn: () => apiGet<{ data: Quote[] }>("/commercial/quotes", pendingOnly ? { approval: "PENDING" } : undefined),
@@ -165,8 +173,13 @@ export function QuotesTab() {
         <Button size="sm" variant={pendingOnly ? "default" : "outline"} onClick={() => setPendingOnly((v) => !v)}>
           <ShieldAlert className="mr-1 h-4 w-4" /> Aguardando liberação
         </Button>
+        {can("commercial.quotes.approve") && (
+          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setMinScoreOpen(true)}>
+            <ShieldAlert className="mr-1 h-4 w-4" /> Pontuação mínima
+          </Button>
+        )}
         {can("commercial.manage") && (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setConfigOpen(true)}>
+          <Button size="sm" variant="outline" className={can("commercial.quotes.approve") ? "" : "ml-auto"} onClick={() => setConfigOpen(true)}>
             <Settings2 className="mr-1 h-4 w-4" /> Configurar preços
           </Button>
         )}
@@ -219,13 +232,15 @@ export function QuotesTab() {
         </CardContent>
       </Card>
       {configOpen && <PricingConfigDialog onClose={() => setConfigOpen(false)} />}
+      {minScoreOpen && <MinScoreDialog onClose={() => setMinScoreOpen(false)} />}
     </div>
   );
 }
 
 // ------------------------------------------------------------------ editor
 
-type ItemForm = { room: string; description: string; quantity: string; unitCost: string; corpo: string; porta: string; puxador: string; complemento: string; modelo: string };
+/** special: item especial (fora da comissão); null = o sistema sugere pelo nome do ambiente */
+type ItemForm = { room: string; description: string; quantity: string; unitCost: string; special: boolean | null; corpo: string; porta: string; puxador: string; complemento: string; modelo: string };
 /** Acabamentos do ambiente: saem na segunda tabela do orçamento da loja. */
 const FINISHES = [
   ["corpo", "Caixaria", "MDF 15mm Branco TX"],
@@ -267,7 +282,7 @@ type Form = {
   futureReleaseDate: string;
 };
 
-const emptyItem = (): ItemForm => ({ room: "", description: "", quantity: "1", unitCost: "", corpo: "", porta: "", puxador: "", complemento: "", modelo: "" });
+const emptyItem = (): ItemForm => ({ room: "", description: "", quantity: "1", unitCost: "", special: null, corpo: "", porta: "", puxador: "", complemento: "", modelo: "" });
 
 function fromQuote(q: Quote): Form {
   return {
@@ -275,7 +290,7 @@ function fromQuote(q: Quote): Form {
     opportunityId: q.opportunity?.id ?? "",
     projectId: q.project?.id ?? "",
     referrerId: q.referrer?.id ?? "",
-    items: q.items.map((i) => ({ room: i.room ?? "", description: i.description, quantity: String(i.quantity).replace(".", ","), unitCost: toField(i.unitCost), corpo: i.corpo ?? "", porta: i.porta ?? "", puxador: i.puxador ?? "", complemento: i.complemento ?? "", modelo: i.modelo ?? "" })),
+    items: q.items.map((i) => ({ room: i.room ?? "", description: i.description, quantity: String(i.quantity).replace(".", ","), unitCost: toField(i.unitCost), special: i.special ?? false, corpo: i.corpo ?? "", porta: i.porta ?? "", puxador: i.puxador ?? "", complemento: i.complemento ?? "", modelo: i.modelo ?? "" })),
     markup: String(q.markup).replace(".", ","),
     commissions: q.commissions.map((c) => ({ userId: c.userId ?? "", referrerId: c.referrerId ?? "", name: c.name, role: c.role, percent: toField(c.percent) })),
     // reabre no mesmo modo em que foi salvo
@@ -309,7 +324,7 @@ function toPayload(f: Form, roleLabel: (role: string) => string, addendumOf?: st
     referrerId: f.referrerId || null,
     items: f.items
       .filter((i) => i.description.trim() || parse(i.unitCost) > 0)
-      .map((i) => ({ room: i.room || null, description: i.description.trim() || i.room || "Item", quantity: parse(i.quantity) || 1, unitCost: parse(i.unitCost), corpo: i.corpo.trim() || null, porta: i.porta.trim() || null, puxador: i.puxador.trim() || null, complemento: i.complemento.trim() || null, modelo: i.modelo.trim() || null })),
+      .map((i) => ({ room: i.room || null, description: i.description.trim() || i.room || "Item", quantity: parse(i.quantity) || 1, unitCost: parse(i.unitCost), special: i.special, corpo: i.corpo.trim() || null, porta: i.porta.trim() || null, puxador: i.puxador.trim() || null, complemento: i.complemento.trim() || null, modelo: i.modelo.trim() || null })),
     markup: parse(f.markup),
     // percentual sem pessoa escolhida ainda conta no preço, com o nome do papel
     commissions: f.commissions.filter((c) => parse(c.percent) > 0).map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name.trim() || roleLabel(c.role), role: c.role, percent: parse(c.percent) })),
@@ -498,8 +513,9 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
     setFixingCommissions(false);
     if (quote) setForm((f) => ({ ...f, commissions: fromQuote(quote).commissions }));
   };
-  // valor de cada comissão sobre o preço final (o do cálculo ao vivo ou o já gravado)
-  const commissionBase = calc?.total ?? quote?.total ?? 0;
+  // valor de cada comissão sobre o preço final sem os itens especiais (o do cálculo ao vivo ou o já gravado)
+  const commissionBase = calc?.commissionBase ?? calc?.total ?? quote?.commissionBase ?? quote?.total ?? 0;
+  const specialTotal = calc ? calc.specialTotal ?? 0 : quote ? Math.max(0, Math.round((quote.total - (quote.commissionBase ?? quote.total)) * 100) / 100) : 0;
 
   const plans =config.financingPlans.filter((p) => p.method === form.method);
   const pickMethod = (m: PaymentMethod) => setForm((f) => ({ ...f, method: m, planId: "", installments: m === "AVISTA" || m === "PIX" ? "1" : f.installments }));
@@ -611,6 +627,11 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
                         </Button>
                       ) : <span />}
                     </div>
+                    <label className="flex w-fit items-center gap-2 text-xs text-muted-foreground" title="Metalon, vidro, espelho, laca, iluminação: entra no preço e no contrato, mas não na base da comissão">
+                      <input type="checkbox" disabled={!canEdit} checked={it.special ?? calc?.items[i]?.special ?? false} onChange={(e) => upd({ special: e.target.checked })} />
+                      Item especial (metalon, vidro…) — fora da comissão
+                      {it.special === null && calc?.items[i]?.special && <span className="text-primary">· sugerido pelo nome</span>}
+                    </label>
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
                       {FINISHES.map(([key, label, hint]) => (
                         <Field key={key} label={label}><Input disabled={!canEdit} placeholder={hint} value={it[key]} onChange={(e) => upd({ [key]: e.target.value } as Partial<ItemForm>)} /></Field>
@@ -737,7 +758,12 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
                     <Plus className="mr-1 h-4 w-4" /> Envolvido
                   </Button>
                 )}
-                <p className="text-xs text-muted-foreground">A comissão é acrescentada ao preço: pagas as comissões, sobra o custo × mark-up.</p>
+                {specialTotal > 0 && (
+                  <p className="rounded-md bg-muted px-3 py-2 text-xs">
+                    Base da comissão: <b>{formatCurrency(commissionBase)}</b> — {formatCurrency(specialTotal)} em itens especiais ficam fora (continuam no total do contrato).
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">A comissão é acrescentada ao preço: pagas as comissões, sobra o custo × mark-up. Itens especiais (metalon, vidro…) não pagam comissão.</p>
               </CardContent>
             </Card>
           </div>
@@ -1090,7 +1116,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
         </Dialog>
       )}
       {accepting && (
-        <AcceptDialog quoteId={quote.id} commissions={quote.commissions} total={quote.total} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={(adjust) => { acceptAdjust.current = adjust; run.mutate("accepted"); }} onClose={() => setAccepting(false)} />
+        <AcceptDialog quoteId={quote.id} commissions={quote.commissions} total={quote.commissionBase ?? quote.total} withFinance={withFinance} setWithFinance={setWithFinance} pending={run.isPending} onConfirm={(adjust) => { acceptAdjust.current = adjust; run.mutate("accepted"); }} onClose={() => setAccepting(false)} />
       )}
 
       <Dialog open={deciding !== null} onOpenChange={(o) => !o && setDeciding(null)}>
@@ -1111,6 +1137,7 @@ function QuoteActions({ quote, onChanged }: { quote: Quote; onChanged: () => voi
 const COMMISSION_CATEGORIES = ["Comissão de venda", "Reserva técnica"];
 const parseMoney = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
 
+/** total: a base da comissão (o total do contrato sem os itens especiais). */
 export function AcceptDialog(props: { quoteId: string; commissions: Quote["commissions"]; total: number; withFinance: boolean; setWithFinance: (v: boolean) => void; pending: boolean; onConfirm: (adjust: FinanceAdjust) => void; onClose: () => void }) {
   const plan = useQuery({ queryKey: ["quote-finance-preview", props.quoteId], queryFn: () => apiGet<{ data: PlannedEntry[] }>(`/commercial/quotes/${props.quoteId}/finance-preview`), staleTime: 0 });
   // % de cada comissão, que dá para acertar aqui antes de lançar
@@ -1280,15 +1307,67 @@ function PromobImportButton({ projectId, onPick }: { projectId: string; onPick: 
 
 // ------------------------------------------------------------------ configuração
 
+/** Pontuação mínima sem liberação — só quem libera orçamento altera. */
+function MinScoreDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["quotes", "config"], queryFn: () => apiGet<{ data: PricingConfig }>("/commercial/quotes/config") });
+  const [value, setValue] = useState<number | null>(null);
+  useEffect(() => {
+    if (q.data && value == null) setValue(q.data.data.minScore);
+  }, [q.data, value]);
+  const save = useMutation({
+    mutationFn: () => apiPut<{ message: string }>("/commercial/quotes/config/min-score", { minScore: value }),
+    onSuccess: (r) => {
+      toast.success(r.message);
+      qc.invalidateQueries({ queryKey: ["quotes", "config"] });
+      onClose();
+    },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao salvar")),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Pontuação mínima</DialogTitle></DialogHeader>
+        {value == null ? (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        ) : (
+          <div className="space-y-3 text-sm">
+            <Field label="Pontuação mínima"><NumInput value={value} onChange={setValue} /></Field>
+            <p className="text-xs text-muted-foreground">
+              Orçamento com pontuação igual ou acima deste valor passa direto. Abaixo dele, fica aguardando a sua liberação.
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button disabled={value == null || value <= 0 || save.isPending} onClick={() => save.mutate()}>Salvar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PricingConfigDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["quotes", "config"], queryFn: () => apiGet<{ data: PricingConfig }>("/commercial/quotes/config") });
   const [c, setC] = useState<PricingConfig | null>(null);
+  // palavras dos itens especiais, como digitadas (separadas por vírgula)
+  const [keywords, setKeywords] = useState<string | null>(null);
   useEffect(() => {
-    if (q.data && !c) setC(q.data.data);
+    if (q.data && !c) {
+      setC(q.data.data);
+      setKeywords((q.data.data.specialItems?.keywords ?? []).join(", "));
+    }
   }, [q.data, c]);
+  const keywordList = (keywords ?? "").split(/[,;\n]/).map((k) => k.trim()).filter(Boolean);
   const save = useMutation({
-    mutationFn: () => apiPut<{ message: string }>("/commercial/quotes/config", c && { ...c, document: { ...c.document, mandatoryNote: c.document.mandatoryNote.trim() || undefined, notes: c.document.notes.map((n) => n.trim()).filter(Boolean) } }),
+    mutationFn: () =>
+      apiPut<{ message: string }>("/commercial/quotes/config", c && {
+        ...c,
+        document: { ...c.document, mandatoryNote: c.document.mandatoryNote.trim() || undefined, notes: c.document.notes.map((n) => n.trim()).filter(Boolean) },
+        specialItems: { keywords: keywordList, commissionInPrice: c.specialItems?.commissionInPrice ?? true },
+      }),
     onSuccess: (r) => {
       toast.success(r.message);
       qc.invalidateQueries({ queryKey: ["quotes", "config"] });
@@ -1307,13 +1386,13 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
           <div className="space-y-5 text-sm">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Mark-up padrão"><NumInput value={c.defaultMarkup} onChange={(v) => setC({ ...c, defaultMarkup: v })} /></Field>
-              <Field label="Pontuação mínima"><NumInput value={c.minScore} onChange={(v) => setC({ ...c, minScore: v })} /></Field>
+              <Field label="Pontuação mínima"><Input value={pts(c.minScore)} disabled title="Definida por quem libera orçamento" /></Field>
               <Field label="Validade (dias)"><NumInput value={c.validityDays} onChange={(v) => setC({ ...c, validityDays: Math.round(v) })} /></Field>
               <Field label="Frete padrão (%)"><NumInput value={c.defaultFreightPercent ?? 2} onChange={(v) => setC({ ...c, defaultFreightPercent: v })} /></Field>
               <Field label="Imposto padrão (%)"><NumInput value={c.defaultTaxPercent ?? 6} onChange={(v) => setC({ ...c, defaultTaxPercent: v })} /></Field>
             </div>
             <p className="text-xs text-muted-foreground">
-              A pontuação é o mark-up que sobra depois de desconto, taxa da financeira, comissões, frete e outros custos. Abaixo do mínimo, o orçamento precisa de liberação.
+              A pontuação é o mark-up que sobra depois de desconto, taxa da financeira, comissões, frete e outros custos. Abaixo do mínimo, o orçamento precisa de liberação. O mínimo é definido por quem libera orçamento.
             </p>
 
             <div className="space-y-2">
@@ -1329,6 +1408,30 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
                 </div>
               ))}
               <Button size="sm" variant="outline" onClick={() => setC({ ...c, commissionRoles: [...c.commissionRoles, { role: "", label: "", defaultPercent: 0 }] })}><Plus className="mr-1 h-4 w-4" /> Papel</Button>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-medium">Itens especiais (fora da comissão)</p>
+              <p className="text-xs text-muted-foreground">
+                Item especial entra no total do contrato, mas não na base da comissão. No orçamento, cada item pode ser marcado ou desmarcado à mão; as palavras abaixo só servem de sugestão quando o nome do ambiente tem uma delas (palavra inteira, sem ligar para acento ou maiúscula). Deixe vazio para não sugerir nada.
+              </p>
+              <Field label="Palavras que sugerem item especial (separe por vírgula)">
+                <Textarea rows={2} value={keywords ?? ""} onChange={(e) => setKeywords(e.target.value)} placeholder="metalon, vidro, vidros, espelho, laca, iluminação" />
+              </Field>
+              {keywordList.some((k) => k.length > 40) && <p className="text-xs text-destructive">Cada palavra pode ter no máximo 40 caracteres.</p>}
+              {keywordList.length > 50 && <p className="text-xs text-destructive">No máximo 50 palavras.</p>}
+              <div className="space-y-1">
+                <p className="text-xs font-medium">Preço do item especial</p>
+                <label className="flex items-start gap-2">
+                  <input type="radio" className="mt-1" checked={c.specialItems?.commissionInPrice ?? true} onChange={() => setC({ ...c, specialItems: { keywords: keywordList, commissionInPrice: true } })} />
+                  <span>Leva o % de comissão como os demais itens <span className="text-xs text-muted-foreground">— o preço do cliente não muda; a comissão que deixa de ser paga fica no resultado da loja</span></span>
+                </label>
+                <label className="flex items-start gap-2">
+                  <input type="radio" className="mt-1" checked={c.specialItems?.commissionInPrice === false} onChange={() => setC({ ...c, specialItems: { keywords: keywordList, commissionInPrice: false } })} />
+                  <span>Sem o % de comissão <span className="text-xs text-muted-foreground">— o item especial sai mais barato para o cliente (só mark-up, frete e imposto)</span></span>
+                </label>
+                <p className="text-xs text-muted-foreground">Vale para orçamentos calculados daqui em diante; os já salvos só mudam se forem editados.</p>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -1380,7 +1483,7 @@ function PricingConfigDialog({ onClose }: { onClose: () => void }) {
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button disabled={!c || save.isPending} onClick={() => save.mutate()}>Salvar</Button>
+          <Button disabled={!c || save.isPending || keywordList.length > 50 || keywordList.some((k) => k.length > 40)} onClick={() => save.mutate()}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
