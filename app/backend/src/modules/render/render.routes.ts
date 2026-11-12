@@ -43,7 +43,7 @@ async function projectFor(id: string, organizationId: string) {
         where: { kind: "PADRAO" },
         orderBy: [{ approvedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
         take: 1,
-        select: { number: true, items: { orderBy: { position: "asc" }, select: { room: true, description: true, corpo: true, porta: true, puxador: true, complemento: true, modelo: true } } },
+        select: { number: true, items: { where: { included: true }, orderBy: { position: "asc" }, select: { room: true, description: true, corpo: true, porta: true, puxador: true, complemento: true, modelo: true } } },
       },
     },
   });

@@ -53,7 +53,7 @@ export function installmentLabels(rows: { installmentNumber: number | null; isDo
 export async function loadContractOrder(organizationId: string, quoteId: string): Promise<ContractOrder> {
   const q = await prisma.commercialQuote.findFirst({
     where: { id: quoteId, organizationId },
-    include: { items: { orderBy: { position: "asc" } }, seller: { select: { name: true } } },
+    include: { items: { where: { included: true }, orderBy: { position: "asc" } }, seller: { select: { name: true } } },
   });
   if (!q) throw new NotFoundError("Orçamento não encontrado");
   const pricing = await loadPricing();

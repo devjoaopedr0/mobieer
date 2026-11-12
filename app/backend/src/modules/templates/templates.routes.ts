@@ -23,7 +23,8 @@ import { BLOCK, drawOrderBlock, drawPaymentBlock, loadContractOrder, mergeOrders
 import { CONTRACT_TITLE_SIZE, contractDocPdf, contractHtml, docBlocksSchema, docHasBlanks } from "./contract-doc";
 import { discardContractText, loadContractText, saveContractText } from "./contract-text";
 import { ORDER_TYPES, contractOptionsSchema, suggestedDays } from "./contract-options";
-import { contractNumberFor, nextContractNumber, nextQuoteSequence, peekContractNumber, renumberOldQuotes, setNextContractNumber, setNextQuoteNumber } from "./contract-number";
+import { contractNumberFor, contractRevision, getReplacementNotice, nextContractNumber, nextQuoteSequence, peekContractNumber, renumberOldQuotes, setNextContractNumber, setNextQuoteNumber, setReplacementNotice } from "./contract-number";
+import { DEFAULT_REPLACEMENT_NOTICE, MAX_NOTICE_LENGTH, NOTICE_FIELDS, docStartsWith } from "./contract-revision.rules";
 import { pipeToResponse } from "../../utils/stream";
 
 const router = Router();
@@ -374,7 +375,14 @@ router.post(
 // valores do orçamento do Promob -> PDF anexado ao cliente/projeto.
 
 // GET/PUT /api/templates/contract-numbering  -> próximo número de contrato e de orçamento (sequências separadas)
-const numbering = async () => ({ next: await nextContractNumber(), quoteNext: await nextQuoteSequence() });
+const numbering = async () => ({
+  next: await nextContractNumber(),
+  quoteNext: await nextQuoteSequence(),
+  // aviso que sai no início do contrato refeito (377-1), com os marcadores que aceita
+  replacementNotice: await getReplacementNotice(),
+  replacementNoticeDefault: DEFAULT_REPLACEMENT_NOTICE,
+  replacementNoticeFields: NOTICE_FIELDS,
+});
 router.get(
   "/contract-numbering",
   requirePermission("documents.read"),
@@ -385,9 +393,16 @@ router.put(
   requirePermission("templates.manage"),
   asyncHandler(async (req, res) => {
     const n = z.coerce.number().int().min(1).max(99_999_999);
-    const { next, quoteNext } = z.object({ next: n.optional(), quoteNext: n.optional() }).parse(req.body);
+    const { next, quoteNext, replacementNotice } = z
+      .object({ next: n.optional(), quoteNext: n.optional(), replacementNotice: z.string().max(MAX_NOTICE_LENGTH, `O aviso pode ter até ${MAX_NOTICE_LENGTH} caracteres`).optional() })
+      .parse(req.body);
     if (next !== undefined) await setNextContractNumber(next);
     if (quoteNext !== undefined) await setNextQuoteNumber(quoteNext);
+    // vazio volta ao texto padrão
+    if (replacementNotice !== undefined) {
+      await setReplacementNotice(replacementNotice);
+      await prisma.auditLog.create({ data: { userId: req.user!.id, action: "CONTRACT_NOTICE_UPDATED", entity: "Setting", entityId: "contracts.replacementNotice", details: { text: replacementNotice } } });
+    }
     // nunca volta para um número já usado
     return ok(res, await numbering(), "Numeração salva");
   })
@@ -478,7 +493,10 @@ router.post(
     const input = contractInput.parse(req.body);
     const order = await orderFor(input, req.user!.organizationId);
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
-    const numero = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId) : "";
+    const base = t.type === "CONTRATO" ? await peekContractNumber(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId) : "";
+    // já existe contrato deste número: este sai como revisão (377-1) e com o aviso no início
+    const revision = base ? await contractRevision(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId, base) : null;
+    const numero = revision?.display ?? base;
     ctx.values["contrato.numero"] = numero;
     const rendered = renderContractBody(t.bodyHtml!, ctx);
     const marked = renderContractBody(t.bodyHtml!, ctx, { mark: true });
@@ -486,11 +504,13 @@ router.post(
     const quote = order ? await prisma.commercialQuote.findUnique({ where: { id: order.quoteId }, select: { updatedAt: true } }) : null;
     const baseDays = order?.deliveryDays ?? input.prazoEntregaDias ?? null;
     // na prévia em texto, o quadro vira um resumo
-    const text = order
+    const body = order
       ? rendered.text
           .replace(BLOCK.pedido, order.items.map((i) => `${i.code} — ${i.room} — ${i.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
           .replace(BLOCK.pagamento, order.installments.map((p) => `${p.label}: ${p.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`).join("\n"))
       : rendered.text;
+    // revisão: o aviso sai no início do PDF (não entra no editor, para não repetir na próxima revisão)
+    const text = revision?.notice ? `${revision.notice}\n\n${body}` : body;
     // `html`: o contrato inteiro, com os quadros como tabelas, para corrigir no editor
     return ok(res, {
       title: numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || t.name,
@@ -500,6 +520,8 @@ router.post(
       // o que falta cadastrar, com onde corrigir (aparece antes de abrir o editor)
       checklist: contractChecklist(rendered.missing),
       meta: { ...ctx.meta, quoteUpdatedAt: quote?.updatedAt ?? null },
+      /** este contrato substitui outro: número com o sufixo e o aviso que sai no início do PDF */
+      revision: revision?.notice ? { number: revision.display, version: revision.version, notice: revision.notice } : null,
       values: ctx.values,
       fieldLabels: Object.fromEntries(MERGE_FIELDS.map((f) => [f.key, f.label])),
       options: { chosen: ctx.options, orderTypes: ORDER_TYPES.map((o) => ({ code: o.code, label: o.label, days: suggestedDays(o.code, baseDays) })), baseDays },
@@ -518,19 +540,27 @@ router.post(
     const ctx = await buildContractContext(req.user!.organizationId, input, order);
     // contrato da loja: número na sequência dos contratos antigos
     const numero = t.type === "CONTRATO" ? (await contractNumberFor(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId)).number : null;
-    ctx.values["contrato.numero"] = numero ?? "";
+    // contrato refeito: sai como 377-1, 377-2…, com o aviso de que o anterior fica desconsiderado
+    const revision = numero ? await contractRevision(req.user!.organizationId, ctx.meta.clientId, ctx.meta.projectId, numero) : null;
+    const previous = revision?.previous ?? null;
+    const shown = revision?.display ?? numero;
+    ctx.values["contrato.numero"] = shown ?? "";
     const rendered = renderContractBody(t.bodyHtml!, ctx);
-    const { text } = rendered;
+    const text = revision?.notice ? `${revision.notice}\n\n${rendered.text}` : rendered.text;
     // editado: o que faltava pode ter sido preenchido à mão; sobra o que ainda tem "____"
     const missing = input.doc ? (docHasBlanks(input.doc) ? rendered.missing : []) : rendered.missing;
 
-    const title = numero ? `${contractHeading(numero)} — ${ctx.meta.clientName}` : input.title || `${t.name} — ${ctx.meta.clientName}`;
+    const title = shown ? `${contractHeading(shown)} — ${ctx.meta.clientName}` : input.title || `${t.name} — ${ctx.meta.clientName}`;
     const footer = `Gerado pelo sistema MOBIEER em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })}${
       ctx.meta.promobImportId ? ` • orçamento Promob ${ctx.values["promob.arquivo"]}` : ""
     }`;
-    const heading = { title: numero ? contractHeading(numero) : title, subtitle: numero ? ctx.meta.clientName : undefined, footer, contacts: CONTRACT_CONTACTS };
-    const pdf = input.doc
-      ? await contractDocPdf({ ...heading, blocks: input.doc })
+    const heading = { title: shown ? contractHeading(shown) : title, subtitle: shown ? ctx.meta.clientName : undefined, footer, contacts: CONTRACT_CONTACTS };
+    // no texto editado, o aviso entra como primeiro parágrafo (em negrito), sem repetir se já estiver lá
+    const docBlocks = input.doc && revision?.notice && !docStartsWith(input.doc, revision.notice)
+      ? [{ t: "p" as const, runs: [{ text: revision.notice, b: true }], align: "justify" as const }, ...input.doc]
+      : input.doc;
+    const pdf = docBlocks
+      ? await contractDocPdf({ ...heading, blocks: docBlocks })
       : await contractPdf({
           ...heading,
           titleSize: CONTRACT_TITLE_SIZE,
@@ -538,20 +568,13 @@ router.post(
           blocks: order ? { [BLOCK.pedido]: (doc) => drawOrderBlock(doc, order), [BLOCK.pagamento]: (doc) => drawPaymentBlock(doc, order) } : undefined,
         });
 
-    const fileName = `contrato-${(numero || ctx.meta.projectCode || ctx.meta.clientName).replace(/[^\w-]+/g, "-").toLowerCase()}.pdf`;
+    const fileName = `contrato-${(shown || ctx.meta.projectCode || ctx.meta.clientName).replace(/[^\w-]+/g, "-").toLowerCase()}.pdf`;
     const key = buildStorageKey(`clients/${ctx.meta.clientId}`, fileName);
     await storage.put(key, pdf, "application/pdf");
 
     // contrato refeito (pagamento corrigido, cláusula mudada): vira a versão seguinte do anterior,
-    // com o mesmo número; o anterior que ninguém assinou sai do portal para o cliente não ver dois
-    const previous = numero
-      ? await prisma.projectDocument.findFirst({
-          where: { organizationId: req.user!.organizationId, type: "CONTRATO", clientId: ctx.meta.clientId, projectId: ctx.meta.projectId, number: numero, supersededBy: { none: {} } },
-          orderBy: { createdAt: "desc" },
-          select: { id: true, version: true, _count: { select: { signatures: true } } },
-        })
-      : null;
-
+    // com o mesmo número gravado (o -1 é só como sai); o anterior que ninguém assinou sai do portal
+    // para o cliente não ver dois
     const doc = await prisma.projectDocument.create({
       data: {
         version: previous ? previous.version + 1 : 1,

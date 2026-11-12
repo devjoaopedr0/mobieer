@@ -62,7 +62,7 @@ async function projectFor(id: string, organizationId: string) {
           number: true,
           deliveryDays: true,
           commissions: { select: { role: true, name: true } },
-          items: { orderBy: { position: "asc" }, select: { room: true, description: true, corpo: true, porta: true, puxador: true, complemento: true, modelo: true } },
+          items: { where: { included: true }, orderBy: { position: "asc" }, select: { room: true, description: true, corpo: true, porta: true, puxador: true, complemento: true, modelo: true } },
         },
       },
     },

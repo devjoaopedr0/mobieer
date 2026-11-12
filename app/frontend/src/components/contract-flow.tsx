@@ -20,6 +20,8 @@ type Preview = {
   values: Record<string, string>;
   fieldLabels: Record<string, string>;
   checklist: { key: string; label: string; where: string }[];
+  /** contrato refeito: número com o sufixo (377-1) e o aviso que sai no início do PDF */
+  revision?: { number: string; version: number; notice: string } | null;
   options: { chosen: Options; orderTypes: { code: string; label: string; days: number | null }[]; baseDays: number | null };
 };
 type SavedText = { templateId: string; doc: DocBlock[]; savedAt: string; savedBy: string | null; documentId: string | null; options?: Options | null } | null;
@@ -295,6 +297,13 @@ function PrepareStep({ step, busy, onChange, onCancel, onOpen }: { step: Extract
         <DialogDescription>Os dados do cliente, do projeto e do orçamento entram sozinhos. Escolha as opções das cláusulas.</DialogDescription>
       </DialogHeader>
       <div className="space-y-4 text-sm">
+        {step.preview.revision && (
+          <div className="space-y-1 rounded-md border border-primary/30 bg-primary/5 p-3">
+            <p className="font-medium">Este contrato sai como Nº {step.preview.revision.number} e substitui o anterior</p>
+            <p className="text-xs">No início do PDF, em negrito: <span className="italic">“{step.preview.revision.notice}”</span></p>
+            <p className="text-xs text-muted-foreground">O texto do aviso é configurado em Modelos de documentos.</p>
+          </div>
+        )}
         {step.preview.checklist.length > 0 ? (
           <div className="space-y-1 rounded-md border border-warning/40 bg-warning/5 p-3">
             <p className="flex items-center gap-1.5 font-medium"><AlertTriangle className="h-4 w-4 text-warning" /> Falta cadastrar</p>

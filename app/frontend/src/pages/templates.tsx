@@ -142,6 +142,7 @@ export function TemplatesPage() {
       </PageHeader>
 
       {canEdit && <ContractNumbering />}
+      {canEdit && <ReplacementNotice />}
 
       {list.length === 0 ? (
         <EmptyState title="Nenhum modelo" description="Escreva um contrato com marcadores ou envie um PDF padrão." />
@@ -458,6 +459,65 @@ function ContractNumbering() {
         <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
           Orçamento e contrato têm numerações separadas: o contrato continua a sequência dos contratos antigos e não precisa ter o número do orçamento. Gerar de novo o contrato do mesmo cliente e projeto mantém o número. Use {"{{contrato.numero}}"} no texto do modelo.
         </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Contrato refeito sai como 377-1, 377-2… e com este aviso no início do PDF,
+ * dizendo que o anterior fica desconsiderado. O texto é da loja; vazio volta ao padrão.
+ */
+function ReplacementNotice() {
+  const qc = useQueryClient();
+  type Data = { replacementNotice: string; replacementNoticeDefault: string; replacementNoticeFields: { key: string; label: string; example: string }[] };
+  const current = useQuery({ queryKey: ["templates", "contract-numbering"], queryFn: () => apiGet<{ data: Data }>("/templates/contract-numbering") });
+  const [text, setText] = useState<string | null>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (current.data && text === null) setText(current.data.data.replacementNotice);
+  }, [current.data, text]);
+  const d = current.data?.data;
+  const changed = d && text !== null && text.trim() !== d.replacementNotice;
+  const save = useMutation({
+    mutationFn: () => apiPut<{ data: Data }>("/templates/contract-numbering", { replacementNotice: text ?? "" }),
+    onSuccess: (r) => {
+      setText(r.data.replacementNotice);
+      qc.invalidateQueries({ queryKey: ["templates", "contract-numbering"] });
+      toast.success("Aviso do contrato refeito salvo");
+    },
+    onError: (e) => toast.error(errorMessage(e, "Falha ao salvar o aviso")),
+  });
+  const insert = (key: string) => {
+    const el = area.current;
+    const tag = `{{${key}}}`;
+    const cur = text ?? "";
+    const at = el ? el.selectionStart : cur.length;
+    setText(cur.slice(0, at) + tag + cur.slice(at));
+  };
+  // prévia com os exemplos no lugar dos marcadores
+  const sample = (text ?? "").replace(/\{\{\s*([\w.]+)\s*\}\}/g, (all, k: string) => d?.replacementNoticeFields.find((f) => f.key === k)?.example ?? all);
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">Contrato refeito: número e aviso</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Quando o contrato de um cliente é gerado de novo (pagamento corrigido, PDF editado), ele sai com o mesmo número e um sufixo — 377, depois 377-1, 377-2 — e com este aviso no início, em negrito. O contrato anterior que ninguém assinou some do portal do cliente.
+        </p>
+        <Textarea ref={area} rows={3} maxLength={2000} value={text ?? ""} onChange={(e) => setText(e.target.value)} placeholder={d?.replacementNoticeDefault} />
+        <div className="flex flex-wrap items-center gap-1 text-xs">
+          <span className="text-muted-foreground">Inserir:</span>
+          {d?.replacementNoticeFields.map((f) => (
+            <button key={f.key} type="button" className="rounded border px-1.5 py-0.5 hover:bg-muted" title={`${f.label} — ex.: ${f.example}`} onClick={() => insert(f.key)}>{f.label}</button>
+          ))}
+        </div>
+        {sample && <p className="rounded-md bg-muted px-3 py-2 text-xs"><span className="text-muted-foreground">Como sai: </span><strong>{sample}</strong></p>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={!changed || save.isPending} onClick={() => save.mutate()}>
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Salvar aviso
+          </Button>
+          {d && text !== d.replacementNoticeDefault && <Button size="sm" variant="ghost" onClick={() => setText(d.replacementNoticeDefault)}>Voltar ao texto padrão</Button>}
+        </div>
       </CardContent>
     </Card>
   );

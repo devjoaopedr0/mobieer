@@ -72,6 +72,7 @@ export function serializeQuote(q: QuoteRow) {
       unitPrice: n(i.unitPrice),
       total: n(i.total),
       special: i.special,
+      included: i.included,
     })),
     commissions: q.commissions.map((c) => ({ id: c.id, userId: c.userId, referrerId: c.referrerId, name: c.name, role: c.role, percent: n(c.percent), amount: n(c.amount) })),
     referrer: q.referrer,
@@ -161,6 +162,7 @@ export function calcToData(c: QuoteCalc) {
         unitPrice: D(i.unitPrice),
         total: D(i.total),
         special: i.special,
+        included: i.included,
       })),
     },
     commissions: {
@@ -219,7 +221,8 @@ export async function quotePdf(q: ReturnType<typeof serializeQuote>, organizatio
       phone: c.phone,
       email: c.email,
     },
-    items: q.items,
+    // ambiente desmarcado fica guardado no orçamento, mas não sai no PDF do cliente
+    items: q.items.filter((i) => i.included !== false),
     subtotal: q.subtotal,
     discount: q.discount,
     total: q.total,
