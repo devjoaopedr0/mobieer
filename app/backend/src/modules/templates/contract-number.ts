@@ -8,6 +8,7 @@
  *   As versões repetem o número; adendo usa o número do orçamento com -A1.
  */
 import { prisma } from "../../prisma";
+import { normalizeNotice, replacementNotice, revisionNumber } from "./contract-revision.rules";
 
 const CONTRACT_KEY = "contracts.numbering";
 const QUOTE_KEY = "quotes.numbering";
@@ -177,4 +178,39 @@ export async function contractNumberFor(organizationId: string, clientId: string
 /** Número que este cliente/projeto teria, sem reservar (para a prévia). */
 export async function peekContractNumber(organizationId: string, clientId: string, projectId: string | null): Promise<string> {
   return (await previousNumber(organizationId, clientId, projectId)) ?? (await readSetting(CONTRACT_KEY)).reserved[clientId] ?? String(await nextContractNumber());
+}
+
+// ---------------- Revisão do contrato (377 → 377-1) ----------------
+
+const NOTICE_KEY = "contracts.replacementNotice";
+
+/** Texto do aviso de substituição configurado na tela de Modelos (vazio = padrão). */
+export async function getReplacementNotice(): Promise<string> {
+  const row = await prisma.setting.findUnique({ where: { key: NOTICE_KEY } });
+  return normalizeNotice(row?.value);
+}
+
+export async function setReplacementNotice(text: string) {
+  const value = normalizeNotice(text);
+  await prisma.setting.upsert({ where: { key: NOTICE_KEY }, update: { value }, create: { key: NOTICE_KEY, value } });
+  return value;
+}
+
+/**
+ * Este contrato é revisão de um anterior do mesmo cliente/projeto e número
+ * (o mais recente que ninguém substituiu)? Devolve a versão que vai sair, o
+ * número com o sufixo (377-1) e o aviso já preenchido.
+ */
+export async function contractRevision(organizationId: string, clientId: string, projectId: string | null, numero: string) {
+  const previous = await prisma.projectDocument.findFirst({
+    where: { organizationId, type: "CONTRATO", clientId, projectId, number: numero, supersededBy: { none: {} } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, version: true, createdAt: true, _count: { select: { signatures: true } } },
+  });
+  const version = previous ? previous.version + 1 : 1;
+  const display = revisionNumber(numero, version);
+  const notice = previous
+    ? replacementNotice(await getReplacementNotice(), { previous: revisionNumber(numero, previous.version), previousDate: previous.createdAt, current: display })
+    : null;
+  return { previous, version, display, notice };
 }

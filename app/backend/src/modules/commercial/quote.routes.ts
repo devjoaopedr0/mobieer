@@ -51,6 +51,8 @@ const calcSchema = z.object({
         unitCost: money,
         // item especial (metalon, vidro…): fica fora da base da comissão; sem a marca, vale a sugestão pelo nome
         special: z.boolean().optional().nullable(),
+        // sai no orçamento: desmarcado fica guardado, fora do total, do PDF e do contrato
+        included: z.boolean().optional().nullable(),
       })
     )
     .min(1, "Inclua pelo menos um ambiente ou item")
@@ -281,7 +283,8 @@ router.get(
         ...(req.query.future === "1" ? { futureSale: true } : {}),
       },
       include: quoteInclude,
-      orderBy: [{ issuedAt: "desc" }, { version: "desc" }],
+      // o que foi mexido por último aparece primeiro (pedido da loja: "atualizar por data de modificação")
+      orderBy: [{ updatedAt: "desc" }, { version: "desc" }],
       take: 200,
     });
     return ok(res, rows.map(serializeQuote));

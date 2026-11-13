@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { apiDelete, apiDownload, apiGet, apiPatch, apiPost, apiPut } from "@/services/api";
 import { errorMessage } from "@/lib/errors";
 import { QuoteContractButton } from "@/components/quote-contract";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,8 @@ type Quote = {
   version: number;
   status: QuoteStatus;
   issuedAt: string;
+  /** última modificação: a lista vem ordenada por ela */
+  updatedAt?: string;
   validUntil: string | null;
   notes: string | null;
   paymentTerms: string | null;
@@ -50,7 +52,7 @@ type Quote = {
   opportunity: { id: string; title: string } | null;
   project: { id: string; code: string; name: string } | null;
   seller: { id: string; name: string };
-  items: { room: string | null; description: string; quantity: number; unitCost: number; unitPrice: number; total: number; special?: boolean; corpo?: string | null; porta?: string | null; puxador?: string | null; complemento?: string | null; modelo?: string | null }[];
+  items: { room: string | null; description: string; quantity: number; unitCost: number; unitPrice: number; total: number; special?: boolean; included?: boolean; corpo?: string | null; porta?: string | null; puxador?: string | null; complemento?: string | null; modelo?: string | null }[];
   commissions: { userId: string | null; referrerId?: string | null; name: string; role: string; percent: number; amount: number }[];
   /** o que paga comissão: o total sem os itens especiais */
   commissionBase?: number;
@@ -201,6 +203,7 @@ export function QuotesTab() {
                   <TableHead>Situação</TableHead>
                   <TableHead>Vendedor</TableHead>
                   <TableHead>Emitido</TableHead>
+                  <TableHead>Modificado ↓</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -224,6 +227,7 @@ export function QuotesTab() {
                     </TableCell>
                     <TableCell>{r.seller.name}</TableCell>
                     <TableCell>{formatDate(r.issuedAt)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">{r.updatedAt ? new Date(r.updatedAt).toLocaleString("pt-BR", { timeZone: "America/Fortaleza", day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -240,7 +244,7 @@ export function QuotesTab() {
 // ------------------------------------------------------------------ editor
 
 /** special: item especial (fora da comissão); null = o sistema sugere pelo nome do ambiente */
-type ItemForm = { room: string; description: string; quantity: string; unitCost: string; special: boolean | null; corpo: string; porta: string; puxador: string; complemento: string; modelo: string };
+type ItemForm = { room: string; description: string; quantity: string; unitCost: string; special: boolean | null; /** sai no orçamento (desmarcado: guardado, fora do total e do PDF) */ included: boolean; corpo: string; porta: string; puxador: string; complemento: string; modelo: string };
 /** Acabamentos do ambiente: saem na segunda tabela do orçamento da loja. */
 const FINISHES = [
   ["corpo", "Caixaria", "MDF 15mm Branco TX"],
@@ -282,7 +286,7 @@ type Form = {
   futureReleaseDate: string;
 };
 
-const emptyItem = (): ItemForm => ({ room: "", description: "", quantity: "1", unitCost: "", special: null, corpo: "", porta: "", puxador: "", complemento: "", modelo: "" });
+const emptyItem = (): ItemForm => ({ room: "", description: "", quantity: "1", unitCost: "", special: null, included: true, corpo: "", porta: "", puxador: "", complemento: "", modelo: "" });
 
 function fromQuote(q: Quote): Form {
   return {
@@ -290,7 +294,7 @@ function fromQuote(q: Quote): Form {
     opportunityId: q.opportunity?.id ?? "",
     projectId: q.project?.id ?? "",
     referrerId: q.referrer?.id ?? "",
-    items: q.items.map((i) => ({ room: i.room ?? "", description: i.description, quantity: String(i.quantity).replace(".", ","), unitCost: toField(i.unitCost), special: i.special ?? false, corpo: i.corpo ?? "", porta: i.porta ?? "", puxador: i.puxador ?? "", complemento: i.complemento ?? "", modelo: i.modelo ?? "" })),
+    items: q.items.map((i) => ({ room: i.room ?? "", description: i.description, quantity: String(i.quantity).replace(".", ","), unitCost: toField(i.unitCost), special: i.special ?? false, included: i.included ?? true, corpo: i.corpo ?? "", porta: i.porta ?? "", puxador: i.puxador ?? "", complemento: i.complemento ?? "", modelo: i.modelo ?? "" })),
     markup: String(q.markup).replace(".", ","),
     commissions: q.commissions.map((c) => ({ userId: c.userId ?? "", referrerId: c.referrerId ?? "", name: c.name, role: c.role, percent: toField(c.percent) })),
     // reabre no mesmo modo em que foi salvo
@@ -324,7 +328,7 @@ function toPayload(f: Form, roleLabel: (role: string) => string, addendumOf?: st
     referrerId: f.referrerId || null,
     items: f.items
       .filter((i) => i.description.trim() || parse(i.unitCost) > 0)
-      .map((i) => ({ room: i.room || null, description: i.description.trim() || i.room || "Item", quantity: parse(i.quantity) || 1, unitCost: parse(i.unitCost), special: i.special, corpo: i.corpo.trim() || null, porta: i.porta.trim() || null, puxador: i.puxador.trim() || null, complemento: i.complemento.trim() || null, modelo: i.modelo.trim() || null })),
+      .map((i) => ({ room: i.room || null, description: i.description.trim() || i.room || "Item", quantity: parse(i.quantity) || 1, unitCost: parse(i.unitCost), special: i.special, included: i.included, corpo: i.corpo.trim() || null, porta: i.porta.trim() || null, puxador: i.puxador.trim() || null, complemento: i.complemento.trim() || null, modelo: i.modelo.trim() || null })),
     markup: parse(f.markup),
     // percentual sem pessoa escolhida ainda conta no preço, com o nome do papel
     commissions: f.commissions.filter((c) => parse(c.percent) > 0).map((c) => ({ userId: c.userId || null, referrerId: c.referrerId || null, name: c.name.trim() || roleLabel(c.role), role: c.role, percent: parse(c.percent) })),
@@ -605,21 +609,31 @@ function QuoteEditor({ quote, config }: { quote: Quote | null; config: PricingCo
 
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 py-3">
-              <CardTitle className="text-base">Ambientes e custos</CardTitle>
+              <div>
+                <CardTitle className="text-base">Ambientes e custos</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  {form.items.filter((x) => x.included).length} de {form.items.length} {form.items.length === 1 ? "ambiente sai" : "ambientes saem"} no orçamento. Desmarque o que não deve sair no PDF — fica guardado aqui, sem apagar.
+                </p>
+              </div>
               {canEdit && form.projectId && <PromobImportButton projectId={form.projectId} onPick={(items) => set("items", items)} />}
             </CardHeader>
             <CardContent className="space-y-2">
               {form.items.map((it, i) => {
                 const upd = (patch: Partial<ItemForm>) => set("items", form.items.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+                const lastIncluded = it.included && form.items.filter((x) => x.included).length === 1;
                 return (
-                  <div key={i} className="space-y-2 rounded-lg border border-border p-3">
-                    <div className="grid grid-cols-2 gap-2 md:grid-cols-[1.6fr_70px_130px_120px_32px] md:items-end">
+                  <div key={i} className={cn("space-y-2 rounded-lg border border-border p-3", !it.included && "border-dashed bg-muted/40")}>
+                    <label className={cn("flex w-fit items-center gap-2 text-sm font-medium", !it.included && "text-muted-foreground")} title={lastIncluded ? "Pelo menos um ambiente precisa sair no orçamento" : undefined}>
+                      <input type="checkbox" disabled={!canEdit || lastIncluded} checked={it.included} onChange={(e) => upd({ included: e.target.checked })} />
+                      {it.included ? "Sai no orçamento" : "Fora do orçamento — não sai no PDF nem conta no total"}
+                    </label>
+                    <div className={cn("grid grid-cols-2 gap-2 md:grid-cols-[1.6fr_70px_130px_120px_32px] md:items-end", !it.included && "opacity-60")}>
                       <Field label="Ambiente"><Input disabled={!canEdit} placeholder="Cozinha" value={it.room} onChange={(e) => upd({ room: e.target.value })} /></Field>
                       <Field label="Qtd"><Input disabled={!canEdit} inputMode="decimal" value={it.quantity} onChange={(e) => upd({ quantity: e.target.value })} /></Field>
                       <Field label="Custo unitário"><Input disabled={!canEdit} inputMode="decimal" placeholder="0,00" value={it.unitCost} onChange={(e) => upd({ unitCost: e.target.value })} /></Field>
                       <div className="pb-2 text-right">
                         <p className="text-xs text-muted-foreground">Venda</p>
-                        <p className="text-sm font-medium">{formatCurrency(calc?.items[i]?.total ?? quote?.items[i]?.total ?? 0)}</p>
+                        <p className={cn("text-sm font-medium", !it.included && "text-muted-foreground line-through")}>{formatCurrency(calc?.items[i]?.total ?? quote?.items[i]?.total ?? 0)}</p>
                       </div>
                       {canEdit ? (
                         <Button variant="ghost" size="icon" aria-label="Remover ambiente" disabled={form.items.length === 1} onClick={() => set("items", form.items.filter((_, k) => k !== i))}>

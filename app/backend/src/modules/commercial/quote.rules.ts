@@ -148,7 +148,15 @@ export type Finishes = Partial<Record<(typeof FINISH_FIELDS)[number], string | n
  * mas fica fora da base da comissão. Sem a marca informada, vale a sugestão
  * pelo nome do ambiente (specialItemSuggestion).
  */
-export type QuoteItemInput = { room?: string | null; description: string; quantity?: number; unitCost: number; special?: boolean | null } & Finishes;
+export type QuoteItemInput = {
+  room?: string | null;
+  description: string;
+  quantity?: number;
+  unitCost: number;
+  special?: boolean | null;
+  /** sai no orçamento (padrão sim): desmarcado fica guardado, com o preço calculado, mas fora do total e do PDF */
+  included?: boolean | null;
+} & Finishes;
 
 /**
  * Itens especiais (configuração de preços → specialItems):
@@ -272,10 +280,14 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
       unitPrice: r2(total / quantity),
       total,
       special,
+      included: it.included !== false,
     };
   });
-  const costTotal = r2(items.reduce((s, i) => s + i.cost, 0));
-  const subtotal = r2(items.reduce((s, i) => s + i.total, 0));
+  // só o que sai no orçamento conta: o ambiente desmarcado fica guardado com o preço, fora das somas
+  const inQuote = items.filter((i) => i.included);
+  if (!inQuote.length) throw new QuoteRuleError("Marque pelo menos um ambiente para sair no orçamento");
+  const costTotal = r2(inQuote.reduce((s, i) => s + i.cost, 0));
+  const subtotal = r2(inQuote.reduce((s, i) => s + i.total, 0));
   // desconto: valor final combinado > percentual > valor em R$
   const targetTotal = pos(input.targetTotal) ? r2(input.targetTotal!) : null;
   const discountPercentInput = !targetTotal && pos(input.discountPercent) ? Math.min(r4(input.discountPercent!), 100) : null;
@@ -289,7 +301,7 @@ export function computeQuote(input: QuoteInput, config: PricingConfig) {
   const otherCosts = r2(pos(input.otherCosts));
 
   // base da comissão: o total sem os itens especiais (o desconto se reparte na proporção)
-  const specialSubtotal = r2(items.filter((i) => i.special).reduce((s, i) => s + i.total, 0));
+  const specialSubtotal = r2(inQuote.filter((i) => i.special).reduce((s, i) => s + i.total, 0));
   const commissionBase = commissionBaseOf(total, subtotal, specialSubtotal);
   const commissions = input.commissions
     .filter((c) => pos(c.percent) > 0)

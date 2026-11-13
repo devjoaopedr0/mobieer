@@ -2229,6 +2229,8 @@ model CommercialQuoteItem {
   total       Decimal         @db.Decimal(14, 2)
   // item especial (metalon, vidro, espelho, laca, iluminação): no preço e no contrato, fora da base da comissão
   special     Boolean         @default(false)
+  // ambiente que sai no orçamento: desmarcado fica guardado, mas fora do total, do PDF e do contrato
+  included    Boolean         @default(true)
   quoteId     String
   quote       CommercialQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   productId   String?

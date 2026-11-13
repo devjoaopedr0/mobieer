@@ -31,7 +31,7 @@ export async function addendumItems(organizationId: string, contractNumber: stri
   if (!contractNumber) return [];
   const rows = await prisma.commercialQuote.findMany({
     where: { organizationId, kind: "ADENDO", status: "APPROVED", number: { startsWith: `${contractNumber}-A` } },
-    select: { id: true, number: true, version: true, items: { orderBy: { position: "asc" }, select: ITEM_SELECT } },
+    select: { id: true, number: true, version: true, items: { where: { included: true }, orderBy: { position: "asc" }, select: ITEM_SELECT } },
   });
   return latestAddenda(rows).flatMap((r) => r.items);
 }
@@ -68,7 +68,7 @@ export async function addendaForClause(organizationId: string, contractNumber: s
   if (!contractNumber) return [];
   const rows = await prisma.commercialQuote.findMany({
     where: { organizationId, kind: "ADENDO", status: "APPROVED", number: { startsWith: `${contractNumber}-A` } },
-    select: { id: true, number: true, version: true, approvedAt: true, total: true, deliveryDays: true, items: { orderBy: { position: "asc" }, select: { room: true, description: true, total: true } } },
+    select: { id: true, number: true, version: true, approvedAt: true, total: true, deliveryDays: true, items: { where: { included: true }, orderBy: { position: "asc" }, select: { room: true, description: true, total: true } } },
   });
   return latestAddenda(rows).map((r) => ({
     number: r.number,
